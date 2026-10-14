@@ -254,11 +254,14 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         raise SecFundamentalsError("SEC symbol identity is missing or ambiguous")
     available_by = observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)
     from app.services.sec_financial_continuity import record_sets
-    from app.services import sec_leverage, sec_parent_income
+    from app.services import sec_leverage, sec_parent_income, sec_depreciation_components
     metric_tags = {**TAGS, **sec_leverage.TAGS, **sec_parent_income.TAGS}
+    if sec_depreciation_components.applies(symbol, cik):
+        metric_tags.update(sec_depreciation_components.TAGS)
     all_records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement,company=company,
         metrics={name:(tags, 'USD') for name,tags in metric_tags.items()}, instant_metrics=sec_leverage.INSTANT)
     all_records, parent_income_evidence = sec_parent_income.apply(all_records)
+    depreciation_evidence = sec_depreciation_components.reconcile(all_records, symbol=symbol, cik=cik)
     records = {name: all_records[name] for name in TAGS}
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
@@ -351,5 +354,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     fcf_growth = ratio(fcf, old_fcf, 100)
     save("fcf_growth", fcf_growth - 100 if fcf_growth is not None else None, "(TTM free cash flow / prior TTM free cash flow - 1) * 100")
     evidence["leverage_preparation"] = sec_leverage.project(all_records, end=end, start=reference_start)
+    if depreciation_evidence is not None:
+        evidence['leverage_preparation']['depreciation_reconciliation'] = depreciation_evidence
     values["source_evidence_json"] = json.dumps(evidence, sort_keys=True)
     return values

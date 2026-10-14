@@ -1,6 +1,6 @@
 # Foreign annual financial coverage, October 14, 2026
 
-The selected SEC statement reader currently returns no annual rows for ASML, SAP and Novartis. Reviewed annual reports establish ASML as EUR US GAAP, SAP as EUR IFRS and Novartis as USD IFRS. This change supplies six annual periods per issuer, keeping reporting currencies and source evidence explicit. It does not fill quarterly results, current TTM metrics, ADR EPS, analyst estimates or canonical core fundamentals.
+Before PR634, the selected SEC statement reader returned no annual rows for ASML, SAP and Novartis. Reviewed annual reports establish ASML as EUR US GAAP, SAP as EUR IFRS and Novartis as USD IFRS. This change supplies six annual periods per issuer, keeping reporting currencies and source evidence explicit. It does not fill quarterly results, current TTM metrics, ADR EPS, analyst estimates or canonical core fundamentals.
 
 ## Source review
 
@@ -20,10 +20,20 @@ Issuer-specific tag overrides leave the shared IFRS concepts unchanged and retur
 
 Actual Windows Python3.14.2 replay with sockets forbidden verifies all54 amounts, whole-response repeat, real SQLite statement-cache repeat with no new requests, and zero canonical fundamentals/events. Independently parsed SAP and Novartis originals reproduce all18 facts each. ASML's24.86MB original exceeds the unchanged20MB inline recovery bound; its current companyfacts supplies the verified annual data. Future oversized-original recovery remains an explicit limitation, not an unlimited parser allowance. Local artifacts: `artifacts/foreign-batch-oct14/manifest.json`, originals, extracted table text and `replay.json`.
 
-Initial tests and replay exposed fixture formatting and a local date-variable collision; both were corrected before release. Final Linux Python3.12.3 run passes187 affected tests (two deprecation warnings), and the same full three-source/cache replay passes. Deployment checks remain pending. The existing production release remains4bd31ce3. No new schedule, provider selection, hosting cost, purchase or customer email.
+Initial tests and replay exposed fixture formatting and a local date-variable collision; both were corrected before release. Final Linux Python3.12.3 run passes187 affected tests (two deprecation warnings), and the same full three-source/cache replay passes. Production release9b5f8b87 and ordinary/public verification now pass as recorded below. No new schedule, provider selection, hosting cost, purchase or customer email.
 
 ## Other observed migration progress
 
 Ordinary SEC collection480 at16:47 completes with no source errors, explicitly skips the reviewed October12 EDGAR closure and requests October7/8/9/13. It discovers666 13F and1,462 Form4 entries, unchanged from the previous run; existing1,629 unresolved documents remain held, with zero new public writes. Receipt `collector-calendar-1791996768.json` closes the calendar repair's ordinary-run verification, not the broader coverage gate.
 
 Core financial coverage and definitions, institutional publication, transcripts, sustained capacity, all alert/ranking consumers, final Massive entitlement, global zero-FMP traffic and billing remain open. FMP stays enabled.
+
+## Deployment and ordinary verification, 17:03 UTC
+
+[PR634](https://github.com/moore11j/congress-tracker/pull/634), source `aea7089fe45d66a8584c8dfe48be905f15054076`, merged as `9b5f8b871517e504ce9dee1e9b7f71e9b380522a`. Backend workflow38602508077 completed successfully. Eighteen normalized runtime hashes and deployed pure profile/legacy-number checks match (`foreign-runtime-1791997141.json`). Secret scan passed; unchanged backend/frontend dependency audits failed and their logs were inspected through the required CI tool. No dependency manifests changed; no all-CI or full-suite success is claimed. PR attachment failed at the app's100-attachment limit; the normal PR link remains available.
+
+The existing16:59 SEC research job refreshed all three issuers, verified independently in `foreign-receipt-1791997364.json`. Each public endpoint now contains six annual rows, where baseline16:56 reads had no rows. Full public payloads repeat identically between `foreign-public-1791997162.json` and `foreign-public-1791997322.json`; annual, quarterly, summary and reportingBasis sections exactly match the saved-source replay. Receipt `foreign-public-repeat-oct14.json` retains hashes. Repeat latency: ASML0.561s, SAP0.420s and NVS0.310s. Missing quarters/current TTM/EPS remain explicit.
+
+At17:02, the live image is9b5f8b87, one API shared2CPU/2GB and one database performance1CPU/2GB; no extra host or cost. Scheduled metadata completed5/5 and news42/42 fresh caches in its current scope; partial SEC earnings/research and truncated institutional reference coverage remain explicit. Arm's separate core preparation is still old/unavailable awaiting ordinary rotation. `preload-receipts-1791997339.json` records aggregate receipts and machine sizes. Public Feed0.499s/Insights0.729s, AAPL2.542s/NVDA2.312s return200; Insights contains research without the unavailable fallback (`insights-incident-1791997325.json`). These samples do not prove sustained capacity. Initial sandbox-only network permission failures made no production requests, then authorized network reads succeeded.
+
+The owner's screenshot concerns Codex remote execution. This turn and its tools work; account usage permits work with37% weekly consumed. That does not identify the historical429 cause or establish a permanent repair. No Codex configuration change was made. FMP remains enabled pending the broader acceptance gates.

@@ -1,3 +1,5 @@
+October14,17:03UTC: [Foreign annual coverage](foreign-annual-coverage-2026-10-14.md) PR634/9b5f8b87 deployed;187 focused tests,18 runtime hashes, ordinary six-year ASML/SAP/NVS recovery and exact public/source repeat verified. SEC ordinary480 closes the calendar repair scheduled-run check, retaining1629 unresolved documents. Core/quarterly/TTM coverage, sustained capacity, institutions/transcripts/all consumers and finalMassive/globalFMP/billing remain gates.
+
 October14,16:38UTC: [Arm SEC financials](arm-sec-financials-2026-10-14.md) PR633/4bd31ce3 deployed;161 focused tests,18 runtime hashes, ordinary five-year/12-quarter public recovery and exact repeat verified. Separate core preparation still awaits rotation; broader coverage, sustained capacity, all consumers and finalMassive/globalFMP/billing remain gates.
 
 October14,16:13UTC: [SEC calendar repair](sec-index-calendar-2026-10-14.md) PR632/9ec6b4d7 deployed,13 runtime hashes verified; ordinary16:47 collection still pending. This supersedes the earlier not-repaired status below. Remaining coverage/consumer/capacity/Massive/globalFMP gates unchanged.
