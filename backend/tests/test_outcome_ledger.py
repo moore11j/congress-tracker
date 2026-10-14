@@ -138,7 +138,7 @@ def test_daily_warmer_matches_page_request_and_survives_weekend(monkeypatch):
         with _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK:
             _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE.clear()
         response = Response()
-        assert main.outcomes_overview(response, limit=500, horizons="30D,7D", db=db) == payload
+        assert main.outcomes_overview(response, limit=500, horizons="30D,7D", db=db) == {**payload, "snapshots": main._outcome_preview(payload["snapshots"])}
         assert response.headers["X-Walnut-Outcome-Cache"] == "persistent"
 
 
