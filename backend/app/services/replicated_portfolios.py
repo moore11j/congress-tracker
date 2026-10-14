@@ -2201,6 +2201,7 @@ def simulate_replicated_portfolio(
     annual_disclosure_source_document_ids: set[str] = set()
     annual_holdings_by_symbol = _annual_disclosure_holdings_by_symbol(annual_disclosure_holdings)
 
+    benchmark_dates = sorted_price_dates(benchmark_history)
     benchmark_base = first_price_on_or_after(start_date, benchmark_history)
 
     def estimated_opening_sale_key(event: PortfolioTradeEvent, visible_day: str) -> tuple[str, str, int | None, int | None]:
@@ -2442,6 +2443,11 @@ def simulate_replicated_portfolio(
                 max_stale_price_trading_days=max_stale_price_trading_days,
             )
 
+        # Warmup trades still execute and rebalance above. Daily display/quality
+        # snapshots are consumed only inside the visible reporting window.
+        if not is_recorded_day:
+            continue
+
         strategy_value, invested_value, day_quality = _snapshot(
             cash=cash,
             open_positions=open_positions,
@@ -2470,8 +2476,6 @@ def simulate_replicated_portfolio(
                 )
             previous_value = float(strategy_value)
             rebased_at_recording_start = True
-        if not is_recorded_day:
-            continue
         daily_quality.append(day_quality)
         stale_price_fill_count += day_quality.stale_position_count
         missing_price_fill_count += day_quality.missing_position_count
@@ -2482,7 +2486,7 @@ def simulate_replicated_portfolio(
         benchmark_value = None
         benchmark_return_pct = None
         if benchmark_base is not None and benchmark_base.close > 0:
-            benchmark_close = price_on_or_before(day, benchmark_history, sorted_price_dates(benchmark_history))
+            benchmark_close = price_on_or_before(day, benchmark_history, benchmark_dates)
             if benchmark_close is not None and benchmark_close > 0:
                 benchmark_value = starting_value * (float(benchmark_close) / benchmark_base.close)
                 benchmark_return_pct = ((benchmark_value / starting_value) - 1.0) * 100.0
@@ -2720,12 +2724,16 @@ def run_replicated_portfolio_simulation(
     issuer: str | None = None,
     end_date: date | None = None,
     warmup_days: int | None = None,
+    _loaded_events: tuple[list[PortfolioTradeEvent], list[PortfolioSkip]] | None = None,
 ) -> PortfolioSimulation:
     end = end_date or datetime.now(timezone.utc).date()
     start = end - timedelta(days=max(lookback_days, 1))
     effective_warmup_days = default_warmup_days_for_lookback(lookback_days) if warmup_days is None else max(warmup_days, 0)
     warmup_start = start - timedelta(days=effective_warmup_days) if effective_warmup_days else start
-    events, loader_skips = load_replicated_portfolio_events(
+    # The batch caller already loaded this exact entity/window for diagnostics.
+    # Reuse only that invocation's events; prices and holdings still reload on
+    # every preflight retry, so repaired price rows are immediately visible.
+    events, loader_skips = _loaded_events if _loaded_events is not None else load_replicated_portfolio_events(
         db,
         entity_type=entity_type,
         entity_id=entity_id,
