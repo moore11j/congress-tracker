@@ -1,0 +1,412 @@
+{
+  "FLEX": {
+    "cik": "0000866374",
+    "reviewed_at": "2026-10-14T21:29:12+00:00",
+    "periods": [
+      {
+        "start": "2026-04-01",
+        "end": "2026-06-26",
+        "filed": "2026-07-31",
+        "accession": "0000866374-26-000030",
+        "url": "https://www.sec.gov/Archives/edgar/data/866374/000086637426000030/flex-20260626.htm",
+        "source_sha256": "783b8052cfdcad7257ea501cbc65ca68dc9701c8180d78b17edc7ed816972166",
+        "unit": "USD",
+        "value": 285000000.0,
+        "inputs": [
+          {
+            "metric": "parent_income_consolidated",
+            "coefficient": 1,
+            "tag": "ProfitLoss",
+            "namespace": "us-gaap",
+            "value": 285000000.0,
+            "context": "c-1"
+          }
+        ],
+        "statement_outputs": [
+          {
+            "coefficient": 1,
+            "tag": "IncomeLossAttributableToParent",
+            "namespace": "us-gaap",
+            "value": 377000000.0,
+            "context": "c-1"
+          },
+          {
+            "coefficient": -1,
+            "tag": "IncomeTaxExpenseBenefit",
+            "namespace": "us-gaap",
+            "value": 92000000.0,
+            "context": "c-1"
+          }
+        ],
+        "basis": "Original income statement reconciles reported after-tax net income to explicitly parent-attributable pretax income less its reported tax expense. Pretax income is never used directly.",
+        "allocation_guards": {
+          "parent_income_noncontrolling": null,
+          "parent_income_redeemable": null,
+          "reviewed_parent_nonredeemable": null
+        }
+      },
+      {
+        "start": "2025-04-01",
+        "end": "2025-06-27",
+        "filed": "2026-07-31",
+        "accession": "0000866374-26-000030",
+        "url": "https://www.sec.gov/Archives/edgar/data/866374/000086637426000030/flex-20260626.htm",
+        "source_sha256": "783b8052cfdcad7257ea501cbc65ca68dc9701c8180d78b17edc7ed816972166",
+        "unit": "USD",
+        "value": 192000000.0,
+        "inputs": [
+          {
+            "metric": "parent_income_consolidated",
+            "coefficient": 1,
+            "tag": "ProfitLoss",
+            "namespace": "us-gaap",
+            "value": 192000000.0,
+            "context": "c-5"
+          }
+        ],
+        "statement_outputs": [
+          {
+            "coefficient": 1,
+            "tag": "IncomeLossAttributableToParent",
+            "namespace": "us-gaap",
+            "value": 246000000.0,
+            "context": "c-5"
+          },
+          {
+            "coefficient": -1,
+            "tag": "IncomeTaxExpenseBenefit",
+            "namespace": "us-gaap",
+            "value": 54000000.0,
+            "context": "c-5"
+          }
+        ],
+        "basis": "Original income statement reconciles reported after-tax net income to explicitly parent-attributable pretax income less its reported tax expense. Pretax income is never used directly.",
+        "allocation_guards": {
+          "parent_income_noncontrolling": null,
+          "parent_income_redeemable": null,
+          "reviewed_parent_nonredeemable": null
+        }
+      }
+    ]
+  },
+  "FOX": {
+    "cik": "0001754301",
+    "reviewed_at": "2026-10-14T21:29:12+00:00",
+    "periods": [
+      {
+        "start": "2025-07-01",
+        "end": "2026-06-30",
+        "filed": "2026-08-06",
+        "accession": "0001628280-26-053960",
+        "url": "https://www.sec.gov/Archives/edgar/data/1754301/000162828026053960/fox-20260630.htm",
+        "source_sha256": "7ecb9dca18462f9c2346a348638f160d8196ab4b1c2d96a4cb713cf9939b92e7",
+        "unit": "USD",
+        "value": 1685000000.0,
+        "inputs": [
+          {
+            "metric": "parent_income_consolidated",
+            "coefficient": 1,
+            "tag": "ProfitLoss",
+            "namespace": "us-gaap",
+            "value": 1727000000.0,
+            "context": "c-1"
+          },
+          {
+            "metric": "parent_income_noncontrolling",
+            "coefficient": -1,
+            "tag": "NetIncomeLossAttributableToNoncontrollingInterest",
+            "namespace": "us-gaap",
+            "value": 42000000.0,
+            "context": "c-1"
+          }
+        ],
+        "statement_outputs": [
+          {
+            "coefficient": 1,
+            "tag": "NetIncomeLossAvailableToCommonStockholdersBasic",
+            "namespace": "us-gaap",
+            "value": 1685000000.0,
+            "context": "c-1"
+          }
+        ],
+        "basis": "Original statement explicitly labels the result net income attributable to Fox Corporation stockholders and reconciles total noncontrolling allocation. Separately reported redeemable allocation is already included, never subtracted twice.",
+        "allocation_guards": {
+          "parent_income_noncontrolling": {
+            "tag": "NetIncomeLossAttributableToNoncontrollingInterest",
+            "start": "2025-07-01",
+            "end": "2026-06-30",
+            "filed": "2026-08-06",
+            "accession": "0001628280-26-053960",
+            "unit": "USD",
+            "value": 42000000.0
+          },
+          "parent_income_redeemable": {
+            "tag": "NetIncomeLossAttributableToRedeemableNoncontrollingInterest",
+            "start": "2025-07-01",
+            "end": "2026-06-30",
+            "filed": "2026-08-06",
+            "accession": "0001628280-26-053960",
+            "unit": "USD",
+            "value": -5000000.0
+          },
+          "reviewed_parent_nonredeemable": null
+        }
+      },
+      {
+        "start": "2024-07-01",
+        "end": "2025-06-30",
+        "filed": "2026-08-06",
+        "accession": "0001628280-26-053960",
+        "url": "https://www.sec.gov/Archives/edgar/data/1754301/000162828026053960/fox-20260630.htm",
+        "source_sha256": "7ecb9dca18462f9c2346a348638f160d8196ab4b1c2d96a4cb713cf9939b92e7",
+        "unit": "USD",
+        "value": 2263000000.0,
+        "inputs": [
+          {
+            "metric": "parent_income_consolidated",
+            "coefficient": 1,
+            "tag": "ProfitLoss",
+            "namespace": "us-gaap",
+            "value": 2293000000.0,
+            "context": "c-8"
+          },
+          {
+            "metric": "parent_income_noncontrolling",
+            "coefficient": -1,
+            "tag": "NetIncomeLossAttributableToNoncontrollingInterest",
+            "namespace": "us-gaap",
+            "value": 30000000.0,
+            "context": "c-8"
+          }
+        ],
+        "statement_outputs": [
+          {
+            "coefficient": 1,
+            "tag": "NetIncomeLossAvailableToCommonStockholdersBasic",
+            "namespace": "us-gaap",
+            "value": 2263000000.0,
+            "context": "c-8"
+          }
+        ],
+        "basis": "Original statement explicitly labels the result net income attributable to Fox Corporation stockholders and reconciles total noncontrolling allocation. Separately reported redeemable allocation is already included, never subtracted twice.",
+        "allocation_guards": {
+          "parent_income_noncontrolling": {
+            "tag": "NetIncomeLossAttributableToNoncontrollingInterest",
+            "start": "2024-07-01",
+            "end": "2025-06-30",
+            "filed": "2026-08-06",
+            "accession": "0001628280-26-053960",
+            "unit": "USD",
+            "value": 30000000.0
+          },
+          "parent_income_redeemable": {
+            "tag": "NetIncomeLossAttributableToRedeemableNoncontrollingInterest",
+            "start": "2024-07-01",
+            "end": "2025-06-30",
+            "filed": "2026-08-06",
+            "accession": "0001628280-26-053960",
+            "unit": "USD",
+            "value": 1000000.0
+          },
+          "reviewed_parent_nonredeemable": null
+        }
+      }
+    ]
+  },
+  "JEF": {
+    "cik": "0000096223",
+    "reviewed_at": "2026-10-14T21:29:12+00:00",
+    "periods": [
+      {
+        "start": "2024-12-01",
+        "end": "2025-11-30",
+        "filed": "2026-01-28",
+        "accession": "0000096223-26-000009",
+        "url": "https://www.sec.gov/Archives/edgar/data/96223/000009622326000009/jef-20251130.htm",
+        "source_sha256": "0d489f6f36087d7d88dd987d9bc7a5147cf090146f7b0c34c4f5ccf5e068cc41",
+        "unit": "USD",
+        "value": 710475000.0,
+        "inputs": [
+          {
+            "metric": "parent_income_consolidated",
+            "coefficient": 1,
+            "tag": "ProfitLoss",
+            "namespace": "us-gaap",
+            "value": 682045000.0,
+            "context": "c-1"
+          },
+          {
+            "metric": "reviewed_parent_nonredeemable",
+            "coefficient": -1,
+            "tag": "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest",
+            "namespace": "us-gaap",
+            "value": -28430000.0,
+            "context": "c-1"
+          },
+          {
+            "metric": "parent_income_redeemable",
+            "coefficient": -1,
+            "tag": "NetIncomeLossAttributableToRedeemableNoncontrollingInterest",
+            "namespace": "us-gaap",
+            "value": 0.0,
+            "context": "c-1"
+          }
+        ],
+        "statement_outputs": [
+          {
+            "coefficient": 1,
+            "tag": "NetIncomeLossAndPreferredStockDividendsIncomeStatementImpact",
+            "namespace": "jef",
+            "value": 630791000.0,
+            "context": "c-1"
+          },
+          {
+            "coefficient": 1,
+            "tag": "PreferredStockDividendsIncomeStatementImpact",
+            "namespace": "us-gaap",
+            "value": 79684000.0,
+            "context": "c-1"
+          }
+        ],
+        "basis": "Parent income includes preferred shareholders. Original common-shareholder income plus explicit preferred dividends equals consolidated profit less separately reported nonredeemable and redeemable allocations.",
+        "allocation_guards": {
+          "parent_income_noncontrolling": null,
+          "parent_income_redeemable": {
+            "tag": "NetIncomeLossAttributableToRedeemableNoncontrollingInterest",
+            "start": "2024-12-01",
+            "end": "2025-11-30",
+            "filed": "2026-01-28",
+            "accession": "0000096223-26-000009",
+            "unit": "USD",
+            "value": 0.0
+          },
+          "reviewed_parent_nonredeemable": {
+            "tag": "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest",
+            "start": "2024-12-01",
+            "end": "2025-11-30",
+            "filed": "2026-01-28",
+            "accession": "0000096223-26-000009",
+            "unit": "USD",
+            "value": -28430000.0
+          }
+        }
+      },
+      {
+        "start": "2025-12-01",
+        "end": "2026-08-31",
+        "filed": "2026-10-09",
+        "accession": "0000096223-26-000033",
+        "url": "https://www.sec.gov/Archives/edgar/data/96223/000009622326000033/jef-20260831.htm",
+        "source_sha256": "6ead5c847ecc5035350a072c403abb5bf6715ad0d58a96d1d4d2a77e726bb1bd",
+        "unit": "USD",
+        "value": 721615000.0,
+        "inputs": [
+          {
+            "metric": "parent_income_consolidated",
+            "coefficient": 1,
+            "tag": "ProfitLoss",
+            "namespace": "us-gaap",
+            "value": 697577000.0,
+            "context": "c-1"
+          },
+          {
+            "metric": "reviewed_parent_nonredeemable",
+            "coefficient": -1,
+            "tag": "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest",
+            "namespace": "us-gaap",
+            "value": -24038000.0,
+            "context": "c-1"
+          }
+        ],
+        "statement_outputs": [
+          {
+            "coefficient": 1,
+            "tag": "NetIncomeLossAndPreferredStockDividendsIncomeStatementImpact",
+            "namespace": "jef",
+            "value": 661718000.0,
+            "context": "c-1"
+          },
+          {
+            "coefficient": 1,
+            "tag": "PreferredStockDividendsIncomeStatementImpact",
+            "namespace": "us-gaap",
+            "value": 59897000.0,
+            "context": "c-1"
+          }
+        ],
+        "basis": "Original common-shareholder income plus explicit preferred dividends independently reconciles the full parent amount. Missing redeemable allocations are not assumed zero; acceptance is restricted to these reviewed statements and exact values.",
+        "allocation_guards": {
+          "parent_income_noncontrolling": null,
+          "parent_income_redeemable": null,
+          "reviewed_parent_nonredeemable": {
+            "tag": "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest",
+            "start": "2025-12-01",
+            "end": "2026-08-31",
+            "filed": "2026-10-09",
+            "accession": "0000096223-26-000033",
+            "unit": "USD",
+            "value": -24038000.0
+          }
+        }
+      },
+      {
+        "start": "2024-12-01",
+        "end": "2025-08-31",
+        "filed": "2026-10-09",
+        "accession": "0000096223-26-000033",
+        "url": "https://www.sec.gov/Archives/edgar/data/96223/000009622326000033/jef-20260831.htm",
+        "source_sha256": "6ead5c847ecc5035350a072c403abb5bf6715ad0d58a96d1d4d2a77e726bb1bd",
+        "unit": "USD",
+        "value": 495440000.0,
+        "inputs": [
+          {
+            "metric": "parent_income_consolidated",
+            "coefficient": 1,
+            "tag": "ProfitLoss",
+            "namespace": "us-gaap",
+            "value": 470748000.0,
+            "context": "c-51"
+          },
+          {
+            "metric": "reviewed_parent_nonredeemable",
+            "coefficient": -1,
+            "tag": "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest",
+            "namespace": "us-gaap",
+            "value": -24692000.0,
+            "context": "c-51"
+          }
+        ],
+        "statement_outputs": [
+          {
+            "coefficient": 1,
+            "tag": "NetIncomeLossAndPreferredStockDividendsIncomeStatementImpact",
+            "namespace": "jef",
+            "value": 439912000.0,
+            "context": "c-51"
+          },
+          {
+            "coefficient": 1,
+            "tag": "PreferredStockDividendsIncomeStatementImpact",
+            "namespace": "us-gaap",
+            "value": 55528000.0,
+            "context": "c-51"
+          }
+        ],
+        "basis": "Original common-shareholder income plus explicit preferred dividends independently reconciles the full parent amount. Missing redeemable allocations are not assumed zero; acceptance is restricted to these reviewed statements and exact values.",
+        "allocation_guards": {
+          "parent_income_noncontrolling": null,
+          "parent_income_redeemable": null,
+          "reviewed_parent_nonredeemable": {
+            "tag": "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest",
+            "start": "2024-12-01",
+            "end": "2025-08-31",
+            "filed": "2026-10-09",
+            "accession": "0000096223-26-000033",
+            "unit": "USD",
+            "value": -24692000.0
+          }
+        }
+      }
+    ]
+  }
+}
