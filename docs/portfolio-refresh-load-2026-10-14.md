@@ -2,7 +2,7 @@
 
 ## Incident and release state
 
-Production remains ae4931ff (PR650). The portfolio repair is local, not deployed. Financial precision PR651/source9c230e8a is held unmerged and undeployed while reliability is addressed. Core fundamentals/prices/transcripts remain FMP; institutional publication remains false. No host, subscription, trigger schedule, publication or delivery policy changes.
+At diagnosis production was ae4931ff (PR650). The portfolio repair is now deployed as8241a907 (PR652), as verified below. Financial precision PR651/source9c230e8a is held unmerged and undeployed while reliability is addressed. Core fundamentals/prices/transcripts remain FMP; institutional publication remains false. No host, subscription, trigger schedule, publication or delivery policy changes.
 
 At 23:32 UTC the API credit balance was at its floor; first near-zero sample was 23:23. Feed took 6.508 seconds, Insights 4.846 with an unavailable research fallback, and both AAPL/NVDA context requests timed out after 20 seconds. The database was about 89% idle in the sampled metric. Health also failed at 23:37:53. Earlier fast post-deployment samples do not prove sustained capacity.
 
@@ -33,3 +33,16 @@ Primary local artifacts: portfolio-profile-1792021424.json.gz, portfolio-local-b
 ## Remaining gates
 
 Review/release the performance repair and verify exact runtime plus public consumers. Ordinary full portfolio completion, all lookback coverage, queued-source freshness and sustained capacity remain open. Financial precision PR651 is separate and held. Full free-feed financial definitions/coverage, institutions, transcripts, all alerts/rankings/scheduled consumers, final Massive subscription/validation, zero FMP requests and cancellation/access dates remain required before FMP shutdown.
+
+
+## Release verified, 23:54 UTC
+
+PR652 (source666c9d3564d5011cbda2147258ea17a12aafa46e) merged as8241a90724a7e09f1a68cd3ce7d8a75f8bcb967f. Backend workflow38656670796/job116167964126 finished successfully, including readiness and anonymous Premium privacy checks. Six source/schedule hashes match. An isolated in-memory SQLite check on deployed Python3.12.15 proves reused trade inputs still see repaired prices and produce complete output equal to an independent reload. No production database writes, network requests or email in that fixture.
+
+Immediate public checks: Feed0.549s, Insights0.911s with research present and no unavailable fallback, news0.245s/12 items, research0.616s/44 cards, AAPL3.628s and NVDA2.899s. These samples are after a restart and do not establish sustained capacity or acceptable broad ticker latency. The old probe's hard-coded release-string field is unrelated to this backend release and is not used as deployment evidence.
+
+Ordinary post-release strategy evaluation exits0 in32.44 wall/21.6785CPU seconds; news and metadata warmers also exit0. Reference/research retain explicit partial coverage. Full portfolio completion remains unverified; it was not manually restarted or falsely marked complete. Data-job fairness and three-year coverage remain next reliability checks.
+
+CI secret scan passed. Logs verify unchanged frontend production audit five vulnerability groups (four high, one critical) and Pillow10.4.0's33 advisory rows; no dependency files changed, no full CI pass claimed. PR attachment failed because this chat reached the app's100-attachment limit; the normal PR URL remains available.
+
+Evidence: primary artifacts/portfolio-runtime-1792022050.json; direct-feeds/free-replacements-2026-10-09/insights-incident-1792022048.json and scheduled-job-cpu-1792022072.json. All new local command handles are terminal. Financial precision PR651 stays held. No FMP shutdown or other source switch.
