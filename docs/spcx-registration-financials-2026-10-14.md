@@ -1,6 +1,6 @@
 # SPCX registration financial history
 
-October 14, 2026. Implemented and tested locally; not yet deployed. Public core fundamentals and prices remain FMP, institutional publication remains disabled.
+October 14, 2026. Deployed as42d1a44b through PR649; ordinary preparation verified. Public core fundamentals and prices remain FMP, institutional publication remains disabled.
 
 ## Problem and source basis
 
@@ -28,4 +28,23 @@ Actual-source isolated SQLite replay passes on Python3.12.3 with networking proh
 
 ## Release gates
 
-Review/release, runtime hash/original verification and ordinary preparation remain pending. Wider financial coverage/definitions, all monitoring/watchlist/daily/weekly/ranking consumers, institutions/transcripts and sustained capacity remain open. Massive personal Stocks subscription/validation stays last. Global zero-FMP requests and cancellation/access-end confirmation remain required. No cancellation or email sent.
+Review/release, runtime hash/original verification and ordinary preparation are verified below. Wider financial coverage/definitions, all monitoring/watchlist/daily/weekly/ranking consumers, institutions/transcripts and sustained capacity remain open. Massive personal Stocks subscription/validation stays last. Global zero-FMP requests and cancellation/access-end confirmation remain required. No cancellation or email sent.
+
+
+## Production release and ordinary operation
+
+PR649 source3b9a37d14dce27e63dc3b5b37c2bde9a5063ecfe merged as42d1a44b26d0d1b12ae006b0728c2753b993ac9b. Backend workflow38650668361/job116148368293 completed successfully at22:54:59UTC, including readiness and Premium research privacy checks. Fifteen runtime hashes match. Production Python3.12.15 parses the complete saved prospectus and reproduces the exact accounting bridge, source-period points, six values and identical repeat with network/database access prohibited. Receipt artifacts/coverage-gaps-oct14/SPCX-runtime-1792018552.json.
+
+The next normal22:56 fundamentals batch persisted the new version at22:56:00.710761UTC. A read-only check at22:56:33 proves exact six-value and current/prior/instant/accounting-proof equality to the replay. Receipt SPCX-ordinary-1792018593.json. No forced refresh or public source activation was used. The ordinary Enbridge verification remains separately established at22:46.
+
+The exact release image and unchanged API shared2CPU/2GB and database performance1CPU/2GB are verified in artifacts/preload-receipts-1792018554.json. Public core/prices remainFMP; institutional publicationfalse. Normal22:55 news23/23 and metadata5/5 complete. Stored research16partial/4unavailable and institutional785scope truncated/partial receipts retain their limits; they are not evidence of complete retained products.
+
+Postrelease public checks all return200: Feed0.402s, Insights1.485s with research present, news0.401s/12items, research0.472s/44items, AAPL2.742s andNVDA2.457s. Receipt artifacts/direct-feeds/free-replacements-2026-10-09/insights-incident-1792018546.json. The probe's obsolete hardcoded release comparison is ignored; exact image and hashes are independently verified. These are latency samples, not sustained capacity proof.
+
+At22:56:51 CPU metrics show zero current and sampled two-hour throttling, but API credits decline from10,935 to8,777 across that window with intervening deployments. Sustained capacity remains open. Current balance8,590; receipt cpu-quota-1792018613.json. A separate one-shot local full-document acquisition/projection uses0.4378CPU seconds and85,692KiB process peak RSS on3.12.3, excluding cold imports/network; it is not production capacity evidence. Receipt SPCX-profile.json.
+
+Read-only22:56:53 audit of1,752scopes still finds1,361 baseline versus1,070 replacement classifications:362 lost and71 gained. SPCX now has one verified scoring input but remains unavailable for classification. Its remaining growth/EV/debt fields and wider issuer/source gaps cannot be hidden by the six-field improvement. This audit is presence/consumer conversion, not complete numerical or alert parity. Receipt artifacts/financial-consumer-readiness-1792018616.json.
+
+CI38650476457 secret scan passes. Frontend audit still reports five unchanged production dependency groups (four high/one critical), and backend Pillow10.4.0 lists33 advisory rows. Dependency manifests are unchanged; no all-green/full-suite claim. PR attachment hit the100-identity limit; existing attachments were preserved. One intermediate diagnostic result could not be stored by the tool wrapper; the same deployment was subsequently read to terminal success without redispatch. All local tool handles are terminal.
+
+This closes the SPCX release/runtime/ordinary-preparation gates only. Remaining financial definitions/coverage and all-consumer verification, institutional/transcript publication, sustained capacity, finalMassive validation and global FMP/billing retirement remain required. No source selector, schedule, host size, subscription, customer email, video, landing-page or cancellation change.
