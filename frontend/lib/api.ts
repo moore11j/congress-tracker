@@ -7451,6 +7451,8 @@ export async function getGeneratedResearchBriefCards(): Promise<{ items: PublicR
     cache: "no-store",
     next: { revalidate: 0 },
     source: "ResearchBriefs",
+    // Abort the actual fetch so an outage cannot occupy an SSR indefinitely.
+    signal: AbortSignal.timeout(4500),
   });
   // Published research cards are identical for every viewer. A short server
   // cache prevents this unrelated list from holding up a warm ticker page for
