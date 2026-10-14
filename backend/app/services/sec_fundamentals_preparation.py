@@ -28,6 +28,8 @@ def version_for_symbol(symbol):
         return VERSION+'_'+reporting_version
     if symbol in ISSUER_PROFILES:
         return VERSION+'_issuer_release_v1'
+    if symbol in {'FITB', 'RF', 'EWBC'}:
+        return VERSION+'_bank_contract_recovery_v1'
     if symbol == 'PROV':
         return VERSION+'_bank_revenue_v1'
     return VERSION+'_xom_continuity_v1' if symbol == 'XOM' else VERSION

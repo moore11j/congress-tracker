@@ -79,3 +79,70 @@ def test_later_partial_restatement_does_not_reuse_old_component():
     # Today's filing cannot displace the last completed filing day.
     rows[-1]['filed']='2026-10-10'
     assert calculated(data,company)[date(2026,1,1),date(2026,6,30)]['value']==77
+
+
+def with_legacy_contract():
+    data, company = bank_sources()
+    tag = 'RevenueFromContractWithCustomerIncludingAssessedTax'
+    data['facts']['us-gaap'][tag] = {'units': {'USD': [dict(
+        start='2020-01-01', end='2020-12-31', filed='2021-02-01',
+        accn='0000000001-21-000001', form='10-K', val=10)]}}
+    return data, company, tag
+
+
+def test_current_bank_basis_replaces_obsolete_contract_component_without_splicing():
+    data, company, tag = with_legacy_contract()
+    original = deepcopy(data)
+    value = sec.project_fundamentals(json.dumps(data).encode(), json.dumps(company).encode(),
+        symbol='ABC', cik='1', observed_at=NOW)
+    evidence = json.loads(value['source_evidence_json'])
+    assert evidence['current']['revenue']['value'] == 143
+    assert evidence['prior']['revenue']['value'] == 121
+    assert value['revenue_growth'] == pytest.approx((143/121-1)*100)
+    assert evidence['revenue_basis'] == bank.BASIS
+    for item in evidence['current']['revenue']['inputs']:
+        assert item['tag'] == bank.TAG
+        assert item['revenue_selection']['superseded_last_period'] == '2020-12-31'
+        assert item['revenue_selection']['superseded_concepts'] == [tag]
+    panel = statements.project(json.dumps(data).encode(), json.dumps(company).encode(),
+        symbol='ABC', cik='1', observed_at=NOW)
+    assert panel['summary']['revenueTtm'] == 143
+    assert panel['revenueBasis'] == bank.BASIS
+    assert data == original
+
+
+@pytest.mark.parametrize('kind', ['recent_contract','equal_period','newer_period',
+    'conflicting_contract','reported_total','old_reported_total','incomplete_ttm',
+    'unmatched_filing','stale_components','nonbank','wrong_currency'])
+def test_legacy_contract_replacement_never_bypasses_unresolved_evidence(kind):
+    data, company, tag = with_legacy_contract()
+    gaap=data['facts']['us-gaap']; old=gaap[tag]['units']['USD'][0]
+    if kind=='recent_contract':old.update(start='2026-01-01',end='2026-03-31',filed='2026-05-01')
+    if kind=='equal_period':old.update(start='2026-01-01',end='2026-06-30',filed='2026-08-01')
+    if kind=='newer_period':old.update(start='2026-01-01',end='2026-09-30',filed='2026-10-01')
+    if kind=='conflicting_contract':gaap[tag]['units']['USD'].append({**old,'val':11})
+    if kind in ('reported_total','old_reported_total'):
+        gaap['Revenues']={'units':{'USD':[{**old,'end':'2020-12-31' if kind=='reported_total' else '2019-12-31','start':'2020-01-01' if kind=='reported_total' else '2019-01-01','val':99}]}}
+    if kind=='incomplete_ttm':gaap[bank.FEES]['units']['USD'].pop()
+    if kind=='unmatched_filing':gaap[bank.FEES]['units']['USD'][-1]['accn']='0000000001-26-000099'
+    if kind=='stale_components':
+        for concept in (bank.INTEREST,bank.FEES):
+            gaap[concept]['units']['USD']=[r for r in gaap[concept]['units']['USD'] if r['end']<'2026-01-01']
+    if kind=='nonbank':company['sic']='7372'
+    if kind=='wrong_currency':gaap[bank.FEES]['units']['EUR']=gaap[bank.FEES]['units'].pop('USD')
+    ordinary=sec._records(data,'revenue',AVAILABLE)
+    records={'revenue':ordinary}
+    assert bank.apply(records,data,company,available_by=AVAILABLE) is records
+
+
+@pytest.mark.parametrize('symbol', ['FITB', 'RF', 'EWBC'])
+def test_recovered_bank_versions_require_fresh_preparation(symbol):
+    from types import SimpleNamespace
+    from app.services import sec_fundamentals_preparation as prep
+    assert prep.version_for_symbol(symbol).endswith('_bank_contract_recovery_v1')
+    payload={'source':'sec_edgar','symbol':symbol}
+    row=SimpleNamespace(source='sec_edgar',fetched_at=NOW,payload_json=json.dumps(payload))
+    assert statements.cached_row_payload(row,symbol,now=NOW) is None
+    payload['preparationVersion']='sec_bank_contract_recovery_v1'
+    row.payload_json=json.dumps(payload)
+    assert statements.cached_row_payload(row,symbol,now=NOW)==payload
