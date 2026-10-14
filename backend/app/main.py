@@ -3688,34 +3688,41 @@ async def public_get_response_cache(request: Request, call_next):
             stale_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
             return Response(content=body, status_code=status_code, headers=stale_headers)
         return response
-    headers = {
-        key: value
-        for key, value in response.headers.items()
-        if key.lower() not in {"content-length", "set-cookie"}
-    }
-    body = b""
-    body_iterator = getattr(response, "body_iterator", None)
-    if body_iterator is not None:
-        async for chunk in body_iterator:
-            body += bytes(chunk)
-    else:
-        raw_body = getattr(response, "body", b"")
-        body = bytes(raw_body or b"")
-    headers["x-walnut-public-cache"] = "store"
-    with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
-        _PUBLIC_GET_RESPONSE_CACHE[cache_key] = (
-            time.time() + _public_get_cache_ttl_seconds(),
-            response.status_code,
-            headers,
-            body,
-        )
-        _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
-    if inflight_leader and inflight_event is not None:
-        inflight_event.set()
-    _public_get_cache_stat("store")
-    headers["x-walnut-public-cache-key"] = cache_key_hash or ""
-    logger.info("public_get_response_cache_store path=%s key=%s bytes=%s", request.url.path, cache_key_hash, len(body))
-    return Response(content=body, status_code=response.status_code, headers=headers)
+    try:
+        headers = {
+            key: value
+            for key, value in response.headers.items()
+            if key.lower() not in {"content-length", "set-cookie"}
+        }
+        body = b""
+        body_iterator = getattr(response, "body_iterator", None)
+        if body_iterator is not None:
+            async for chunk in body_iterator:
+                body += bytes(chunk)
+        else:
+            raw_body = getattr(response, "body", b"")
+            body = bytes(raw_body or b"")
+        headers["x-walnut-public-cache"] = "store"
+        with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+            _PUBLIC_GET_RESPONSE_CACHE[cache_key] = (
+                time.time() + _public_get_cache_ttl_seconds(),
+                response.status_code,
+                headers,
+                body,
+            )
+            _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
+        if inflight_leader and inflight_event is not None:
+            inflight_event.set()
+        _public_get_cache_stat("store")
+        headers["x-walnut-public-cache-key"] = cache_key_hash or ""
+        logger.info("public_get_response_cache_store path=%s key=%s bytes=%s", request.url.path, cache_key_hash, len(body))
+        return Response(content=body, status_code=response.status_code, headers=headers)
+    finally:
+        if cache_key and inflight_leader and inflight_event is not None:
+            with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+                if _PUBLIC_GET_RESPONSE_INFLIGHT.get(cache_key) is inflight_event:
+                    _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
+            inflight_event.set()
 
 
 @app.exception_handler(SATimeoutError)

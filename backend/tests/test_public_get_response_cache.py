@@ -248,3 +248,60 @@ def test_public_get_response_cache_coalesces_concurrent_misses(monkeypatch):
     with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
         _PUBLIC_GET_RESPONSE_CACHE.clear()
         _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
+
+
+def test_stream_failure_releases_cache_waiters_without_storing_partial_data(monkeypatch):
+    import pytest
+    from starlette.responses import StreamingResponse
+    monkeypatch.setenv("PUBLIC_GET_RESPONSE_CACHE_DEDUPE_WAIT_SECONDS", "0.01")
+
+    async def scenario(cancel):
+        request = _request("/api/tickers/AAPL/context-bundle")
+        key = _public_get_cache_key(request)
+        _PUBLIC_GET_RESPONSE_CACHE.clear()
+        _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        recover = asyncio.Event()
+        calls = 0
+
+        async def broken_body():
+            yield b'{"items":['
+            entered.set()
+            await release.wait()
+            raise RuntimeError("upstream stream failed")
+
+        async def call_next(_request):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return StreamingResponse(broken_body(), media_type="application/json")
+            await recover.wait()
+            return JSONResponse({"items": [{"id": 7}], "status": "ok"})
+
+        leader = asyncio.create_task(public_get_response_cache(request, call_next))
+        await entered.wait()
+        waiter = asyncio.create_task(public_get_response_cache(request, call_next))
+        await asyncio.sleep(0.02)
+        if cancel:
+            leader.cancel()
+        else:
+            release.set()
+        with pytest.raises(asyncio.CancelledError if cancel else RuntimeError):
+            await leader
+        try:
+            assert key not in _PUBLIC_GET_RESPONSE_INFLIGHT
+            assert key not in _PUBLIC_GET_RESPONSE_CACHE
+            recover.set()
+            response = await asyncio.wait_for(waiter, timeout=0.5)
+            assert response.status_code == 200
+            assert response.body == b'{"items":[{"id":7}],"status":"ok"}'
+            assert calls == 2
+        finally:
+            waiter.cancel()
+            await asyncio.gather(waiter, return_exceptions=True)
+            _PUBLIC_GET_RESPONSE_CACHE.clear()
+            _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
+
+    asyncio.run(scenario(cancel=False))
+    asyncio.run(scenario(cancel=True))
