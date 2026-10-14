@@ -41,7 +41,8 @@ def test_incomplete_or_ambiguous_parent_components_are_held(defect):
     result=project(facts)
     assert 'net_margin' not in result
     e=json.loads(result['source_evidence_json'])
-    assert e['leverage_preparation']['ebitda']['status']=='incomplete'
+    # The independent reported consolidated income still supports leverage.
+    assert e['leverage_preparation']['ebitda']['status']=='components_complete'
 
 
 def test_reported_parent_wins_and_its_conflicts_are_never_filled():

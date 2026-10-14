@@ -12,6 +12,7 @@ def prepared_sources():
     facts, company = sources()
     gaap = facts['facts']['us-gaap']
     income = gaap['NetIncomeLoss']['units']['USD']
+    gaap['ProfitLoss'] = {'units': {'USD': deepcopy(income)}}
     for tag, factor in [('IncomeTaxExpenseBenefit', .2), ('InterestExpenseNonoperating', .1),
                         ('DepreciationDepletionAndAmortization', .3)]:
         gaap[tag] = {'units': {'USD': [{**row, 'val': row['val']*factor} for row in income]}}
@@ -114,7 +115,7 @@ def test_invalid_cash_cannot_produce_net_debt(kind):
 
 def test_nonpositive_ebitda_and_explicit_zero_are_distinct_from_missing():
     facts, _ = prepared_sources()
-    for tag in ['NetIncomeLoss', 'IncomeTaxExpenseBenefit', 'InterestExpenseNonoperating',
+    for tag in ['ProfitLoss', 'IncomeTaxExpenseBenefit', 'InterestExpenseNonoperating',
                 'DepreciationDepletionAndAmortization']:
         for row in facts['facts']['us-gaap'][tag]['units']['USD']: row['val'] = 0
     _, p = panel(facts)
@@ -134,7 +135,7 @@ def test_adding_preparation_components_does_not_change_existing_financial_fields
 
 def test_income_restatement_cannot_mix_with_unreconciled_balance_sheet():
     facts, _ = prepared_sources()
-    for tag in ['NetIncomeLoss', 'IncomeTaxExpenseBenefit', 'InterestExpenseNonoperating',
+    for tag in ['ProfitLoss', 'IncomeTaxExpenseBenefit', 'InterestExpenseNonoperating',
                 'DepreciationDepletionAndAmortization']:
         for row in facts['facts']['us-gaap'][tag]['units']['USD']:
             if row['end'] == '2026-06-30':
