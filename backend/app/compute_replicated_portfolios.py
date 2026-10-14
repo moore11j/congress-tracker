@@ -1523,8 +1523,10 @@ def run_compute(
     price_preflight_max_symbols: int = DEFAULT_PRICE_PREFLIGHT_MAX_SYMBOLS,
     min_avg_priced_invested_value_pct: float = DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT,
     max_pct_invested_value_with_price_gaps: float = DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS,
+    _schema_ready: bool = False,
 ) -> dict:
-    Base.metadata.create_all(bind=engine)
+    if not _schema_ready:
+        Base.metadata.create_all(bind=engine)
     normalized_entity_type = _normalize_entity_type(entity_type)
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"mode must be one of {', '.join(sorted(SUPPORTED_MODES))}")
@@ -1972,6 +1974,8 @@ def run_all_congress_portfolio_batch(
                     continue
 
             report = run_compute(
+                # The batch checked this same engine before selecting candidates.
+                _schema_ready=True,
                 entity_type="congress",
                 entity_ids=[entity_id],
                 lookback_days=normalized_lookback_days,

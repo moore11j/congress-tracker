@@ -5205,3 +5205,51 @@ def test_reconstructed_adjustment_can_apply_split_factors_for_truly_raw_sources(
 
     assert reconstructed["2024-06-07"].adjusted_close == 120.0
     assert reconstructed["2024-06-07"].adjustment_status == "reconstructed_adjusted_with_splits"
+
+
+def test_batch_checks_schema_once_and_matches_individual_checks(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    with SessionLocal() as db:
+        _add_member(db, "M_SCHEMA_A")
+        _add_member(db, "M_SCHEMA_B")
+        _add_congress_portfolio_fixture(db, member_id="M_SCHEMA_A", event_id=99001)
+        _add_congress_portfolio_fixture(db, member_id="M_SCHEMA_B", event_id=99002)
+        db.commit()
+    original_create = Base.metadata.create_all
+    checked = []
+
+    def counted_create(*args, **kwargs):
+        checked.append(kwargs.get("bind"))
+        return original_create(*args, **kwargs)
+
+    monkeypatch.setattr(Base.metadata, "create_all", counted_create)
+    optimized = compute_module.run_all_congress_portfolio_batch(batch_size=2, dry_run=True)
+    assert checked == [engine]
+    assert len(optimized["results"]) == 2
+    assert all(row["status"] == "would_create" for row in optimized["results"])
+    actual_compute = compute_module.run_compute
+
+    def repeated_schema_compute(**kwargs):
+        kwargs.pop("_schema_ready", None)
+        return actual_compute(**kwargs)
+
+    monkeypatch.setattr(compute_module, "run_compute", repeated_schema_compute)
+    checked.clear()
+    previous = compute_module.run_all_congress_portfolio_batch(batch_size=2, dry_run=True)
+    assert checked == [engine, engine, engine]
+    assert optimized == previous
+
+
+def test_standalone_portfolio_compute_still_initializes_schema(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", future=True)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    report = compute_module.run_compute(entity_type="congress", entity_ids=["M_NEW"],
+        lookback_days=30, mode="realistic_disclosure_lag", limit=1,
+        dry_run=True, benchmark="SPY", summary_only=True)
+    assert len(report["results"]) == 1
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)) == 0
