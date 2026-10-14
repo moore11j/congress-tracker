@@ -20,6 +20,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
+    if symbol == 'ASML':
+        from app.services.sec_asml_financials import VERSION as asml_version
+        return VERSION+'_'+asml_version
     if symbol == 'TSM':
         from app.services.sec_tsm_financials import VERSION as tsm_version
         return VERSION+'_'+tsm_version

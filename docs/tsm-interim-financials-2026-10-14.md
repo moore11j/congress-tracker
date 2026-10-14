@@ -1,6 +1,6 @@
 # TSM interim financial ratios from SEC originals
 
-October 14, 2026. Local implementation and validation; deployment pending. Public core remains FMP.
+October 14, 2026. Deployed155cc0b3; exact runtime and ordinary preparation verified. Public core remains FMP.
 
 TSM's free financial preparation has no current SEC ratios because the standard core reader expects USD US GAAP facts. Its free Finnhub association supplies two classification inputs, leaving the fundamentals classification unavailable. The new reader calculates five dimensionless ratios from three reviewed consolidated statements in TWD, on the same Taiwan-adopted IFRS basis.
 
@@ -42,6 +42,16 @@ The full-original Linux replay verifies exact trailing arithmetic, identical rep
 
 Initial source discovery correctly held a filename mismatch and the ambiguous consolidated/parent-only annual links. Saved covers were reused for resolution; no source denial was retried. An initial local consumer harness supplied a string where a database date was required; corrected date conversion passes. Linux Git could not resolve the Windows worktree pointer, so native Git exported the exact1752fe1d baseline for the control replay. These are diagnostic corrections, not source or product changes.
 
+## Release and ordinary-operation verification
+
+PR641 source `b72790a1381c7c954042765485b3d16a0ce37a61` merged as `155cc0b34650f3aaee1f04140f75789c27612539`. Backend workflow38625627459/job116063926756 completed successfully.15 runtime source hashes match on Python3.12.15, including the Finnhub identity guard. The bounded runtime fixture reproduces all five ratios and complete current/prior/instant/source calculations with unchanged inputs and identical repeats. It uses retained parsed original statements, the captured company directory projection and a minimal facts-identity fixture; it is not itself a live acquisition. Receipt: `artifacts/tsm-interim-oct14/runtime-1792007099.json`.
+
+The existing ordinary schedule then prepares TSM at2026-10-14T19:46:03.035099+00:00. All five persisted fields and current/prior/instant/source provenance match the complete-original replay. The captured live Finnhub combination restores three classification inputs and repeats identically in the offline consumer. HCA's ordinary19:31 refresh separately matches all eight fields and its complete current/prior operating reconciliation. Receipt and offline verification: `artifacts/tsm-interim-oct14/ordinary-verification.json`. No manually forced refresh or validation email.
+
+Postrelease public samples: Feed0.460s, Insights0.500s with research present, news0.310s, research0.455s, AAPL2.930s and NVDA2.056s, all200; readiness reports database okay. These samples do not establish sustained workload capacity. Receipt: `artifacts/direct-feeds/free-replacements-2026-10-09/insights-incident-1792007030.json`. API remains shared2CPU/2048MB; database remains performance1CPU/2048MB. FMP remains selected for public core and institutional publication remainsfalse.
+
+Secret scan and Vercel checks pass; unchanged frontend and Pillow audits fail, so no full-CI claim. Job-log retrieval returned502; the dedicated run diagnostics confirmed successful terminal deployment. PR attachment failed at the existing100 attachment limit. The first runtime diagnostic omitted the Finnhub identity guard due to a filename mismatch; corrected fifteen-file verification passes. No source selector, schedule, host size, subscription, customer email, video, landing or cancellation changes.
+
 ## Remaining gates
 
-Complete exact release/runtime verification and ordinary TSM refresh. Broader financial completeness, future-quarter maintenance, historical quarterly panels, parent income/cash flow/leverage, institutional publication, transcripts, scores/rankings/all alerts, sustained performance, final Massive activation and zero-FMP/billing verification remain open. No subscription, source selection, schedule, host size, video or landing change.
+Broader financial completeness, future-quarter maintenance, historical quarterly panels, parent income/cash flow/leverage, institutional publication, transcripts, scores/rankings/all alerts, sustained performance, final Massive activation and zero-FMP/billing verification remain open. No subscription, source selection, schedule, host size, video or landing change.

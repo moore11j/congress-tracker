@@ -269,6 +269,12 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
 
 
 def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
+    if symbol == 'ASML':
+        from app.services import sec_asml_financials as asml
+        try:
+            return asml.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
+        except asml.AsmlFinancialError as exc:
+            return {'asml_documents': {}, 'asml_error': str(exc)}
     if symbol == 'TSM':
         from app.services import sec_tsm_financials as tsm
         try:
