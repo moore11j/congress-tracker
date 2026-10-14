@@ -256,10 +256,14 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     from app.services.sec_financial_continuity import record_sets
     from app.services import sec_leverage, sec_parent_income, sec_depreciation_components
     metric_tags = {**TAGS, **sec_leverage.TAGS, **sec_parent_income.TAGS}
+    from app.services import sec_operating_components
+    if sec_operating_components.applies(symbol, cik):
+        metric_tags.update(sec_operating_components.TAGS)
     if sec_depreciation_components.applies(symbol, cik):
         metric_tags.update(sec_depreciation_components.TAGS)
     all_records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement,company=company,
         metrics={name:(tags, 'USD') for name,tags in metric_tags.items()}, instant_metrics=sec_leverage.INSTANT)
+    all_records, operating_evidence = sec_operating_components.apply(all_records, symbol=symbol, cik=cik)
     all_records, parent_income_evidence = sec_parent_income.apply(all_records)
     depreciation_evidence = sec_depreciation_components.reconcile(all_records, symbol=symbol, cik=cik)
     records = {name: all_records[name] for name in TAGS}
@@ -294,6 +298,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     reporting_policy = reviewed(symbol, cik)
     if reporting_policy:
         evidence['reviewed_reporting_policy'] = reporting_policy
+    if operating_evidence is not None:
+        evidence['operating_income_reconciliation'] = operating_evidence
+        if operating_evidence['derived_periods']:
+            evidence['limitations'].append('HCA operating income is derived from reviewed expenses with independent pretax reconciliation, not a reported subtotal.')
     if parent_income_evidence['derived_periods'] or parent_income_evidence['holds']:
         evidence['parent_income_reconciliation'] = parent_income_evidence
     from app.services.sec_bank_revenue import basis
