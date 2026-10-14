@@ -1,5 +1,7 @@
 # FMP cutover execution
 
+October14,18:23UTC: [PR638 bank revenue](bank-current-revenue-2026-10-14.md) deployed5e848e02;136tests/12hashes/live12value parity and three public panels verify. SEC usable coverage1102; full audit still366lost/72gained classifications. CoreFMP remains, per-bank ordinary refresh/all-consumer/sustainedcapacity/institutions/transcripts/finalMassive/globalFMP/billing gates open.
+
 **October14,17:59UTC:** [PR637](financial-listing-identity-2026-10-14.md) deployed937dc977: five reviewed company/share-listing associations recover45 preparedmetrics/39 addedfields. Full audit still366 classification losses/72gains. CoreFMP remainsselected; ordinary new-listing refresh and full-source/all-consumer/sustainedcapacity/Massive/globalzeroFMP/billing acceptance remain.
 
 **October14,17:41UTC:** [PR636 financial consumer isolation](financial-consumer-provider-2026-10-14.md) deployed95acbbdc; six readers follow explicit provider selection, including rollback and missing-source holds. Current full1751-symbol preparation loses367 previously usable financial classifications and gains72. CoreFMP remainsselected.200-rule no-send watchlist replay passes; full fresh scoring/ranking/daily-weekly/monitoring acceptance and final market-pressure cap/profile semantics remain gated.
