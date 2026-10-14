@@ -6,7 +6,7 @@ until coverage and the score/alert transition have been validated.
 from datetime import date
 import math
 
-VERSION = 'sec_leverage_evidence_v6'
+VERSION = 'sec_leverage_evidence_v7'
 DURATION = {
     'leverage_net_income': ('ProfitLoss',),
     'leverage_tax': ('IncomeTaxExpenseBenefit',),
@@ -233,6 +233,38 @@ def _debt_addition_checks(instant):
             'reported_total': total, 'components': list(names), 'inputs': parts,
             'sum': value if _finite(value) else None,
             'requirement': 'Borrowings and added finance leases must reconcile to the compatible reported finance-inclusive total.'}
+    # An independently reported current/noncurrent pair is also a complete
+    # finance-inclusive reference. CPB reports the same carrying total under
+    # a broad borrowings tag; adding all finance leases to it double-counts.
+    names = ('leverage_borrowings', 'leverage_finance_leases')
+    maturity_names = ('leverage_current_debt', 'leverage_noncurrent_debt_with_finance_leases')
+    parts = [instant.get(name) for name in names]
+    maturity = [instant.get(name) for name in maturity_names]
+    facts = [*parts, *maturity]
+    if (all(facts) and _compatible(facts)
+            and all(_finite(f['value']) and f['value'] >= 0 for f in facts)):
+        reference = sum(f['value'] for f in maturity)
+        addition = sum(f['value'] for f in parts)
+        if _finite(reference):
+            proof = {
+                'status': 'reported_total_verified' if _finite(addition)
+                    and math.isclose(addition, reference, rel_tol=1e-12, abs_tol=.01)
+                    else 'conflicting_debt_addition',
+                'components': list(names), 'inputs': parts,
+                'sum': addition if _finite(addition) else None,
+                'reference_components': list(maturity_names), 'reference_inputs': maturity,
+                'reference_sum': reference,
+                'requirement': 'Borrowings plus finance leases must reconcile to compatible reported current debt plus noncurrent debt including finance leases.'}
+            previous = results.get(names[0])
+            if previous is None:
+                results[names[0]] = proof
+            elif previous['status'] == 'conflicting_debt_addition':
+                previous['maturity_reconciliation'] = proof
+            else:
+                # A matching aggregate does not erase a contradictory complete
+                # maturity reference. Preserve both observations for review.
+                proof['aggregate_reconciliation'] = previous
+                results[names[0]] = proof
     return results
 
 

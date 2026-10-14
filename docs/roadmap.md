@@ -1,5 +1,7 @@
 October14: [ENB CAD PR648](enb-cad-financials-2026-10-14.md) deployed b2c3dd5b;363 checks,14 runtime hashes,34 original input matches and exact eight-ratio reproduction pass. Ordinary ENB propagation pending; public coreFMP and all wider cutover gates remain. SPCX annual/current originals captured, continuity review not complete.
 
+October14,23:08UTC: [Debt maturity reconciliation](sec-debt-maturity-reconciliation-2026-10-14.md) implemented,217 tests/three original filings/71 retained-panel/25 source-pair repeats pass. Five contradictory alternatives held; no canonical ratio or source selection. Release/runtime/ordinary propagation pending; broader migration gates unchanged.
+
 October14,22:56: [SPCX PR649](spcx-registration-financials-2026-10-14.md) deployed42d1a44b;210 checks,15 runtime hashes/full-original reproduction and ordinary six-field/source-proof equality verify. ENB ordinary eight-field proof also passes. Classification/source/consumer/capacity/institution/transcript/Massive/globalFMP/billing gaps remain; fresh whole-scope classification counts1361baseline/1070replacement. CoreFMP unchanged.
 
 October14: ENB ordinary22:46 preparation exactly matches all eight original-source ratios and proofs. [SPCX registration history](spcx-registration-financials-2026-10-14.md) is implemented locally,210 checks and cache/alert/source replay pass; not deployed. Six metrics, one scoring input only; prior interim growth/future review and all broader cutover gates remain. Public coreFMP unchanged.
