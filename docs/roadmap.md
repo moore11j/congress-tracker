@@ -1,5 +1,7 @@
 October14: [ENB CAD PR648](enb-cad-financials-2026-10-14.md) deployed b2c3dd5b;363 checks,14 runtime hashes,34 original input matches and exact eight-ratio reproduction pass. Ordinary ENB propagation pending; public coreFMP and all wider cutover gates remain. SPCX annual/current originals captured, continuity review not complete.
 
+October14,23:31UTC: [Original debt precision](sec-debt-precision-2026-10-14.md) implemented with complete CMCSA source/cache replay,25 controls and45 finalfocusedtests; expanded312pass/one reproduced baselinefailure. Not deployed, no source/canonicalselection. Remaining full migration gates unchanged.
+
 October14,23:16UTC: [Debt maturity PR650](sec-debt-maturity-reconciliation-2026-10-14.md) deployedae4931ff with217 tests/12runtimehashes/three exact original fixtures and ordinaryfive-v7-panel propagation. Three issuer cache rotations and precision-aware canonicalpolicy remain; no publicsourcechange. Full financialcoverage/consumer/capacity/institution/transcript/Massive/globalFMP/billing gates stayopen.
 
 October14,23:08UTC: [Debt maturity reconciliation](sec-debt-maturity-reconciliation-2026-10-14.md) implemented,217 tests/three original filings/71 retained-panel/25 source-pair repeats pass. Five contradictory alternatives held; no canonical ratio or source selection. Release/runtime/ordinary propagation pending; broader migration gates unchanged.

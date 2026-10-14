@@ -128,7 +128,7 @@ def prepare(symbol, *, max_cache_age=TTL):
             from app.services.sec_financial_continuity import fetch_history
             history = fetch_history(symbol,cik,client=client,observed_at=now)
             from app.services.sec_inline_financials import acquire
-            filing = acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
+            filing = acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client,include_debt_precision=True)
             try:
                 values = sec_fundamentals.project_fundamentals(raw, company,
                     symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)

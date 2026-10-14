@@ -255,6 +255,8 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         provenance[key] = {'source_kind':'sec_inline_xbrl', 'source_url':url,
             'source_sha256':source_sha256, 'source_cik':cik,
             'context_id':n.get('contextref'), 'fact_id':n.get('id')}
+        if tag in {'DebtAndCapitalLeaseObligations','DebtCurrent','LongTermDebtAndCapitalLeaseObligations'}:
+            provenance[key]['reported_precision'] = {'decimals':n.get('decimals'), 'value':value}
     if not any(k[0] in tags['revenue'] and k[2] is not None and k[3] == report_date for k in records):
         raise InlineFactsError('latest_reported_revenue_unavailable')
     gaap = {}
@@ -269,7 +271,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
             for k,v in sorted(auxiliary_holds.items(), key=lambda item: repr(item[0]))]} if auxiliary_holds else {})}}
 
 
-def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
+def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include_debt_precision=False):
     if symbol == 'SPCX':
         from app.services import sec_registration_history as registration
         try:
@@ -321,7 +323,11 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
                 and periodic_document(symbol, cik, form, report, filename)):
             candidates.append((str(end),str(filing),accession,form,filename))
     if not candidates:
-        return None
+        if native_basis is not None or not include_debt_precision:
+            return None
+        from app.services.sec_debt_precision import acquire as debt_precision
+        return debt_precision(payload,company=company,available_by=available,end=latest_fact,
+                              forms=forms,cik=cik,client=client)
     latest = max((r[0],r[1]) for r in candidates)
     candidates = {r for r in candidates if r[:2] == latest}
     if len(candidates) != 1:
@@ -335,7 +341,7 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
 
 
 def merge(payload, supplement, *, available_by):
-    if supplement is None:
+    if supplement is None or supplement.get('debt_precision_only'):
         return payload
     evidence = supplement['evidence']
     if str(payload.get('cik','')).zfill(10) != evidence['cik'] or evidence['filed'] > str(available_by):
@@ -348,10 +354,18 @@ def merge(payload, supplement, *, available_by):
     return merged
 
 
-def annotate(records, supplement, *, metrics=None):
+def annotate(records, supplement, *, metrics=None, expected_cik=None, available_by=None):
     if supplement is None:
         return records
     from app.services import sec_fundamentals as sec
+    if supplement.get('debt_precision_only'):
+        evidence = supplement['evidence']
+        if (expected_cik is None or evidence.get('cik') != str(expected_cik).zfill(10)
+                or available_by is None or sec._day(evidence.get('filed')) is None
+                or sec._day(evidence['filed']) > available_by):
+            return records
+        from app.services.sec_debt_precision import annotate as debt_precision
+        return debt_precision(records, supplement)
     metrics = metrics or {name:(tags,'USD') for name,tags in sec.TAGS.items()}
     for name, series in records.items():
         # A held optional fact must not fall back to an older companyfacts value
@@ -368,5 +382,7 @@ def annotate(records, supplement, *, metrics=None):
             if fact and fact['accession'] == supplement['evidence']['accession']:
                 proof=supplement['provenance'].get((fact['tag'],fact['unit'],fact['start'],fact['end']))
                 if proof:
-                    fact.update(proof)
+                    fact.update({k:v for k,v in proof.items() if k != 'reported_precision'})
+    from app.services.sec_debt_precision import annotate as debt_precision
+    debt_precision(records, supplement)
     return records

@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-14T23:12:50.755215+00:00",
+  "sources": [
+    {
+      "file": "CMCSA-company.json",
+      "url": "https://data.sec.gov/submissions/CIK0001166691.json",
+      "sha256": "1c9ee5c84527542fa21885a4d741a7610ab8d0e5f98774adb63d427c10415d52",
+      "bytes": 148257
+    },
+    {
+      "file": "CMCSA-facts.json",
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001166691.json",
+      "sha256": "4931cbdeb5c78061844fd07853321766ae28733a65d5aab5b39175943ce45dfc",
+      "bytes": 3756222
+    },
+    {
+      "file": "CMCSA-original.html",
+      "url": "https://www.sec.gov/Archives/edgar/data/1166691/000162828026049360/cmcsa-20260630.htm",
+      "sha256": "4ed89cc5104d722b9f3a3c112995b4ae1589704d99a91e759f7b49bf54277a69",
+      "bytes": 1876563
+    }
+  ]
+}
