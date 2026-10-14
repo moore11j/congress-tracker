@@ -72,6 +72,9 @@ def _cached(symbol):
         if age < timedelta(0) or age > TTL:
             return None
         payload = json.loads(row.payload_json)
+        coverage = payload.get('coverage') or {}
+        if coverage.get('source_limit') and 'source_limits' not in coverage:
+            return None  # Revisit only old batches that stopped at a size hold.
         return payload if payload.get('provider') == PROVIDER and payload.get('cache_version') == _cache_version(symbol) else None
 
 
@@ -125,8 +128,11 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
     filings = recent[:filing_limit]
     document_ids = []
     failures = 0
-    source_limit = None
+    source_limits = []
+    fatal_failure = False
+    attempted = 0
     for filing in filings:
+        attempted += 1
         try:
             raw = client.get(filing['submission_url'])
             index_raw = client.get(filing['submission_url'][:-4] + '-index.html')
@@ -147,11 +153,14 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
             if isinstance(exc, DirectSourceError) and str(exc).startswith('Source exceeds size limit:'):
                 # A bounded source cannot be read; this is an explicit coverage
                 # limitation, not evidence of no releases or a transient outage.
-                source_limit = {'reason': 'sec_submission_size_limit',
-                                'accession_number': filing['accession_number']}
-                break
+                source_limits.append({'reason': 'sec_submission_size_limit',
+                                      'accession_number': filing['accession_number']})
+                # The size bound applies to this filing only. Continue through
+                # the same bounded discovery window; never retry its download.
+                continue
             if isinstance(exc, DirectSourceError):
                 raise  # Let the scheduled batch stop on a source refusal.
+            fatal_failure = True
             # Stop this issuer on a fetch/parse failure. No automatic burst of
             # requests after a refusal; remaining coverage is explicitly absent.
             break
@@ -178,19 +187,20 @@ def refresh_sec_releases(symbol, *, client=None, directory=None, filing_limit=MA
             'updated_at': now.isoformat(), 'message': MESSAGE,
             'coverage': {'kind': 'selected_sec_earnings_releases', 'complete': False,
                 'lookback_days': 365, 'filing_limit': filing_limit, 'filings_discovered': len(recent),
-                'filings_checked': len(document_ids), 'held': held, 'source_failures': failures,
+                'filings_checked': len(document_ids), 'filings_attempted': attempted,
+                'held': held, 'source_failures': failures,
                 'truncated': len(recent) > filing_limit or len(all_filings) == 100}}
-        if source_limit:
+        if source_limits:
             payload['status'] = 'partial' if items else 'unavailable'
-            payload['reason'] = source_limit['reason']
+            payload['reason'] = source_limits[0]['reason']
             payload['message'] += ' A filing exceeds the supported download size; release coverage is incomplete.'
-            payload['coverage'].update(source_limit=source_limit,
+            payload['coverage'].update(source_limit=source_limits[0], source_limits=source_limits,
                 filings_unchecked=len(filings)-len(document_ids))
         if not authorized():
             raise ValueError('Direct SEC provider changed during refresh')
         # A failed refresh must not replace previously prepared source links
         # with a misleading empty result. The caller reports unavailable.
-        if failures and source_limit is None:
+        if fatal_failure:
             raise RuntimeError('SEC earnings collection incomplete')
         _save_payload(db, symbol, payload, now)
         db.commit()
