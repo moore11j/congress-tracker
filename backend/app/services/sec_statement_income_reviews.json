@@ -1,0 +1,112 @@
+{
+  "NVDA": {
+    "cik": "0001045810",
+    "reviewed_at": "2026-10-14",
+    "basis": "Reported total earnings in the reviewed consolidated income statement. Not a generic missing-NCI assumption.",
+    "periods": [
+      {
+        "start": "2025-01-27",
+        "end": "2026-01-25",
+        "value": 120067000000.0,
+        "pretax": 141450000000.0,
+        "tax": 21383000000.0,
+        "unexplained_difference": 0.0,
+        "accession": "0001045810-26-000021",
+        "filed": "2026-02-25",
+        "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm",
+        "source_sha256": "306fe8edf0b63a83eefff165cdcf66cdc21eea81ba526f70d594e42d13eac7a5",
+        "table_index": 20,
+        "context": "c-1",
+        "unit": "usd",
+        "source_tag": "us-gaap:NetIncomeLoss"
+      },
+      {
+        "start": "2026-01-26",
+        "end": "2026-07-26",
+        "value": 118010000000.0,
+        "pretax": 141410000000.0,
+        "tax": 23400000000.0,
+        "unexplained_difference": 0.0,
+        "accession": "0001045810-26-000075",
+        "filed": "2026-08-26",
+        "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000075/nvda-20260726.htm",
+        "source_sha256": "2379ff2b3606fcbb8427606927d312607807fedcef53a54766994f3615a854e5",
+        "table_index": 7,
+        "context": "c-1",
+        "unit": "usd",
+        "source_tag": "us-gaap:NetIncomeLoss"
+      },
+      {
+        "start": "2025-01-27",
+        "end": "2025-07-27",
+        "value": 45197000000.0,
+        "pretax": 53117000000.0,
+        "tax": 7920000000.0,
+        "unexplained_difference": 0.0,
+        "accession": "0001045810-26-000075",
+        "filed": "2026-08-26",
+        "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000075/nvda-20260726.htm",
+        "source_sha256": "2379ff2b3606fcbb8427606927d312607807fedcef53a54766994f3615a854e5",
+        "table_index": 7,
+        "context": "c-5",
+        "unit": "usd",
+        "source_tag": "us-gaap:NetIncomeLoss"
+      }
+    ]
+  },
+  "JNJ": {
+    "cik": "0000200406",
+    "reviewed_at": "2026-10-14",
+    "basis": "Reported total earnings in the reviewed consolidated income statement. Not a generic missing-NCI assumption.",
+    "periods": [
+      {
+        "start": "2024-12-30",
+        "end": "2025-12-28",
+        "value": 26804000000.0,
+        "pretax": 32581000000.0,
+        "tax": 5777000000.0,
+        "unexplained_difference": 0.0,
+        "accession": "0000200406-26-000016",
+        "filed": "2026-02-11",
+        "url": "https://www.sec.gov/Archives/edgar/data/200406/000020040626000016/jnj-20251228.htm",
+        "source_sha256": "f1bd53510aceb16eb722b51931b05cff01021ac5c6ef9870c99c4e9de661b991",
+        "table_index": 75,
+        "context": "c-1",
+        "unit": "usd",
+        "source_tag": "us-gaap:NetIncomeLoss"
+      },
+      {
+        "start": "2025-12-29",
+        "end": "2026-06-28",
+        "value": 10769000000.0,
+        "pretax": 12737000000.0,
+        "tax": 1968000000.0,
+        "unexplained_difference": 0.0,
+        "accession": "0000200406-26-000153",
+        "filed": "2026-07-23",
+        "url": "https://www.sec.gov/Archives/edgar/data/200406/000020040626000153/jnj-20260628.htm",
+        "source_sha256": "c44b7ccdd9a36c4baa7ed85b2aa2b1d559c457645aaefa4feeca2b05a23639d7",
+        "table_index": 12,
+        "context": "c-1",
+        "unit": "usd",
+        "source_tag": "us-gaap:NetIncomeLoss"
+      },
+      {
+        "start": "2024-12-30",
+        "end": "2025-06-29",
+        "value": 16536000000.0,
+        "pretax": 20122000000.0,
+        "tax": 3586000000.0,
+        "unexplained_difference": 0.0,
+        "accession": "0000200406-26-000153",
+        "filed": "2026-07-23",
+        "url": "https://www.sec.gov/Archives/edgar/data/200406/000020040626000153/jnj-20260628.htm",
+        "source_sha256": "c44b7ccdd9a36c4baa7ed85b2aa2b1d559c457645aaefa4feeca2b05a23639d7",
+        "table_index": 12,
+        "context": "c-18",
+        "unit": "usd",
+        "source_tag": "us-gaap:NetIncomeLoss"
+      }
+    ]
+  }
+}

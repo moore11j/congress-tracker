@@ -1,6 +1,6 @@
 # Consolidated earnings basis for leverage preparation
 
-October 14, 2026. Implemented and locally verified; release and ordinary propagation pending. Public core remains FMP and no leverage candidate is selected.
+October 14, 2026. Deployed as a9a94204; exact runtime and ordinary version propagation verified. HCA ordinary v6 refresh remains pending. Public core remains FMP and no leverage candidate is selected.
 
 ## Source mismatch
 
@@ -20,12 +20,26 @@ The parent-income helper now serves shareholder metrics only. It cannot overwrit
 
 ## Checks and limits
 
-228 affected checks pass on Linux Python3.12.3, covering explicit positive/zero/negative NCI, missing and conflicting observations, source identity, redevelopment of consolidated income, preserved shareholder values, debt/lease guards, inline recovery and cache persistence/repeats. Initial collection used one nonexistent test filename and ran nothing; corrected selection ran. Two old tests mutated parent income while intending to change the leverage input; they now mutate explicit consolidated fixtures. No unresolved test failures in this selection; no full-suite claim.
+228 affected checks pass on Linux Python3.12.3, covering explicit positive/zero/negative NCI, missing and conflicting observations, source identity, reconstruction of consolidated income, preserved shareholder values, debt/lease guards, inline recovery and cache persistence/repeats. Initial collection used one nonexistent test filename and ran nothing; corrected selection ran. Two old tests mutated parent income while intending to change the leverage input; they now mutate explicit consolidated fixtures. No unresolved test failures in this selection; no full-suite claim.
 
 Actual HCA complete-original replay verifies the original current/comparative allocation lines, all four trailing components and exact new arithmetic. Twenty saved company-source controls retain every canonical field, all non-leverage evidence and debt/cash/lease inputs/holds; repeats are identical and source inputs unchanged. In these dated controls, BRK-B EBITDA changes125.822to126.136billion and LIN13.406to13.579billion. JNJ and NVDA now correctly remain incomplete for a consolidated basis because the captured sources do not establish all required income legs. Six existing top-level coverage holds remain. These are not fresh whole-universe coverage counts; missing consolidated evidence requires further source review, not an inferred zero allocation. The real current HCA files include an inline supplement; the older controls intentionally use their saved companyfacts alone.
 
 Receipts: `artifacts/consolidated-income-oct14/{baseline-hashes.json,HCA-replay.json,source-replay.json}`; baseline92312ba8. HCA originals and hashes are retained in `artifacts/yahoo-gaps-oct14/HCA-source-manifest.json`; current raw companyfacts/submissions in `artifacts/operating-income-coverage-oct14/sources.json`. Replay is offline, without production writes or email. The initial comparison harness caught a subclass exception from an unchanged foreign issuer adapter; the corrected harness preserves that existing hold.
 
+## Release and scheduled verification
+
+[PR643](https://github.com/moore11j/congress-tracker/pull/643), source `dce9c3b82941cf140b02af4d8a62d4d1b4171676`, merged as `a9a942048c8ed3f63bc8f862b62467543df2ac0e`. Backend workflow38632522822/job116087462008 is terminal success. Managed backend equals origin/main. Secret scanning passes; unchanged dependency audits report frontend four high/one critical production vulnerabilities and33 Pillow10.4.0 advisories. This is not an all-CI pass. PR attachment exceeds the existing100-item limit.
+
+The21-case original-source/control replay passes on Windows Python3.14.2 and Linux3.12.3. The real preparation service also passes an isolated Linux SQLite persistence and transport-forbidden cached repeat, preserving eight HCA core values and zero canonical rows. The final replay receipt was regenerated on Windows to capture complete input records after Linux validation.
+
+At20:34 UTC,16 deployed normalized source hashes match, and Python3.12.15 reproduces the complete HCA retained-source leverage panel, exact repeat and immutable inputs. Positive explicit NCI derives consolidated income while absent NCI remains held. Runtime verifier initially reconstructed only emitted evidence and omitted fields belonging to held debt candidates; comparison failed on four hold component lists. Capturing all leverage input records fixes the verifier and yields full equality without changing application code or weakening the comparison. An oversized intermediate fixture was refused locally before SSH; the final fixture includes all leverage fields and fits the existing command bound. Network, production writes and emails are forbidden during the runtime fixture.
+
+The ordinary20:31 refresh completes10 financial scopes and8 metric scopes. Seven latest source caches (CG, CHD, CHH, CHPT, CHRD, CHRW, CHSCP) contain evidence version6; CGFAX, CGNT and CHKP remain explicitly unavailable. This establishes ordinary version propagation, not exact original-source equality for those seven companies. HCA's next ordinary v6 refresh remains pending; no full-universe refresh was forced. Public core remainsFMP and institutional publication remainsfalse.
+
+Seven postrelease public reads return200: Feed0.422s, Insights0.437s with research, news0.260s, research0.574s, AAPL2.618s and NVDA2.405s; database readiness is okay. These are samples, not sustained-capacity proof. One API host remains shared2CPU/2048MB and one database remains performance1CPU/2048MB; no resource or cost changes.
+
+Receipts: `artifacts/consolidated-income-oct14/cache-replay.json`, `HCA-project-records.json`, `runtime-1792010050.json`; `artifacts/debt-rollout-1792009936.json`; `artifacts/direct-feeds/free-replacements-2026-10-09/insights-incident-1792009935.json`. All local handles are terminal.
+
 ## Remaining gates
 
-Exact release/runtime and ordinary version6 propagation; broader consolidated-income source coverage, debt-policy selection, all financial/score/ranking/alert consumer acceptance, institutions, transcripts, sustained capacity, final Massive, zero global FMP traffic and billing remain. No source selector, schedule, host size, subscription, video, landing-page, customer-email or cancellation change.
+HCA ordinary version6 refresh and broader consolidated-income source coverage, debt-policy selection, all financial/score/ranking/alert consumer acceptance, institutions, transcripts, sustained capacity, final Massive, zero global FMP traffic and billing remain. No source selector, schedule, host size, subscription, video, landing-page, customer-email or cancellation change.
