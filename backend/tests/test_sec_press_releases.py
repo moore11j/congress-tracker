@@ -228,3 +228,69 @@ def test_transient_source_refusal_never_becomes_cached_absence(selected, monkeyp
     assert result['status'] == 'unavailable'
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(TickerContentCache)) == 0
+
+
+@pytest.mark.parametrize('later_failure', [None, 'size', 'parse', 'refusal'])
+def test_oversized_filing_does_not_hide_later_releases_or_mask_a_later_failure(selected, monkeypatch, later_failure):
+    from app.clients.direct_sources import DirectSourceError
+    factory, calls = selected
+    data = json.loads(company())
+    recent = data['filings']['recent']
+    for key, values in list(recent.items()):
+        recent[key] = values * 3
+    recent['accessionNumber'] = ['0001234567-26-000003', '0001234567-26-000002', '0001234567-26-000001']
+    def get(client, url):
+        calls.append(url)
+        if url.endswith('.json'):
+            return json.dumps(data).encode()
+        if '-000003.txt' in url or (later_failure == 'size' and '-000002.txt' in url):
+            raise DirectSourceError('Source exceeds size limit: '+url)
+        if '-000002.txt' in url and later_failure == 'refusal':
+            raise DirectSourceError('Source HTTP 429: '+url)
+        if '-000002.txt' in url and later_failure == 'parse':
+            return b'invalid submission'
+        accession = url.rsplit('/', 1)[-1].split('-index')[0].removesuffix('.txt')
+        # Distinct reviewed release bodies avoid duplicate-content holds.
+        raw = index() if url.endswith('-index.html') else submission(body_extra=accession)
+        return raw.replace(b'0001234567-26-000001', accession.encode())
+    monkeypatch.setattr(DirectSourceClient, 'get', get)
+    if later_failure in {'parse', 'refusal'}:
+        with pytest.raises((RuntimeError, DirectSourceError)):
+            press.refresh_sec_releases('TEST')
+        assert not any('-000001' in url for url in calls)
+        with factory() as db:
+            assert db.scalar(select(func.count()).select_from(TickerContentCache)) == 0
+    else:
+        payload = press.refresh_sec_releases('TEST')
+        assert len(payload['items']) == (1 if later_failure == 'size' else 2)
+        assert payload['status'] == 'partial'
+        assert payload['coverage']['filings_attempted'] == 3
+        assert len(payload['coverage']['source_limits']) == (2 if later_failure == 'size' else 1)
+        assert payload['coverage']['source_failures'] == len(payload['coverage']['source_limits'])
+        assert payload['coverage']['filings_unchecked'] == len(payload['coverage']['source_limits'])
+        before = list(calls)
+        assert press.get_sec_releases(symbol='TEST')['items'] == payload['items']
+        assert calls == before
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(Event)) == 0
+        assert db.scalar(select(func.count()).select_from(ResearchSourceDocument)) == 0
+
+
+def test_cache_rechecks_only_legacy_size_stops(selected):
+    factory, calls = selected
+    payload = news.get_press_releases(symbol='TEST')
+    assert press._cached('TEST')['items'] == payload['items']
+    with factory() as db:
+        row = db.scalar(select(TickerContentCache))
+        legacy = json.loads(row.payload_json)
+        legacy['coverage']['source_limit'] = {'reason': 'sec_submission_size_limit'}
+        row.payload_json = json.dumps(legacy)
+        db.commit()
+    assert press._cached('TEST') is None
+    with factory() as db:
+        row = db.scalar(select(TickerContentCache))
+        current = json.loads(row.payload_json)
+        current['coverage']['source_limits'] = [current['coverage']['source_limit']]
+        row.payload_json = json.dumps(current)
+        db.commit()
+    assert press._cached('TEST') == current
