@@ -1,5 +1,7 @@
 # FMP cutover execution
 
+October14: [ASML SEC ratios](asml-eur-financials-2026-10-14.md) PR642/92312ba8 deployed;189 tests/20 unchanged controls/16 runtime hashes and ordinary nine-field/source-proof verification pass. EUR ratios recover the third classification input without putting EUR amounts into USD fields. Next-quarter eligibility is simulated, ordinary rollover remains pending. Pre-release full audit still364 lost/72 gained classifications; broad consumer/capacity/institution/transcript/Massive/globalFMP/billing gates remain. Public core remainsFMP.
+
 October14: [TSM SEC ratios](tsm-interim-financials-2026-10-14.md) PR641/155cc0b3 deployed and ordinary preparation verified.146 tests/19 unchanged controls/15 runtime hashes pass; all five stored values and source-period proofs equal original-source replay, combined classification recovers its third input. HCA ordinary19:31 now verifies eight fields and source proof. Public core remainsFMP. Cash-flow/leverage/quarterly coverage, future TSM quarter review, broad all-consumer/capacity/institution/transcript/Massive/globalFMP/billing gates remain.
 
 October14: [HCA SEC operating-income repair](hca-operating-income-2026-10-14.md) PR640/1752fe1d is deployed and exact runtime verified.145 tests, actual-source/cache/consumer and20-company control replays pass; ordinary HCA rotation remains pending. Yahoo remains unselected after four-symbol source mismatches/gaps. CoreFMP and remaining coverage/consumer/capacity/Massive/globalFMP gates remain.
