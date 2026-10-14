@@ -12,7 +12,7 @@ from app.services.custom_alert_rules import evaluate_watchlist_custom_alerts, va
 
 
 @pytest.fixture
-def scenario():
+def scenario(monkeypatch):
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -30,7 +30,9 @@ def scenario():
         row = FundamentalsCache(symbol="TEST", provider="fmp", status="ok", fetched_at=now,
             net_debt_to_ebitda=1, current_ratio=2)
         db.add_all([rule, row]); db.commit()
-        def run(minutes):
+        def run(minutes, provider=None):
+            # Explicit source selection belongs to the scenario, not cache recency.
+            monkeypatch.setenv("FUNDAMENTALS_PROVIDER", provider or row.provider)
             result = evaluate_watchlist_custom_alerts(db, user_id=user.id,
                 watchlist_id=watchlist.id, now=now+timedelta(minutes=minutes))
             db.commit()
@@ -113,18 +115,20 @@ def test_missing_replacement_retains_last_valid_state_until_baseline(scenario):
     assert run(15)["triggered"] == 0
 
 
-def test_two_cached_providers_use_value_and_identity_from_same_newest_row(scenario):
+def test_two_cached_providers_require_explicit_selection_and_rollback(scenario):
     db, _, old, run = scenario
     assert run(0)["triggered"] == 0
     new = FundamentalsCache(symbol="TEST", provider="free_direct", fetched_at=old.fetched_at+timedelta(minutes=5),
         status="ok", net_debt_to_ebitda=3)
     db.add(new)
-    assert run(5)["initialized"] == 1
-    # Roll back by refreshing the old provider; the old row remains retained.
-    old.fetched_at = old.fetched_at+timedelta(minutes=10)
-    assert run(10)["initialized"] == 1
+    assert run(5)["initialized"] == 0
+    assert run(10, "free_direct")["initialized"] == 1
+    old.fetched_at = old.fetched_at+timedelta(minutes=15)
+    assert run(15, "free_direct")["initialized"] == 0
+    assert run(20, "fmp")["initialized"] == 1
     old.net_debt_to_ebitda = 3
-    assert run(15)["triggered"] == 1
+    assert run(25, "fmp")["triggered"] == 1
+    assert run(30, "fmp")["triggered"] == 0
 
 
 def test_supplement_dates_and_numbers_change_without_rebaselining(scenario):
@@ -155,7 +159,7 @@ def test_financial_rule_uses_one_cache_read_for_multiple_conditions(scenario):
         if statement.lstrip().upper().startswith("SELECT") and "FROM fundamentals_cache" in statement:
             reads.append(statement)
     event.listen(db.bind, "before_cursor_execute", record)
-    try: assert run(0)["initialized"] == 1
+    try: assert run(0, "fmp")["initialized"] == 1
     finally: event.remove(db.bind, "before_cursor_execute", record)
     assert len(reads) == 1
 

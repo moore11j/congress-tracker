@@ -3989,14 +3989,8 @@ def normalize_supported_symbol(db: Session, raw: str | None) -> tuple[str, dict[
         raise HTTPException(status_code=422, detail="Ticker symbol is required.")
     meta = db.get(TickerMeta, symbol)
     security = db.execute(select(Security).where(func.upper(Security.symbol) == symbol)).scalar_one_or_none()
-    fundamentals = (
-        db.execute(
-            select(FundamentalsCache)
-            .where(func.upper(FundamentalsCache.symbol) == symbol)
-            .order_by(desc(FundamentalsCache.fetched_at))
-            .limit(1)
-        ).scalar_one_or_none()
-    )
+    from app.services.fundamentals_cache import cached_fundamentals_by_symbol
+    fundamentals = cached_fundamentals_by_symbol(db, [symbol]).get(symbol)
     quote = db.get(QuoteCache, symbol)
     if not any([meta, security, fundamentals, quote]):
         raise HTTPException(status_code=422, detail=f"{symbol} is not a supported Walnut ticker yet.")
@@ -4042,14 +4036,8 @@ def normalize_comparison_tickers(config: dict[str, Any], *, primary_ticker: str 
 
 
 def _latest_fundamentals(db: Session, symbol: str) -> dict[str, Any] | None:
-    row = (
-        db.execute(
-            select(FundamentalsCache)
-            .where(func.upper(FundamentalsCache.symbol) == symbol)
-            .order_by(desc(FundamentalsCache.fetched_at))
-            .limit(1)
-        ).scalar_one_or_none()
-    )
+    from app.services.fundamentals_cache import cached_fundamentals_by_symbol
+    row = cached_fundamentals_by_symbol(db, [symbol]).get(symbol)
     if not row:
         return None
     return {

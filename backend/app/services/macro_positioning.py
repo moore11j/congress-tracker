@@ -1365,12 +1365,8 @@ def _mapping_for_symbol(db: Session, symbol: str) -> MacroMapping | None:
 def _profile_for_symbol(db: Session, symbol: str) -> dict[str, Any]:
     security = db.execute(select(Security).where(func.upper(Security.symbol) == symbol).limit(1)).scalar_one_or_none()
     meta = db.execute(select(TickerMeta).where(func.upper(TickerMeta.symbol) == symbol).limit(1)).scalar_one_or_none()
-    fundamentals = db.execute(
-        select(FundamentalsCache)
-        .where(func.upper(FundamentalsCache.symbol) == symbol)
-        .order_by(FundamentalsCache.fetched_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    from app.services.fundamentals_cache import cached_fundamentals_by_symbol
+    fundamentals = cached_fundamentals_by_symbol(db, [symbol]).get(symbol)
     return {
         "asset_class": (security.asset_class if security else None) or "Equity",
         "sector": (security.sector if security else None) or (meta.sector if meta else None) or (fundamentals.sector if fundamentals else None),
