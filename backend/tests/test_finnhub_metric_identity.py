@@ -10,7 +10,10 @@ from app.services.finnhub_research import FinnhubUnavailable
 
 NOW = datetime(2026, 10, 11, tzinfo=timezone.utc)
 CASES = [('GOOG', 'GOOGL', '0001652044'), ('BRK.B', 'BRK.A', '0001067983'), ('BRK-B', 'BRK.A', '0001067983'),
-         ('TSM', '2330.TW', '0001046179'), ('CX', 'CEMEXCPO.MX', '0001076378')]
+         ('TSM', '2330.TW', '0001046179'), ('CX', 'CEMEXCPO.MX', '0001076378'),
+         ('ASML', 'ASML.AS', '0000937966'), ('SAP', 'SAP.DE', '0001000184'),
+         ('NVS', 'NOVN.SW', '0001114448'), ('FOX', 'FOXA', '0001754301'),
+         ('FWONK', 'FWONA', '0001560385')]
 
 
 def payload(symbol):
@@ -110,3 +113,19 @@ def test_alphabet_financial_association_requires_alphabet_sec_issuer(cik):
     result = metrics.normalize(payload('GOOGL'), symbol='GOOG', observed_at=NOW)
     with pytest.raises(FinnhubUnavailable, match='issuer_identity_invalid'):
         free.combine(sec('GOOG', cik), result)
+
+
+@pytest.mark.parametrize('requested,reported,cik', CASES[5:])
+def test_new_listing_associations_still_require_matching_sec_cik(requested, reported, cik):
+    result = metrics.normalize(payload(reported), symbol=requested, observed_at=NOW)
+    with pytest.raises(FinnhubUnavailable, match='issuer_identity_invalid'):
+        free.combine(sec(requested, '0000000001'), result)
+
+
+@pytest.mark.parametrize('requested,reported', [
+    ('ASML', 'ASMLF'), ('SAP', 'SAPGF'), ('NVS', 'NVSEF'),
+    ('FOX', 'FOXB'), ('FWONK', 'LLYVA'), ('FWONK', 'LSXMA'), ('FWONK', 'FWONB'),
+])
+def test_related_and_tracking_symbols_are_not_automatically_equivalent(requested, reported):
+    with pytest.raises(FinnhubUnavailable, match='symbol_mismatch'):
+        metrics.normalize(payload(reported), symbol=requested, observed_at=NOW)

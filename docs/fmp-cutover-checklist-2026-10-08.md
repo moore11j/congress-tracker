@@ -1,5 +1,7 @@
 # FMP cutover execution
 
+**October14,17:41UTC:** [PR636 financial consumer isolation](financial-consumer-provider-2026-10-14.md) deployed95acbbdc; six readers follow explicit provider selection, including rollback and missing-source holds. Current full1751-symbol preparation loses367 previously usable financial classifications and gains72. CoreFMP remainsselected.200-rule no-send watchlist replay passes; full fresh scoring/ranking/daily-weekly/monitoring acceptance and final market-pressure cap/profile semantics remain gated.
+
 **2026-10-12, 00:51 UTC: Production institutional preparation passes:** [PR593/f1677a3f and live receipt](institutional-production-preparation-2026-10-12.md) verify20targets/402relevantpeers/12identifiers/38references in19.65CPU/26.66wall seconds and302MB, with read-only access/no source calls.39hashes and under-load feed0.824s/cachedcontexts0.407-0.567s verify; queue drains. This closes preparation measurement only. Publication cost, source coverage and all consumer gates remain; source staysFMP/publicationfalse, no new recurring schedule or capacity.
 
 October 8, 2026. The owner directs: keep going until FMP is off. This is the execution checklist for the existing approved replacement and conditional cutover, not a claim that production is ready. Quiver is excluded. Massive personal Stocks remains the selected price source. Avoid repeated approval requests for work already authorized.
