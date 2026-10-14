@@ -788,6 +788,67 @@ def _check_enrichment_queue_pressure(db: Session) -> Any:
     return check_background_job_guard("enrichment-queue", db=db)
 
 
+def _select_enrichment_jobs(
+    db: Session, *, now: datetime, limit: int,
+    job_type: str | None = None, reason: str | None = None,
+    symbols: list[str] | None = None,
+) -> list[Any]:
+    """Keep priority capacity while making bounded progress across overdue types."""
+    batch_size = max(1, int(limit))
+    filters = [DataEnrichmentJob.status == "queued", DataEnrichmentJob.next_run_at <= now]
+    if job_type:
+        filters.append(DataEnrichmentJob.job_type == job_type)
+    if reason:
+        filters.append(DataEnrichmentJob.reason == reason)
+    if symbols:
+        normalized = sorted({symbol for raw in symbols if (symbol := normalize_symbol(raw))})
+        if normalized:
+            filters.append(DataEnrichmentJob.symbol.in_(normalized))
+    columns = (
+        DataEnrichmentJob.id, DataEnrichmentJob.job_type,
+        DataEnrichmentJob.symbol, DataEnrichmentJob.source,
+    )
+    # next_run_at measures this enqueue/retry, unlike the original creation date
+    # retained when a completed deduplicated job is queued again.
+    priority = db.execute(select(*columns).where(*filters).order_by(
+        DataEnrichmentJob.priority.asc(), DataEnrichmentJob.next_run_at.asc(),
+        DataEnrichmentJob.id.asc(),
+    ).limit(batch_size)).mappings().all()
+    fair_slots = batch_size // 5
+    if not fair_slots or len(priority) < batch_size:
+        return priority
+    overdue = select(
+        *columns, DataEnrichmentJob.next_run_at,
+        func.row_number().over(
+            partition_by=DataEnrichmentJob.job_type,
+            order_by=(DataEnrichmentJob.next_run_at.asc(), DataEnrichmentJob.id.asc()),
+        ).label("type_position"),
+    ).where(*filters, DataEnrichmentJob.next_run_at <= now - timedelta(minutes=30)).subquery()
+    fair = db.execute(select(overdue).order_by(
+        overdue.c.type_position.asc(), overdue.c.next_run_at.asc(), overdue.c.id.asc(),
+    ).limit(fair_slots)).mappings().all()
+    # Interleave rather than append: a deadline or pressure yield must not
+    # consistently discard all overdue work at the end of the batch.
+    streams = (iter(priority), iter(fair))
+    selected: list[Any] = []
+    seen: set[int] = set()
+    def take(stream: Any) -> Any:
+        for row in stream:
+            if row["id"] not in seen:
+                seen.add(row["id"])
+                return row
+        return None
+    for slot in range(batch_size):
+        preferred = 1 if slot % 5 == 4 else 0
+        row = take(streams[preferred])
+        if row is None:
+            row = take(streams[1 - preferred])
+        if row is None:
+            break
+        selected.append(row)
+    return selected
+
+
 def process_data_enrichment_jobs(
     *,
     limit: int = 25,
@@ -817,27 +878,9 @@ def process_data_enrichment_jobs(
         # job is committed independently, and guard checks may also touch the
         # Session. Holding ORM instances across either boundary can detach or expire
         # them before their status transition is persisted.
-        statement = (
-            select(
-                DataEnrichmentJob.id,
-                DataEnrichmentJob.job_type,
-                DataEnrichmentJob.symbol,
-                DataEnrichmentJob.source,
-            )
-            .where(DataEnrichmentJob.status == "queued")
-            .where(DataEnrichmentJob.next_run_at <= now)
-            .order_by(DataEnrichmentJob.priority.asc(), DataEnrichmentJob.created_at.asc(), DataEnrichmentJob.id.asc())
-            .limit(max(1, int(limit)))
+        jobs = _select_enrichment_jobs(
+            db, now=now, limit=limit, job_type=job_type, reason=reason, symbols=symbols,
         )
-        if job_type:
-            statement = statement.where(DataEnrichmentJob.job_type == job_type)
-        if reason:
-            statement = statement.where(DataEnrichmentJob.reason == reason)
-        if symbols:
-            normalized_symbols = sorted({symbol for raw in symbols if (symbol := normalize_symbol(raw))})
-            if normalized_symbols:
-                statement = statement.where(DataEnrichmentJob.symbol.in_(normalized_symbols))
-        jobs = db.execute(statement).mappings().all()
         for index, job_snapshot in enumerate(jobs):
             if deadline is not None and time.monotonic() >= deadline:
                 skipped += len(jobs) - index
