@@ -28,6 +28,8 @@ processes = ["app"]
   COMBINED_SCHEDULER_ENABLED = "true"
   COMBINED_SCHEDULER_MACHINE_ID = "8d1099c53ed378"
   SCHEDULED_JOB_MAX_SECONDS = "1200"
+  # Reuse read-only imports for six isolated data jobs; set 0 for subprocess rollback.
+  SCHEDULED_JOB_PRELOAD_ENABLED = "1"
   ISSUER_TRANSCRIPT_WARMING_ENABLED = "true"
   ISSUER_TRANSCRIPT_DISCOVERY_ENABLED = "1"
   # Reuse the serialized SEC ratio job: at most eight free metrics requests/run.

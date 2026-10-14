@@ -1,5 +1,10 @@
 # Project context log
 
+## 2026-10-14: Scheduled import reuse prepared
+
+Continued authorized performance-first FMP migration after renewed CPU throttling. Added preloaded_jobs.py, scoped scheduler integration, rollback flag and lifecycle tests. Six data jobs retain fresh child state; delivery and scheduling unchanged. Linux32 lifecycle checks plus86 normal/86 forked data tests pass; import CPU57.1718 to5.2783 including preload, exact module-schema parity. Read-only productionPython3.12.15 proves independent child PG identities and zero parent connections; no production mutation. Initial unrelated /proc permission failures repaired; WSL setup and shell quoting corrected before final checks. Not merged/deployed at15:25UTC; productiondd89afda unchanged. Next release/ordinary receipts/memory/sustained latency; Webull630 held, full source/consumer/Massive/FMP/billing gates remain. No new schedule, host cost, provider, subscription or email. [Report](scheduled-import-reuse-2026-10-14.md).
+
+
 ## 2026-10-14: SEC press size-continuation release
 
 At 06:48 UTC, the ordinary enrichment worker completed 120 jobs successfully in 44.84 seconds (10.987 CPU seconds), but ONDS job 22918 remains queued with zero attempts. Read-only aggregate evidence finds 2,952 queued enrichment jobs plus one running quote: 1,300 ticker metadata, 860 CIK metadata, 467 quotes and smaller groups, including 26 press jobs. The earlier empty-queue finding concerned the serialized process queue only; it did not establish an empty database enrichment queue. The public ONDS press response remains unavailable (HTTP 200, 0.701 seconds) pending refresh. No production four-release recovery or full reliability claim is made. Next: verify ordinary SEC earnings rotation and address enrichment queue fairness/capacity without adding load or losing high-priority freshness. Receipts: primary `artifacts/press-size-live-1791960502.json`, `artifacts/press-queue-1791960539.json`, and `artifacts/direct-feeds/free-replacements-2026-10-09/scheduled-job-cpu-1791960488.json`.
