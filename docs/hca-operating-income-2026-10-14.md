@@ -1,6 +1,6 @@
 # HCA SEC operating-income recovery
 
-October 14, 2026. Implemented locally; release verification pending. Public core fundamentals remain FMP.
+October 14, 2026. Deployed through PR640/1752fe1d with exact runtime verification; ordinary HCA refresh pending. Public core fundamentals remain FMP.
 
 HCA reports individual operating expenses without a tagged operating-income subtotal. The free replacement previously supplied only two of the five inputs used by Walnut's fundamentals classification, so that classification was unavailable. Its current-period margin was rounded Finnhub data and its year-over-year margin change was absent.
 
@@ -26,8 +26,18 @@ Four bounded, one-minute-spaced public income-statement requests (TSM, ASML, BRK
 
 ASML's reported trailing operating income disagrees with the sum of the four retrieved quarters by EUR963.3 million; trailing EBITDA differs by EUR1.2921 billion. BRK-B lacks operating income and EBITDA in the capture. TSM quarterly operating income differs from its [original SEC statement](https://www.sec.gov/Archives/edgar/data/1046179/000104617926000541/a2026q2consolidatedreport-.htm) by TWD34.46 million even though Yahoo's own quarter/trailing arithmetic agrees. HCA's value does reconcile to the direct SEC calculation above. Yahoo remains unselected and PR619 remains draft. These findings support recovering issuer data from reviewed originals instead of silently filling gaps from incompatible aggregates.
 
+## Release verification
+
+PR640 source `a99ccac5fc6be38cc6f16a1fb9677f7bc6459aed` merged as `1752fe1d20212be3aa22c4401c82ab9cfe2779d7`. Backend workflow38622068207/job116051831296 completed successfully, including readiness and Premium privacy checks. Thirteen runtime hashes and all five actual source-period derivations match on deployed Python3.12.15, including identical repeats and immutable inputs. Receipt: `artifacts/hca-operating-runtime-1792005367.json`.
+
+The isolated SQLite preparation replay executes the actual source-to-cache pipeline from the three saved files, persists all eight expected SEC fields and returns an identical cached repeat with transport forbidden. No canonical rows are created; no production data or email is touched. Receipt: `artifacts/yahoo-gaps-oct14/hca-cache-replay.json`.
+
+The ordinary19:16 batch completes10 scopes, but HCA still has its prior version in `artifacts/hca-rollout-1792005404.json`. Its normal version refresh remains pending; do not call it live prepared or publicly selected. Public postrelease samples return200: Feed0.542s, Insights1.216s with research present, news0.261s, research0.436s, AAPL2.793s and NVDA2.186s. These are immediate samples, not sustained capacity evidence. Receipt: `artifacts/direct-feeds/free-replacements-2026-10-09/insights-incident-1792005383.json`.
+
+Secret scanning passed. Unchanged frontend dependencies and Pillow still fail audits; no all-CI/full-suite claim. One CI diagnostic request returned502, then the dedicated diagnostics service confirmed terminal success. PR attachment failed because this chat already has100 attachments; the PR itself is created and merged. No source selector, schedule, subscription or host configuration changed.
+
 ## Remaining gates
 
-Deploy this narrow preparation repair, verify exact runtime code and ordinary HCA refresh. Broad financial coverage, actual score/ranking transitions, all alert/digest consumers, institutions, transcripts, sustained workload capacity, final Massive prices and global FMP retirement remain open. No subscription, host-size, video, landing-page or cancellation change.
+Observe ordinary HCA refresh and source-equivalent persisted values. Broad financial coverage, actual score/ranking transitions, all alert/digest consumers, institutions, transcripts, sustained workload capacity, final Massive prices and global FMP retirement remain open. No subscription, host-size, video, landing-page or cancellation change.
 
 Final affected regression suite: 145 passed on Linux Python 3.12.3. Includes integer overflow, missing/zero, identity, currency, prior disposal losses, reported conflicts and cache-version isolation.
