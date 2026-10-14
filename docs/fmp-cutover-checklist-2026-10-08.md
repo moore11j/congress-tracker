@@ -1,3 +1,5 @@
+October14: [Ingestion router isolation](ingest-feed-router-isolation-2026-10-14.md) is prepared with an isolated 15.36% production-runtime import CPU reduction; validation/release/ordinary operation remain pending. No whole-job or sustained-capacity claim; all FMP cutover gates remain.
+
 # FMP cutover execution
 
 October14: [Reviewed NVDA/JNJ statements PR644](reviewed-consolidated-statements-2026-10-14.md) deployed646ad8dc;255 tests,22 source/control cases,14 runtime hashes and exact ordinary NVDA leverage panel verify. JNJ ordinary refresh and future statement review remain pending. Public coreFMP and debt-policy/all-consumer gates remain. CPU credits exhausted at20:18 with renewed throttle20:22; current recovery does not close sustained capacity. Prioritize measured recurring CPU work before further cutover.
