@@ -18,6 +18,7 @@ from app.services.direct_feed_store import (
 from app.services.official_congress import parse_house_disclosure, parse_senate_disclosure
 from app.services.sec_form4 import parse_form4_xml
 from app.utils.symbols import canonical_symbol
+from app.services.sec_index_calendar import confirmed_closure, window_receipt
 
 
 SOURCES = ("sec_directory", "sec_company", "sec_facts", "sec_form4", "sec_13f", "house_ptr", "senate_ptr", "issuer_earnings")
@@ -74,7 +75,7 @@ def discover_sources(db, client, *, sources, start, end, symbols, issuer_registr
     if sec_forms:
         current = start
         while current <= end:
-            if current.weekday() < 5:
+            if current.weekday() < 5 and not confirmed_closure(current):
                 quarter = (current.month - 1) // 3 + 1
                 url = f"https://www.sec.gov/Archives/edgar/daily-index/{current.year}/QTR{quarter}/master.{current:%Y%m%d}.idx"
                 try:
@@ -365,6 +366,8 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
               "pending_documents": sum(row.status == "pending" for row in unresolved),
               "unresolved_documents": len(unresolved), "errors": errors, "public_writes": 0,
               "cutover_ready": False, "fmp_disabled": False}
+    if {'sec_form4', 'sec_13f'} & set(sources):
+        report['sec_index_calendar'] = window_receipt(start, end)
     if senate_client is not None:
         report['senate_discovery'] = senate_client.search_receipt
     if senate_window is not None:
