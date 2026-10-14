@@ -8,3 +8,5 @@ docs/options-activity-*-2026-09-14.md -text
 docs/massive-options-feasibility-2026-09-14.md -text
 
 backend/config/financial_continuity/*.htm -text
+
+backend/tests/fixtures/asml/*.htm -text
