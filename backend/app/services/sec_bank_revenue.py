@@ -5,13 +5,13 @@ BANK_SICS = {'6021', '6022', '6029', '6035', '6036'}
 INTEREST = 'InterestIncomeExpenseNet'
 FEES = 'NoninterestIncome'
 TAG = 'walnut:NetInterestIncomePlusNoninterestIncome'
+CONTRACT_TAGS = frozenset({'RevenueFromContractWithCustomerIncludingAssessedTax',
+    'RevenueFromContractWithCustomerExcludingAssessedTax'})
 BASIS = 'Net interest income before credit-loss provisions plus non-interest income'
 
 
 def apply(records, payload, company, *, available_by):
-    # Never replace a reported total, bypass a conflicting total or combine a
-    # banking denominator with an existing ordinary-revenue concept series.
-    if records.get('revenue') or str((company or {}).get('sic', '')) not in BANK_SICS:
+    if str((company or {}).get('sic', '')) not in BANK_SICS:
         return records
     if str(payload.get('cik', '')).zfill(10) != str(company.get('cik', '')).zfill(10):
         raise sec.SecFundamentalsError('bank_company_identity')
@@ -34,6 +34,28 @@ def apply(records, payload, company, *, available_by):
             'method': 'net_interest_income_plus_noninterest_income', 'basis': BASIS,
             'inputs': [left, right],
         }
+    ordinary = records.get('revenue', {})
+    if ordinary:
+        # A bank's discontinued contract-revenue component must not block its
+        # current complete banking denominator. Never splice those two bases.
+        if any(not row or row.get('tag') not in CONTRACT_TAGS for row in ordinary.values()):
+            return records
+        totals = sec._records(payload, 'revenue', available_by,
+            concepts=tuple(tag for tag in sec.TAGS['revenue'] if tag not in CONTRACT_TAGS))
+        if totals:
+            return records
+        old_end = max(end for _, end in ordinary)
+        end = max(combined, key=lambda key: key[1])[1] if combined else None
+        if (end is None or (available_by-old_end).days <= 380
+                or end <= old_end or not 0 <= (available_by-end).days <= 180
+                or sec._ttm(combined, end) is None):
+            return records
+        selection = {'method': 'complete_bank_basis_replaces_obsolete_contract_component_v1',
+            'superseded_last_period': str(old_end),
+            'superseded_concepts': sorted({row['tag'] for row in ordinary.values()}),
+            'basis_spliced': False}
+        combined = {key: {**row, 'revenue_selection': selection} if row else None
+                    for key, row in combined.items()}
     return {**records, 'revenue': combined}
 
 

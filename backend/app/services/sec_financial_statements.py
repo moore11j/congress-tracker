@@ -178,6 +178,8 @@ def cached_row_payload(row, symbol, *, now=None):
     from app.services import sec_foreign_statements as foreign
     if symbol in foreign.PROFILES and payload.get('preparationVersion') != foreign.VERSION:
         return None
+    if symbol in {'FITB', 'RF', 'EWBC'} and payload.get('preparationVersion') != 'sec_bank_contract_recovery_v1':
+        return None
     if symbol == 'PROV' and payload.get('preparationVersion') != 'sec_statements_prov_bank_v1':
         return None
     if symbol == 'NEE' and payload.get('preparationVersion') != 'sec_statements_nee_inline_v1':
@@ -267,6 +269,8 @@ def prepared(symbol):
         from app.services import sec_foreign_statements as foreign
         if symbol in foreign.PROFILES:
             payload['preparationVersion']=foreign.VERSION
+        if symbol in {'FITB', 'RF', 'EWBC'}:
+            payload['preparationVersion']='sec_bank_contract_recovery_v1'
         if symbol == 'PROV':
             payload['preparationVersion']='sec_statements_prov_bank_v1'
         if symbol == 'NEE':
