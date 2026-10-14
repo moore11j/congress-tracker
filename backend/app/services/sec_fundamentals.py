@@ -274,7 +274,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     from app.services.sec_financial_continuity import record_sets
     from app.services import sec_leverage, sec_parent_income, sec_depreciation_components
     from app.services import sec_parent_statement_income
-    metric_tags = {**TAGS, **sec_leverage.TAGS, **sec_parent_income.TAGS}
+    from app.services.sec_currency_ratios import basis as currency_basis, REVIEW as currency_review
+    native_basis = currency_basis(symbol, cik)
+    currency = native_basis['currency'] if native_basis else 'USD'
+    metric_tags = native_basis['tags'] if native_basis else {**TAGS, **sec_leverage.TAGS, **sec_parent_income.TAGS}
     if symbol in sec_parent_statement_income.SYMBOLS:
         metric_tags.update(sec_parent_statement_income.TAGS)
     from app.services import sec_operating_components
@@ -283,7 +286,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     if sec_depreciation_components.applies(symbol, cik):
         metric_tags.update(sec_depreciation_components.TAGS)
     all_records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement,company=company,
-        metrics={name:(tags, 'USD') for name,tags in metric_tags.items()}, instant_metrics=sec_leverage.INSTANT)
+        metrics={name:(tags, currency) for name,tags in metric_tags.items()}, instant_metrics=sec_leverage.INSTANT)
     all_records, operating_evidence = sec_operating_components.apply(all_records, symbol=symbol, cik=cik)
     all_records, consolidated_income_evidence = sec_parent_income.consolidated_for_leverage(all_records)
     from app.services import sec_statement_income
@@ -319,6 +322,11 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         "instant": {}, "calculations": {}, "limitations": ["USD US GAAP standard concepts only",
             "No consensus estimates, EBITDA/debt proxies, or inferred per-share inputs",
             "SIC is not mapped to vendor sectors; exchange comes from SEC company metadata"]}
+    if native_basis:
+        evidence['reporting_currency'] = currency
+        evidence['reviewed_currency_basis'] = dict(currency_review)
+        evidence['limitations'][0] = currency+' US GAAP standard concepts under the reviewed issuer policy'
+        evidence['limitations'].append('Only dimensionless ratios are published; no FX conversion or USD cash amounts.')
     from app.services.sec_reporting_policy import reviewed
     reporting_policy = reviewed(symbol, cik)
     if reporting_policy:
@@ -388,11 +396,20 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     old_cash, old_capex = val("operating_cash_flow", True), val("capex", True)
     fcf = cash - capex if cash is not None and capex is not None and capex >= 0 else None
     old_fcf = old_cash - old_capex if old_cash is not None and old_capex is not None and old_capex >= 0 else None
-    save("free_cash_flow", fcf, "TTM operating cash flow minus TTM cash paid for property, plant and equipment")
+    if currency == 'USD':
+        save("free_cash_flow", fcf, "TTM operating cash flow minus TTM cash paid for property, plant and equipment")
+    else:
+        evidence['native_cash_flow'] = {'currency': currency, 'current': fcf, 'prior': old_fcf,
+            'formula': 'TTM operating cash flow minus TTM cash paid for property, plant and equipment',
+            'canonical_usd_amount_available': False}
     save("fcf_margin", ratio(fcf, val("revenue"), 100), "TTM free cash flow / TTM revenue * 100")
     fcf_growth = ratio(fcf, old_fcf, 100)
     save("fcf_growth", fcf_growth - 100 if fcf_growth is not None else None, "(TTM free cash flow / prior TTM free cash flow - 1) * 100")
     evidence["leverage_preparation"] = sec_leverage.project(all_records, end=end, start=reference_start)
+    if native_basis:
+        evidence['leverage_preparation']['reporting_currency'] = currency
+        evidence['leverage_preparation']['currency_policy'] = 'Non-USD leverage is not prepared by this ratios adapter.'
+        evidence['leverage_preparation']['ebitda']['unit'] = currency
     evidence['leverage_preparation']['income_reconciliation'] = consolidated_income_evidence
     if statement_income_evidence is not None:
         evidence['leverage_preparation']['statement_income_reconciliation'] = statement_income_evidence

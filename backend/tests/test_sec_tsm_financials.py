@@ -135,7 +135,11 @@ def test_market_cap_never_uses_unconverted_foreign_amounts(monkeypatch,currency)
     from types import SimpleNamespace
     data=bundle(monkeypatch);financial=project(data)
     evidence=json.loads(financial['source_evidence_json']);evidence['reporting_currency']=currency
-    # Synthetic absolute amounts exercise all three currency-sensitive formulas.
+    # Synthetic absolute amounts isolate currency-sensitive formulas. Common
+    # income now requires its own verified source; parent income is not a proxy.
+    from app.services import sec_common_income
+    monkeypatch.setattr(sec_common_income,'resolve',lambda *a,**k:
+        {'status':'available','point':{'value':100}})
     evidence['current']['net_income']={'value':100}
     financial['free_cash_flow']=50
     financial['source_evidence_json']=json.dumps(evidence)
