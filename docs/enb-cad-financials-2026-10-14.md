@@ -62,3 +62,8 @@ Current SPCX June30 original is also retained: https://www.sec.gov/Archives/edga
 
 
 At22:36:55 the next ordinary batch is terminal and its lease is cleared. It completed10 SEC scopes and8 metric scopes, reusing eight valid preparations from the interrupted run and finishing two more; the partial exit1 corresponds to explicit unsupported-source results, not a scheduler crash. There were21 due scopes and the batch advanced through ECF to EHAB. ENB remains due with the old attempted version and its original22:38:19 freshness deadline; it was outside this batch's first ten. Receipt artifacts/coverage-gaps-oct14/ENB-rotation-1792017415.json. Ordinary recovery is proven; ENB's eight stored values are not yet verified. No additional batch was manually triggered. All new local tool handles are terminal.
+
+
+## Ordinary preparation verified, 22:46 UTC
+
+The normal22:46 batch reached ENB. Stored preparation at22:46:03.447616UTC uses sec_ratio_preparation_v5_sec_cad_ratios_v1 and all eight values exactly equal the original-source replay. Current/prior/instant points, native cash-flow evidence and reviewed currency proof also match exactly. Read-only receipt artifacts/coverage-gaps-oct14/ENB-ordinary-1792017967.json, observed22:46:07. No forced refresh, production write or source request was used for verification. This closes ENB ordinary propagation only; full coverage, all consumers and sustained capacity remain open.

@@ -42,16 +42,38 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
     metrics = metrics or {name:(tags,'USD') for name,tags in sec.TAGS.items()}
     instant_names = sec.INSTANT | set(instant_metrics)
     from app.services import sec_inline_financials as inline
-    effective = inline.merge(payload,filing_supplement,available_by=available_by)
+    if filing_supplement and 'registration_error' in filing_supplement:
+        from app.services.sec_registration_history import RegistrationHistoryError
+        raise RegistrationHistoryError(filing_supplement['registration_error'])
     from app.services.sec_reporting_policy import forms_for
     forms = forms_for(symbol, cik)
+    registration_proof = None
+    if filing_supplement and filing_supplement.get('evidence', {}).get('methodology') == 'sec_spcx_registration_v1':
+        from app.services import sec_registration_history as registration
+        if symbol != registration.SYMBOL or str(cik).zfill(10) != registration.CIK:
+            raise registration.RegistrationHistoryError('registration_supplement_wrong_issuer')
+        if company is not None:
+            registration.validate_company(company,symbol=symbol,cik=cik,observed_at=observed_at)
+        registration_proof = registration.validate_bridge(payload,filing_supplement,available_by=available_by)
+    effective = payload if registration_proof else inline.merge(payload,filing_supplement,available_by=available_by)
     current = {name:sec._records(effective,'equity' if name in instant_names else name,available_by,concepts=tags,unit=unit,forms=forms)
                for name,(tags,unit) in metrics.items()}
+    if registration_proof:
+        # Scope registration-form acceptance to the parsed, hash-bound original,
+        # never to arbitrary registration facts in the company's XBRL feed.
+        supplement_payload = {'facts':{'us-gaap':filing_supplement['facts']}}
+        for name,(tags,unit) in metrics.items():
+            additions = sec._records(supplement_payload,'equity' if name in instant_names else name,
+                available_by,concepts=tags,unit=unit,forms={'424B4'})
+            present_tags = {p['tag'] for p in current[name].values() if p}
+            for key,point in additions.items():
+                if key not in current[name] and point and (not present_tags or point['tag'] in present_tags):
+                    current[name][key] = point
     inline.annotate(current,filing_supplement,metrics=metrics)
     from app.services.sec_bank_revenue import apply
     current = apply(current,effective,company,available_by=available_by)
     if history_raw is None:
-        return current, None
+        return current, registration_proof
     if (not applies(symbol,cik) or str(payload.get('cik','')).zfill(10) != CURRENT_CIK
             or observed_at.tzinfo is None or observed_at < REVIEWED_AT
             or available_by < date(2026,8,3)):

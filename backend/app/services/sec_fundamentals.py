@@ -346,6 +346,9 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         evidence['limitations'].append('Bank revenue uses a derived net-interest basis, not gross interest income')
     if continuity is not None:
         evidence['financial_continuity'] = continuity
+        if continuity.get('methodology') == 'sec_spcx_registration_v1':
+            evidence['limitations'].extend(continuity['limitations'])
+            evidence['limitations'].append('Historical amounts mapped from reviewed USD GAAP statement labels, with the original registration form retained; cash flow uses CFO minus reported PPE cash purchases, not issuer-adjusted FCF.')
     if filing_supplement is not None:
         evidence['inline_filing_supplement'] = filing_supplement['evidence']
     exchanges = company.get("exchanges", [])
