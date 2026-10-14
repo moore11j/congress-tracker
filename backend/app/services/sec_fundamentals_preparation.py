@@ -20,6 +20,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
+    from app.services.sec_reporting_policy import PROFILES, VERSION as reporting_version
+    if symbol in PROFILES:
+        return VERSION+'_'+reporting_version
     if symbol in ISSUER_PROFILES:
         return VERSION+'_issuer_release_v1'
     if symbol == 'PROV':

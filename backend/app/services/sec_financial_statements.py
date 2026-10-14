@@ -59,6 +59,8 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     metrics['eps']=(('EarningsPerShareDiluted',),'USD/shares')
     records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,filing_supplement=filing_supplement,company=company)
     eps_records=records.pop('eps')
+    from app.services.sec_reporting_policy import reviewed
+    reporting_policy = reviewed(symbol, cik)
     annual, quarters = set(), set()
     for (start, end), value in records['revenue'].items():
         if not value or not start:
@@ -107,6 +109,14 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             'factsSha256': hashlib.sha256(facts_raw).hexdigest(), 'companySha256': hashlib.sha256(company_raw).hexdigest(),
             'factsUrl': f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',
             'availabilityBasis': 'Current view uses latest filed facts available after completed New York filing day; not a historical tradable snapshot.'})
+    if reporting_policy:
+        payload['preparationVersion'] = reporting_policy['version']
+        payload['sourceEvidence']['reviewedReportingPolicy'] = reporting_policy
+        payload['reportingCurrency'] = 'USD'
+        payload['reportingBasis'] = ('Reported consolidated USD US GAAP financials from reviewed 20-F and quarterly 6-K filings. '
+            'Free cash flow subtracts property and equipment purchases only, excluding separately reported intangible purchases and financing payments. '
+            'Diluted EPS is reported per ordinary share without an inferred ADS conversion. Analyst estimates remain unavailable.')
+        payload['message'] = payload['reportingBasis']
     from app.services.sec_bank_revenue import basis
     revenue_basis = basis(records)
     if revenue_basis:
@@ -161,6 +171,9 @@ def cached_row_payload(row, symbol, *, now=None):
     except (TypeError, ValueError):
         return None
     if not isinstance(payload, dict) or payload.get('source') != 'sec_edgar' or payload.get('symbol') != symbol:
+        return None
+    from app.services.sec_reporting_policy import PROFILES, VERSION as reporting_version
+    if symbol in PROFILES and payload.get('preparationVersion') != reporting_version:
         return None
     from app.services import sec_foreign_statements as foreign
     if symbol in foreign.PROFILES and payload.get('preparationVersion') != foreign.VERSION:
@@ -248,6 +261,9 @@ def prepared(symbol):
                 else:
                     filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
                 payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
+        from app.services.sec_reporting_policy import PROFILES, VERSION as reporting_version
+        if symbol in PROFILES:
+            payload['preparationVersion'] = reporting_version
         from app.services import sec_foreign_statements as foreign
         if symbol in foreign.PROFILES:
             payload['preparationVersion']=foreign.VERSION
