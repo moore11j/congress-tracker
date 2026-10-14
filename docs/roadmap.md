@@ -1,3 +1,5 @@
+October14: [ENB CAD PR648](enb-cad-financials-2026-10-14.md) deployed b2c3dd5b;363 checks,14 runtime hashes,34 original input matches and exact eight-ratio reproduction pass. Ordinary ENB propagation pending; public coreFMP and all wider cutover gates remain. SPCX annual/current originals captured, continuity review not complete.
+
 October14: [ENB CAD ratios](enb-cad-financials-2026-10-14.md) implemented locally;363 checks,34 original input matches,20 unchanged controls and no-false-alert replay pass. Eight ratios restore classification inputs, but deployment and ordinary operation remain pending; coreFMP and all original cutover gates remain.
 
 October14: [Common-income PR647](common-equity-income-2026-10-14.md) is deployed972fdb22;383 checks,15 runtime hashes,20 unchanged core controls and no-false-alert replay verify. Ordinary FLEX/FOX/JEF parent propagation is proven. Broader valuation coverage and all original cutover gates remain; public coreFMP unchanged.
