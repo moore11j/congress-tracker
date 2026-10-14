@@ -1,3 +1,5 @@
+October14,16:38UTC: [Arm SEC financials](arm-sec-financials-2026-10-14.md) PR633/4bd31ce3 deployed;161 focused tests,18 runtime hashes, ordinary five-year/12-quarter public recovery and exact repeat verified. Separate core preparation still awaits rotation; broader coverage, sustained capacity, all consumers and finalMassive/globalFMP/billing remain gates.
+
 October14,16:13UTC: [SEC calendar repair](sec-index-calendar-2026-10-14.md) PR632/9ec6b4d7 deployed,13 runtime hashes verified; ordinary16:47 collection still pending. This supersedes the earlier not-repaired status below. Remaining coverage/consumer/capacity/Massive/globalFMP gates unchanged.
 
 October14,16:00UTC: [Webull annual coverage](webull-sec-annual-2026-10-14.md) PR630/9d7280e1 deployed and ordinary four-year public response/repeat verified. Current cached audit1098usableSEC/1192combined is presence only. SEC October12index403 aligns with official EDGAR closure, but calendar handling is not yet repaired. Sustainedcapacity and core/institutional/transcript/allconsumer/finalMassive/globalFMP/billing gates remain.

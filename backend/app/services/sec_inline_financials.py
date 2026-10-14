@@ -13,6 +13,7 @@ from app.services.sec_fundamentals import SecFundamentalsError
 VERSION = 'sec_inline_standard_facts_v1'
 FORMS = {'10-Q', '10-K', '10-Q/A', '10-K/A'}
 MAX_INLINE_BYTES = 20_000_000
+LEGACY_TRR = 'http://www.xbrl.org/inlineXBRL/transformation/2015-02-26'
 TRR = {'http://www.xbrl.org/inlineXBRL/transformation/2020-02-12',
        'http://www.xbrl.org/inlineXBRL/transformation/2022-02-16'}
 
@@ -30,7 +31,14 @@ def _number(node, tree):
     transform = node.get('format')
     if transform:
         prefix, _, local = transform.partition(':')
-        if tree.get('xmlns:'+prefix) not in TRR:
+        namespace = tree.get('xmlns:'+prefix)
+        if namespace == LEGACY_TRR and local == 'numdotdecimal':
+            # TRR 3 dot-decimal uses commas or spaces as grouping separators.
+            if not re.fullmatch(r'(?:[0-9]+|[0-9]{1,3}(?:[, \u00a0][0-9]{3})+)(?:\.[0-9]+)?', value):
+                raise InlineFactsError('unsupported_numeric_format')
+            value = value.replace(' ', '').replace('\u00a0', '')
+            local = 'num-dot-decimal'
+        elif namespace not in TRR:
             raise InlineFactsError('unsupported_numeric_namespace')
     else:
         local = None
@@ -103,8 +111,12 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
             or tree.get('xmlns:xbrli') != 'http://www.xbrl.org/2003/instance'
             or tree.get('xmlns:iso4217') != 'http://www.xbrl.org/2003/iso4217'):
         raise InlineFactsError('filing_namespaces')
+    # Additional aliases (for example a local xlink prefix) do not alter the
+    # fixed root prefixes used by this reader. Rebinding any root prefix does.
+    # Transforms still require an explicitly trusted root namespace.
     for n in tree.iter():
-        if any(value != tree.get(name) for name, value in n.attrib.items() if name.startswith('xmlns:')):
+        if any(value != tree.get(name) for name, value in n.attrib.items()
+               if name.startswith('xmlns:') and name in tree.attrib):
             raise InlineFactsError('namespace_redefinition')
     cik = str(cik).zfill(10)
     contexts = {}
@@ -143,7 +155,10 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
             transform = n.get('format')
             if transform:
                 prefix, _, local = transform.partition(':')
-                if tree.get('xmlns:'+prefix) not in TRR:
+                date_namespace = tree.get('xmlns:'+prefix)
+                if date_namespace == LEGACY_TRR and local == 'datemonthdayyearen':
+                    local = 'date-monthname-day-year-en'
+                elif date_namespace not in TRR:
                     raise InlineFactsError('unsupported_report_date')
                 if local == 'date-monthname-day-year-en':
                     value = str(datetime.strptime(value, '%B %d, %Y').date())

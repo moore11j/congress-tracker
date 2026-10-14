@@ -27,3 +27,8 @@ Release and ordinary production observation remain pending at this checkpoint. F
 PR632 headfb991602 merged as9ec6b4d727fee0ef9394f8a085952add7c132335. Required CI tool confirms backend workflow38595666178/job115961644321 completed successfully. Runtime receipt calendar-runtime-1791994363.json verifies13 normalized hashes and the deployed October9-13 calendar projection: requests October9/13, skips the reviewed October12 closure and weekend. Process queue is empty at16:12:43; this is not enrichment-backlog or sustained-capacity proof. Ordinary16:47 collector observation remains pending. No deployment was repeated during recovery.
 
 Exact-head CI had unchanged Pillow and frontend dependency-audit failures, with secret/Vercel success; no full-suite or full-CI pass claimed. Prior cached inventory confirms October13 was collected despite holiday errors, with separate canonical reconciliation/amendment/ownership holds remaining. Review2027 official calendar before year end. FMP stays enabled and remaining migration gates are unchanged.
+
+
+## Ordinary collection verified, October14 at16:47 UTC
+
+Production run480 completes at16:47:07 with zero source errors. The deployed calendar requests October7/8/9/13, skips only the reviewed October12 closure and the October10/11 weekend, with no unreviewed years. Discovery remains666 institutional and1,462 insider entries, exactly matching preceding run476. Existing1,629 unresolved documents remain explicit; zero public writes. Receipt `collector-calendar-1791996768.json` supersedes the pending ordinary-run gate, not broader source/publication readiness.
