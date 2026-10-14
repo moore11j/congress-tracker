@@ -1,6 +1,6 @@
 # Debt subtotal and lease reconciliation
 
-October 14, 2026. Implemented and locally verified; release verification is pending. Public core fundamentals remains FMP.
+October 14, 2026. Deployed and runtime/ordinary propagation verified through PR639 (`6b2f680d`). Public core fundamentals remains FMP.
 
 ## Source findings
 
@@ -25,6 +25,14 @@ A separate 22-company original-source replay verifies every source hash, unchang
 
 Evidence: `leverage-universe-1792003058.json` (SHA256 `7a56292abcf52daa80fe2860749d5170fc939ef56e4c0caf9cbe531eac55b68d`), `debt-representations-replay-oct14.json`, `debt-originals-replay-oct14.json`, and `debt-representation-fixtures-oct14.json` in the primary artifacts directories. Initial optional BeautifulSoup inspection was unavailable; lxml and the web reader completed original-table inspection. No dependency was installed.
 
+## Release and ordinary operation
+
+PR639 source `d8c74e88` merged as `6b2f680d`; backend workflow38618338377/job116039102020 completed successfully. At18:52:47UTC twelve runtime hashes match and both actual GT/SON prepared fixtures produce exactly two candidates with identical repeats on Python3.12.15. Transport was prohibited and no production writes or emails occurred. Receipt: `artifacts/debt-representations-runtime-1792003967.json`.
+
+The ordinary18:51 preparation run completes10 SEC scopes and8 metric scopes. Five newly prepared leverage panels use v5 (BETR, BEN, BEEP, BDX, BCPC); other scopes retain explicit coverage holds. This verifies ordinary version propagation, not GT/SON-specific unattended refresh or complete replacement coverage. Receipt: `artifacts/debt-rollout-1792003983.json`. Core remains FMP and institutional publication remains false. Existing v4 entries rotate normally; no forced universe refresh.
+
+Secret scanning passed; audits still fail on unchanged frontend dependencies and Pillow. No full-suite/all-CI success is claimed. The owner's Codex remote429 request was recovered with current execution and normal usage allowed (50% weekly consumed); its historical cause and permanent repair remain unverified. No new deployment was dispatched during recovery.
+
 ## Remaining gates
 
-Deploy and verify the exact repair, then observe ordinary preparation of v5. Existing v4 caches retain their version until normal refresh; no broad forced update is required. Correct debt alternatives do not establish complete EBITDA semantics or select the final public ratio policy. Broader financial coverage, scores/rankings/all alerts, institutions, transcripts, sustained heavy-workload capacity, final Massive, zero global FMP requests and billing cancellation remain open. No host, schedule, subscription, public provider, landing-page or video change.
+Observe issuer-specific GT/SON ordinary refresh and broader v5 rotation. Existing v4 caches retain their version until normal refresh; no broad forced update is required. Correct debt alternatives do not establish complete EBITDA semantics or select the final public ratio policy. Broader financial coverage, scores/rankings/all alerts, institutions, transcripts, sustained heavy-workload capacity, final Massive, zero global FMP requests and billing cancellation remain open. No host, schedule, subscription, public provider, landing-page or video change.
