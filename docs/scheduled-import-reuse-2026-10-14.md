@@ -37,3 +37,20 @@ The bounded 600-second log observer completed. Filtering out initial buffered re
 At 15:50 the news receipt completes 23/23 scopes with all 42 company caches fresh. Reference completes two reused scopes with explicit broader pending/deferred coverage. Research completes 20 scopes (15 partial, five unavailable). Source preparation has zero canonical writes/emails. The 15:50 CPU credit balance is 4,391.8, up from 3,488.8 at 15:40, with zero sampled throttling; the short interval does not prove sustained capacity. Public Feed/Insights are 0.395/0.467 seconds, research present, AAPL/NVDA contexts 2.790/2.416 seconds. Host sizes and schedules are unchanged.
 
 Evidence: remaining-workload-1791993121.json, preload-receipts-1791993014.json, cpu-quota-1791993029.json and insights-incident-1791993030.json under the primary artifacts paths. The observer is terminal, not a new recurring monitor. Inspection confirms run_ai_growth_campaigns performs article-reactive and X campaign work, so it must not be disabled on the assumption it is a video-only worker. No further optimization or schedule change applied in this observation.
+
+
+## October 14 ordinary workload observation after PR638
+
+2026-10-14,18:36 UTC: Completed the bounded workload observation on unchanged production5e848e02. The fully enclosed18:26-18:35UTC interval contains33 completed jobs/42.2670CPU seconds, excluding API/supervisor/enqueue CPU and jobs finishing outside the interval. CPU balance recovers4832.5 to5910.5 between18:26 and18:35UTC; two-hour sampled throttling is zero, but releases/diagnostics and the short ordinary interval prevent a full-day capacity conclusion. Public18:33 reads: Feed0.604s/Insights0.391s with research present, AAPL2.227s/NVDA2.306s, all200. News23/23 and42fresh caches, five earnings scopes and ordinary metadata/fundamentals receipts verify; institutions950scope preparation remains partial/publicationoff and coreFMP remains selected. No application change, deployment, host/schedule/source change or validation email. All local observer/probe handles terminal; no localPG. This is additional operating evidence, not a new capability or completed migration. Financial definitions/coverage, sustained heavy-workload capacity, institutions/transcripts/all consumers, finalMassive/globalFMP/billing remain gates; goalactive.
+
+The observer started around18:25UTC and ran for600seconds. Initial buffered log rows are excluded using the fully enclosed nine-minute interval above. The largest completed commands were:
+
+- `cd /app && sh /app/scripts/run_enrichment_queue.sh`: 1 completed, 11.6115 CPU seconds; exit codes {'0': 1}.
+- `cd /app && sh /app/scripts/run_watchlist_price_alerts.sh`: 1 completed, 3.6692 CPU seconds; exit codes {'0': 1}.
+- `cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh`: 1 completed, 3.2303 CPU seconds; exit codes {'0': 1}.
+- `cd /app && DIRECT_CONGRESS_PUBLICATION_ENABLED=true python -m app.jobs.publish_direct_congress --feed house_ptr --directory /app/config/congress_members_2026_10_08.json --directory-sha256 348aefcf00ec37b3dbb2c01ce7cdc5ada8965b567594cec5275b423b123c407b --limit 100 --retry-held`: 1 completed, 3.1207 CPU seconds; exit codes {'1': 1}.
+- `cd /app && python -m app.jobs.warm_sec_fundamentals`: 2 completed, 3.0595 CPU seconds; exit codes {'1': 2}.
+
+Exit1 on partial preparation is not by itself evidence of a crash. Source receipts preserve missing/partial results and zero canonical writes/emails. The 18:24 eight-second process sample was mostly idle and cannot attribute workload peaks. No causal saving is inferred from differing job inputs, deployments or diagnostic activity. Keep alert schedules and data coverage intact; subsequent optimization needs measured work and equivalent consumer behavior.
+
+Evidence: `remaining-workload-1792002935.json`, `remaining-workload-summary-oct14.json`, `cpu-quota-1792002929.json`, `source-receipts-1792002804.json`, `process-load-1792002299.json`, `insights-incident-1792002811.json` in the primary artifacts directories. No application tests rerun for this read-only observation/documentation update.

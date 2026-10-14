@@ -6,7 +6,7 @@ until coverage and the score/alert transition have been validated.
 from datetime import date
 import math
 
-VERSION = 'sec_leverage_evidence_v4'
+VERSION = 'sec_leverage_evidence_v5'
 DURATION = {
     'leverage_net_income': ('NetIncomeLoss',),
     'leverage_tax': ('IncomeTaxExpenseBenefit',),
@@ -186,9 +186,53 @@ def _debt_bounds(instant):
             holds[name] = {'status':'aggregate_below_reported_component',
                 'reported_aggregate':total, 'contradictions':contradictions,
                 'requirement':'A same-filing reported total must include each compatible nonnegative component.'}
+    # Current and noncurrent obligations are disjoint. A tagged total can be
+    # larger than either component yet still omit short-term borrowings (GT).
+    name = 'leverage_debt_with_finance_leases'
+    names = ('leverage_current_debt', 'leverage_noncurrent_debt_with_finance_leases')
+    total = instant.get(name)
+    parts = [instant.get(key) for key in names]
+    if (total and all(parts) and _compatible([total, *parts])
+            and all(_finite(f['value']) and f['value'] >= 0 for f in [total, *parts])):
+        value = sum(f['value'] for f in parts)
+        if (_finite(value) and value > total['value']
+                and not math.isclose(value, total['value'], rel_tol=1e-12, abs_tol=.01)):
+            hold = holds.setdefault(name, {'status': 'aggregate_below_reported_component',
+                'reported_aggregate': total, 'contradictions': [],
+                'requirement': 'A total must cover compatible, disjoint current and noncurrent obligations.'})
+            hold['contradictions'].append({'components': list(names), 'reported': parts, 'sum': value})
     for name in holds:
         instant[name] = None
     return holds
+
+
+def _debt_addition_checks(instant):
+    """Reject lease additions contradicted by a compatible inclusive total.
+
+    Some issuers tag finance-inclusive balance-sheet debt as borrowings too
+    (SON). The generic taxonomy label cannot prove those inputs are disjoint.
+    Keep the independent reported total; never resolve a mismatch by choosing
+    whichever amount is larger or by subtracting an inferred lease balance.
+    """
+    results = {}
+    for total_name, names in (
+        ('leverage_debt_with_finance_leases', ('leverage_borrowings', 'leverage_finance_leases')),
+        ('leverage_noncurrent_debt_with_finance_leases',
+         ('leverage_noncurrent_borrowings', 'leverage_finance_leases_noncurrent')),
+    ):
+        total = instant.get(total_name)
+        parts = [instant.get(name) for name in names]
+        if (not total or not all(parts) or not _compatible([total, *parts])
+                or any(not _finite(f['value']) or f['value'] < 0 for f in [total, *parts])):
+            continue
+        value = sum(f['value'] for f in parts)
+        results[names[0]] = {'status': 'reported_total_verified' if _finite(value)
+            and math.isclose(value, total['value'], rel_tol=1e-12, abs_tol=.01)
+            else 'conflicting_debt_addition',
+            'reported_total': total, 'components': list(names), 'inputs': parts,
+            'sum': value if _finite(value) else None,
+            'requirement': 'Borrowings and added finance leases must reconcile to the compatible reported finance-inclusive total.'}
+    return results
 
 
 def project(records, *, end, start):
@@ -199,6 +243,7 @@ def project(records, *, end, start):
     instant = {name: records.get(name, {}).get((None, end)) for name in INSTANT}
     reconciliations = _lease_totals(instant)
     debt_reconciliations = _debt_bounds(instant)
+    addition_checks = _debt_addition_checks(instant)
     candidates = []
     holds = {}
 
@@ -215,6 +260,10 @@ def project(records, *, end, start):
         if missing:
             holds[basis] = {'reason': 'missing_reported_components', 'components': missing}
             return
+        for check in addition_checks.values():
+            if check['status'] == 'conflicting_debt_addition' and set(check['components']) <= set(names):
+                holds[basis] = {'reason': 'conflicting_debt_addition', 'reconciliation': check}
+                return
         if not _compatible([*facts, cash]):
             holds[basis] = {'reason': 'incompatible_balance_sheet_components'}
             return
@@ -271,6 +320,7 @@ def project(records, *, end, start):
         'Reported borrowings plus finance and operating leases less cash; requires overlap review before selection.')
     return {'version': VERSION, 'status': 'preparation_only', 'period_date': str(end),
         'ebitda': ebitda, 'candidates': candidates, 'holds': holds, 'lease_reconciliations': reconciliations, 'debt_reconciliations': debt_reconciliations,
+        'debt_addition_reconciliations': addition_checks,
         'limitations': ['No candidate is selected as the canonical net-debt/EBITDA field.',
             'Missing debt, lease, interest or D&A components are not assumed zero.',
             'Issuer-adjusted EBITDA and D&A including other items are not substituted.',
