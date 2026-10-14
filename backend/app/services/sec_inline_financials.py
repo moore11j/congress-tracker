@@ -270,6 +270,12 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
 
 
 def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
+    if symbol == 'SPCX':
+        from app.services import sec_registration_history as registration
+        try:
+            return registration.acquire(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
+        except registration.RegistrationHistoryError as exc:
+            return {'registration_error':str(exc)}
     if symbol == 'ASML':
         from app.services import sec_asml_financials as asml
         try:

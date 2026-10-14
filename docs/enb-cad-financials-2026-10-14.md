@@ -23,9 +23,9 @@ All 34 selected current/prior/instant input observations match the appropriate c
 
 The eight ratios are operating margin13.3332%, net margin7.3385%, revenue growth29.4896%, operating margin change minus3.1471percentage points, current ratio0.7210, ROE9.3687%, FCF margin1.9978% and FCF growth minus67.4537%. These are the existing Walnut definitions using reported CAD amounts, not promises of exact vendor-definition equivalence.
 
-## Validation and release state
+## Pre-release validation
 
-Release candidate, not yet deployed. Final363 selected checks pass on Linux Python3.12.3 after correcting the obsolete synthetic TSM common-income fixture. The complete original/cache/alert/control replay passes on both Windows3.14.2 and Linux3.12.3. One earlier command referenced a nonexistent test filename and ran no tests; it is not counted.
+Before deployment, final363 selected checks pass on Linux Python3.12.3 after correcting the obsolete synthetic TSM common-income fixture. The complete original/cache/alert/control replay passes on both Windows3.14.2 and Linux3.12.3. One earlier command referenced a nonexistent test filename and ran no tests; it is not counted.
 
 Complete-original replay on Windows Python3.14.2 passes: four documents,34 matched inputs, simulated companyfacts lag filled from the actual current inline original, isolated SQLite exact persistence/cache repeat and zero canonical cache writes during preparation. The real summary and confirmation-source conversion obtains three scored inputs and available classification from SEC alone. The actual watchlist evaluator creates zero alerts when the optional metrics become available, zero repeat duplicates, zero rollback alerts and exactly one later synthetic threshold alert. No email or production writes. Twenty dated full-source controls preserve complete output against972fdb22 with identical repeats. Receipt: artifacts/coverage-gaps-oct14/ENB-full-replay.json. Historical controls and simulated lag are not whole-universe or future scheduled validation.
 
@@ -40,3 +40,30 @@ Ten leading coverage-gap source pairs and the official directory are retained. M
 Pre-release public samples22:22UTC all200:Feed0.360s,Insights0.661s with research,news0.290s,research0.460s,AAPL2.549s,NVDA2.199s. Current CPU throttle0 and balance11,533; earlier20:22 throttling remains in two-hour history, and balance has declined since the prior release. Sustained capacity remains unproven. Receipts insights-incident-1792016550.json and cpu-quota-1792016549.json under artifacts/direct-feeds/free-replacements-2026-10-09. These samples do not establish all data coverage.
 
 Next: final checks/review, exact release and ordinary ENB refresh, then remaining financial coverage/definitions, institutions/transcripts, every ranking/digest/alert consumer and sustained capacity. Massive subscription/price validation remains the final paid step. Global zero-FMP traffic and cancellation/access-end confirmation remain required. No subscription, customer email, video, landing change or cancellation.
+
+
+## Production release, 22:32 UTC
+
+PR648 source91211240d0482c1128edb92fc4da3d91aa45423f merged as b2c3dd5bd8f4da2013e5c222e8b49c035d14d1e2. Backend workflow38648048917/job116139732746 is terminal success. Fourteen normalized runtime hashes and exact compact original current/prior/instant points, all eight ratios and identical repeats verify on production Python3.12.15 with network prohibited and no production writes. Receipt artifacts/coverage-gaps-oct14/ENB-runtime-1792017109.json. Full original parsing remains the separately verified offline replay.
+
+The exact backend image and unchanged API shared2/2048MB and DB performance1/2048MB are verified by artifacts/preload-receipts-1792017138.json. FMP core/prices and institutional publicationfalse remain unchanged. Stored news23/23 and earnings5/5 succeed; institutional reference950scopes remains truncated/partial, research17partial/3unavailable. Stored run times are not proof every receipt ran after deployment.
+
+Postrelease public reads all200: Feed0.512s, Insights0.868s with research, news0.256s/12items, research0.478s/44items, AAPL2.899s/NVDA2.544s. Receipt insights-incident-1792017136.json. These are samples, not sustained-capacity or complete-data proof. The old hardcoded release comparison in that probe is ignored; image and hashes are separately verified.
+
+First two ordinary ENB checks at22:31:56 and22:32:42 retain the prior unavailable02:38 preparation, so ordinary propagation remains pending. The scheduler database reports the22:31 fundamentals job terminated with exit minus15 during the deployment; it is terminal, not a live process. The existing boot/process-aware lease logic permits the next ordinary run to recover without manually clearing state. No forced refresh or duplicate deployment was started.
+
+CI38647890665 secret scan succeeds. Inspected frontend audit still reports five unchanged production dependency groups (four high/one critical); backend Pillow10.4.0 still lists33 advisory rows. Dependency manifests are unchanged. No clean full-suite or dependency-audit claim. A job-log read returned502; the same deployment's run-level diagnostics subsequently confirmed success. The PR attachment attempt hit the chat's100-identity limit; existing attachments were preserved.
+
+## Next original-source investigation
+
+The Space Exploration Technologies SPCX prospectus is retained as one bounded public read: [June12 424B4](https://www.sec.gov/Archives/edgar/data/1181412/000162828026042639/spaceexplorationtechnologi.htm),11,954,086bytes,sha256782a77c750517fde51c274def5753456d63e4aba186248e7341bc6970c3dce01. It contains audited2025/2024/2023 financial tables but no selected inline US GAAP income tags. The prospectus explicitly combines xAI and X as common-control entities and describes a five-for-one share split. Current companyfacts comparative interim amounts reconcile to prospectus March revenue (2026:12.508 minus7.814 equals4.694b;2025:8.138 minus4.071 equals4.067b). This is a promising source, not completed accounting-continuity acceptance. Full current original/annual/quarter matching, complete statement extraction and source-bound calculations remain necessary before any SPCX repair. No registration-form facts or share metrics were silently mixed into the current reader.
+
+Current SPCX June30 original is also retained: https://www.sec.gov/Archives/edgar/data/1181412/000162828026052535/spcx-20260630.htm, sha256 b21adff93ed92113baf1c1d7a454aa9f1bf2448de5e2fe2db59c808711010280,2,272,033bytes. It independently describes the same common-control mergers and split. Two prospectus table candidates include the annual income statement; the audited table reports revenue18.674/14.015/10.387b and operating income minus2.589/0.466/minus3.505b for2025/2024/2023. This remains investigative evidence, not adapter acceptance.
+
+
+At22:36:55 the next ordinary batch is terminal and its lease is cleared. It completed10 SEC scopes and8 metric scopes, reusing eight valid preparations from the interrupted run and finishing two more; the partial exit1 corresponds to explicit unsupported-source results, not a scheduler crash. There were21 due scopes and the batch advanced through ECF to EHAB. ENB remains due with the old attempted version and its original22:38:19 freshness deadline; it was outside this batch's first ten. Receipt artifacts/coverage-gaps-oct14/ENB-rotation-1792017415.json. Ordinary recovery is proven; ENB's eight stored values are not yet verified. No additional batch was manually triggered. All new local tool handles are terminal.
+
+
+## Ordinary preparation verified, 22:46 UTC
+
+The normal22:46 batch reached ENB. Stored preparation at22:46:03.447616UTC uses sec_ratio_preparation_v5_sec_cad_ratios_v1 and all eight values exactly equal the original-source replay. Current/prior/instant points, native cash-flow evidence and reviewed currency proof also match exactly. Read-only receipt artifacts/coverage-gaps-oct14/ENB-ordinary-1792017967.json, observed22:46:07. No forced refresh, production write or source request was used for verification. This closes ENB ordinary propagation only; full coverage, all consumers and sustained capacity remain open.

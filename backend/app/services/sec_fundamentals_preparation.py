@@ -20,6 +20,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
+    if symbol == 'SPCX':
+        from app.services.sec_registration_history import VERSION as registration_version
+        return VERSION+'_'+registration_version
     from app.services.sec_currency_ratios import SYMBOL as currency_symbol, VERSION as currency_version
     if symbol == currency_symbol:
         return VERSION+'_'+currency_version
