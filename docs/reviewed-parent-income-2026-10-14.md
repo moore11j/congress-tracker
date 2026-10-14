@@ -56,3 +56,8 @@ JEF's reviewed statements also prove common-shareholder trailing income852.597mi
 ## Ordinary rotation checked,21:48 UTC
 
 The21:46 run completed ten of13 due SEC scopes, seven partial and three known symbols absent from the SEC directory. It selected older DBOEY through DEER.TO scopes; FLEX/FOX/JEF were not attempted. Exit1 reports partial coverage, not an execution crash. The three reviewed versions remain pending in normal age-ordered bounded rotation; no forced refresh or repeated job was issued. Read-only receipts ordinary-1792014394.json and warmer-1792014432.json under artifacts/parent-gaps-oct14 preserve the exact results. Earlier next-job expectations did not establish propagation. All handles are terminal. Continue independent common-equity valuation work while the ordinary rotation proceeds.
+
+
+## Ordinary propagation verified, October14 at21:59 UTC
+
+The normal21:51 batch prepared FLEX, FOX and JEF using their reviewed versions. All added values, complete parent-income points and statement-review evidence match the captured originals exactly. Receipt artifacts/parent-gaps-oct14/ordinary-1792015176.json. No forced refresh. The separate common-equity market-ratio repair is now deployed in PR647; see common-equity-income-2026-10-14.md. Broader coverage and final source/consumer acceptance remain.

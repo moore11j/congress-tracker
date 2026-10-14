@@ -294,7 +294,12 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
     from app.services.sec_reporting_policy import forms_for, periodic_document
     forms = forms_for(symbol, cik)
-    ends = [end for name in sec.TAGS for (_,end),value in sec._records(payload,name,available,forms=forms).items() if value]
+    from app.services.sec_currency_ratios import basis as currency_basis
+    native_basis = currency_basis(symbol, cik)
+    tags = native_basis['tags'] if native_basis else sec.TAGS
+    currency = native_basis['currency'] if native_basis else 'USD'
+    ends = [end for name, concepts in tags.items() for (_,end),value in
+            sec._records(payload,name,available,forms=forms,concepts=concepts,unit=currency).items() if value]
     if not ends:
         return None  # Unsupported taxonomy/currency requires a separate adapter.
     latest_fact = max(ends)
@@ -320,7 +325,7 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
             or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.html?',filename)):
         raise InlineFactsError('filing_directory_identity')
     url=f'https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace("-", "")}/{filename}'
-    return parse(client.get(url),cik=cik,accession=accession,filed=filed,report_date=report,form=form,url=url)
+    return parse(client.get(url),cik=cik,accession=accession,filed=filed,report_date=report,form=form,url=url,basis=native_basis)
 
 
 def merge(payload, supplement, *, available_by):

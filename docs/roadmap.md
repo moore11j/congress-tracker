@@ -1,3 +1,7 @@
+October14: [ENB CAD ratios](enb-cad-financials-2026-10-14.md) implemented locally;363 checks,34 original input matches,20 unchanged controls and no-false-alert replay pass. Eight ratios restore classification inputs, but deployment and ordinary operation remain pending; coreFMP and all original cutover gates remain.
+
+October14: [Common-income PR647](common-equity-income-2026-10-14.md) is deployed972fdb22;383 checks,15 runtime hashes,20 unchanged core controls and no-false-alert replay verify. Ordinary FLEX/FOX/JEF parent propagation is proven. Broader valuation coverage and all original cutover gates remain; public coreFMP unchanged.
+
 October14: [Common-equity income candidate](common-equity-income-2026-10-14.md) is local/unreleased;123 focused checks and three actual-source offline replays pass. Broad common-income coverage, source guards/continuity and price-ratio alert validation remain before release. CoreFMP and all cutover gates remain.
 
 October14: [Reviewed parent income PR646](reviewed-parent-income-2026-10-14.md) deployed a57e5ab9;269 tests/three source-cache-alert replays/20 unchanged controls/14runtime hashes verify six financial-field additions. Ordinary propagation remains pending. JEF common-equity P/E numerator remains a specific pre-Massive acceptance gate; all broader cutover gates remain.

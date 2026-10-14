@@ -1,8 +1,8 @@
-# Common-shareholder income candidate, October 14, 2026
+# Common-shareholder income, October 14, 2026
 
 ## Scope and current state
 
-Local candidate on codex/common-equity-income, based on deployed a57e5ab9 plus documentation checkpoint3624431f. Not committed, released or activated. The remote Codex429 screenshot concerns a failed agent turn; current account inspection permits ordinary usage with72% of the weekly window used and no reached-limit/spend-control flag. This turn executes successfully. The exact historical cause and permanent prevention are not established; no account or retry configuration was changed.
+PR #647 is now deployed as 972fdb22; the release receipt below supersedes the initial local-candidate state. It was prepared on codex/common-equity-income from a57e5ab9 plus documentation checkpoint 3624431f. Public providers remain unchanged. The remote Codex429 screenshot concerns a failed agent turn; current account inspection permits ordinary usage with72% of the weekly window used and no reached-limit/spend-control flag. This turn executes successfully. The exact historical cause and permanent prevention are not established; no account or retry configuration was changed.
 
 The pending SEC/Massive valuation adapter previously used parent net income for common-equity P/E and earnings yield. Explicit common-shareholder earnings now take priority. JEF can reuse its already accepted, exact original-statement parent reconciliation and explicitly reported preferred dividends to obtain common income. Missing, conflicting or misaligned common earnings remain unavailable. Parent-equity ROE/net margin and leverage retain their current basis. No public source selection, refresh version, schedule or hosting change is included.
 
@@ -14,7 +14,7 @@ Offline replay against the existing hashed SEC originals on Windows Python3.14.2
 
 ## Remaining work
 
-Review and test JEF-specific changed-dividend, source-hash/context and future-filing rejection. Resolve the currently unused observed_at/history_raw parameters and validate historical continuity where needed. Measure common-income coverage broadly: unavailable common earnings are an explicit coverage gap, not completed replacement parity. Validate prepared/cache and price-ratio alert transition/repeat/rollback behavior before release. Public core financials remain FMP; no Massive subscription or endpoint activation occurred. Ordinary FLEX/FOX/JEF preparation was still pending at the earlier21:48 receipt and has not been freshly rechecked here. Full source/consumer/scheduled-operation/capacity, institutions/transcripts, final Massive and zero-FMP/billing gates remain open.
+The initial pending source-guard and historical-continuity checks are completed in the release preparation below. Measure common-income coverage broadly: unavailable common earnings are an explicit coverage gap, not completed replacement parity. Validate prepared/cache and price-ratio alert transition/repeat/rollback behavior before release. Public core financials remain FMP; no Massive subscription or endpoint activation occurred. Ordinary FLEX/FOX/JEF preparation was still pending at the earlier21:48 receipt and has not been freshly rechecked here. Full source/consumer/scheduled-operation/capacity, institutions/transcripts, final Massive and zero-FMP/billing gates remain open.
 
 
 ## Completed release preparation
@@ -28,3 +28,21 @@ The JEF actual-income/synthetic-market-cap replay exercises the real SQLite watc
 At 21:59 UTC the ordinary production preparation for FLEX, FOX and JEF is verified at 21:51 with the exact reviewed parent-income evidence and values. This closes the prior three-symbol propagation wait without forced refreshes. HCA still retains its older leverage preparation. Receipt: ordinary-1792015176.json. At 22:03 UTC current API throttle is zero and CPU balance is about 15,272; the two-hour history still includes earlier exhaustion and deployments, so sustained capacity is not proven. Receipt: cpu-quota-1792015384.json under artifacts/direct-feeds/free-replacements-2026-10-09.
 
 Release is being prepared; deployment remains unverified until the release receipt below. FMP remains selected and institutional publication remains disabled. Broader common-income coverage and original cutover gates remain open.
+
+
+## Coverage interpretation
+
+The SEC-only fixture count above must not be presented as total replacement P/E coverage. The earlier full-universe read-only audit at 19:48 UTC (artifacts/financial-consumer-readiness-1792007313.json) found 914 prepared free P/E values versus 1,358 FMP values: 842 retained presences, 516 lost presences and 72 additional presences across 1,751 scopes. Prepared free forward P/E had 997 presences. Those are dated presence counts, not numerical equivalence, current market timestamps, freshness acceptance or completed valuation parity. The prepared SEC-only subset also excludes market-derived earnings yields. The remaining valuation work should distinguish verified common-income calculation, explicitly attributed Finnhub metrics, and cases requiring additional original-source evidence.
+
+
+## Deployed release and remaining gates, 22:09 UTC
+
+PR647 source c4e2411f57b4ef8f856ba4d9fa5b10e4a4ec0dab merged as 972fdb227e7f2c8f3f735cbfde918ef70cf54b0c. Deployment workflow38645340483/job116130685728 is terminal success. Fifteen normalized runtime hashes match. On production Python3.12.15, compact original common/preferred observations and accepted parent proofs reproduce the complete expected source-period points for FOX and JEF, and the explicit FLEX hold, with identical repeats. Full original-source replay remains the separately documented offline test. No network or production writes in the verifier. Receipt: artifacts/parent-gaps-oct14/common-runtime-1792015731.json.
+
+Post-release public reads return200: Feed0.423s, Insights0.479s with research present, news0.422s/12items, research0.699s/44items, AAPL3.763s and NVDA2.885s. These are samples, not sustained-capacity or full-data coverage proof. The old hardcoded release comparison in the probe is irrelevant; exact backend release is verified independently. Receipt: artifacts/direct-feeds/free-replacements-2026-10-09/insights-incident-1792015731.json.
+
+Receipt artifacts/preload-receipts-1792015732.json verifies the exact release image, unchanged API shared2/2048MB and database performance1/2048MB, unchanged FMP core/price selection and institutional publicationfalse. Stored scheduled news completes23/23 with42 fresh company caches; metadata/earnings each completefive. Institutional preparation remains partial/truncated at788 scopes (479pending/309deferred); research retains17partial/3unavailable. The22:06 financial batch completed10 SEC/eight metric scopes with explicit partial coverage. These stored receipt timestamps are not proof every job ran after this release. Normal FLEX/FOX/JEF parent propagation was separately proven at21:51.
+
+CI run38645127097 secret scan succeeds. Inspected dependency audits fail on the same unchanged frontend five production groups (four high/one critical) and Pillow10.4.0/33listed advisory rows. No dependency manifest change or full-suite/clean-audit claim. A deployment log read returned502, then the same run-level read confirmed success; no duplicate dispatch. PR attachment could not be added because this chat already has100 attachment identities; no attachments were removed.
+
+The release fixes a valuation definition and source handling; it does not complete the migration. Broad common-income and combined metric coverage, per-share/market identity and live Massive inputs, score/ranking/all-alert/daily-weekly scheduled acceptance, sustained capacity, institutional publication, transcripts, global zero-FMP traffic and billing remain open. No source activation, subscription, host-cost, schedule, customer email, video, landing or cancellation change. All local tool handles are terminal; the migration goal remains active.
