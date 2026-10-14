@@ -21,6 +21,11 @@ IFRS = {
 }
 # Reviewed reporting currencies, never listing currencies or convenience USD.
 PROFILES = {
+    'BULL': {'cik':'0001866364','currency':'USD','namespace':'us-gaap',
+        'proof_url':'https://www.sec.gov/Archives/edgar/data/1866364/000121390026041653/ea0283691-20f_webull.htm',
+        'proof_sha256':'9b64a0c7b4ee3a72cd8fb4acd3bb1e756eb0e238999af201fa45671b07c66890',
+        'cash_flow_basis':'Operating cash flow includes customer account movements. Free cash flow subtracts reported purchases of property, equipment and intangible assets; it is not issuer-adjusted cash generation.',
+        'income_basis':'Net income is attributable to the company before preferred-share adjustments.'},
     'NVO': {'cik':'0000353278','currency':'DKK','namespace':'ifrs-full',
         'proof_url':'https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231_d2.htm',
         'proof_sha256':'5f37750bbdf98737cdd06f5d71e9db4252b9c41493a59c32e2655e2a7407869e'},
@@ -120,7 +125,9 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, supplement=None
             'grossMargin':margin('gross_profit'),'operatingMargin':margin('operating_income'),
             'operatingCashFlow':cash,'capex':capex,'freeCashFlow':cash-capex if cash is not None and capex is not None and capex>=0 else None})
         proof[str(end)]=source
-    message=f"Reported annual financials in {basis['currency']}. Quarterly results, current TTM figures, ADR earnings per share and estimates are unavailable."
+    message=f"Reported annual financials in {basis['currency']}. Quarterly results, current TTM figures, earnings per share and estimates are unavailable."
+    if basis.get('cash_flow_basis'):
+        message += ' ' + basis['cash_flow_basis'] + ' ' + basis.get('income_basis', '')
     payload=_unavailable(symbol,message=message,reason='partial_foreign_annual_coverage')
     payload.update(source='sec_edgar',companyName=company['name'],annual=rows,quarterly=[],reportingCurrency=basis['currency'],
         reportingBasis=message,updatedAt=observed_at.isoformat(),status='partial' if rows else 'unavailable',unavailable=not bool(rows),
@@ -129,7 +136,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, supplement=None
             'factsUrl':f'https://data.sec.gov/api/xbrl/companyfacts/CIK{str(cik).zfill(10)}.json',
             'factsSha256':hashlib.sha256(facts_raw).hexdigest(),'companySha256':hashlib.sha256(company_raw).hexdigest(),
             'periods':proof,'inlineFilingSupplement':supplement['evidence'] if supplement else None,
-            'cashFlowBasis':'Operating cash flow minus cash purchases of property, plant and equipment; not issuer-adjusted free cash flow'})
+            'cashFlowBasis':basis.get('cash_flow_basis', 'Operating cash flow minus cash purchases of property, plant and equipment; not issuer-adjusted free cash flow')})
     if rows:
         payload['sections']['income']='partial'
         payload['subsections']['income']=_subsection(status='limited',reason_code='partial_foreign_annual_coverage',data={'annual':rows,'quarterly':[]})
