@@ -1,3 +1,5 @@
+October14,16:13UTC: [SEC calendar repair](sec-index-calendar-2026-10-14.md) PR632/9ec6b4d7 deployed,13 runtime hashes verified; ordinary16:47 collection still pending. This supersedes the earlier not-repaired status below. Remaining coverage/consumer/capacity/Massive/globalFMP gates unchanged.
+
 October14,16:00UTC: [Webull annual coverage](webull-sec-annual-2026-10-14.md) PR630/9d7280e1 deployed and ordinary four-year public response/repeat verified. Current cached audit1098usableSEC/1192combined is presence only. SEC October12index403 aligns with official EDGAR closure, but calendar handling is not yet repaired. Sustainedcapacity and core/institutional/transcript/allconsumer/finalMassive/globalFMP/billing gates remain.
 
 October 14,15:38 UTC: [Scheduled import reuse](scheduled-import-reuse-2026-10-14.md) PR631/dffe004e is deployed and all six ordinary jobs plus unchanged delivery are verified. 33 lifecycle/86 data checks and86 preloaded repeats pass. Public reads recover, but CPU credits still decline above baseline; sustained capacity remains a blocker. Two hosts/costs unchanged; remaining FMP migration gates stay open.

@@ -20,3 +20,10 @@ Two bounded public index captures support an isolated baseline/candidate replay:
 Both baseline9d7280e1 and candidate discover814Form4 and494Form13F documents,1308total. Complete document-state hash matches d10dbfdd79af21c2ff282f608e14be85cd85a92d8c64a366873e20447d949d32; both repeats preserve it. The replay reproduces the previously observed holiday403 from a stub and uses the two captured open-day originals without network; it is not another live holiday request. Requests fall3to2 per pass, only the two holiday-related error entries disappear, and canonical event/insider/institutional tables remain empty. Primary artifacts/sec-calendar-oct14/replay.json retains results and source hashes.
 
 Release and ordinary production observation remain pending at this checkpoint. FMP stays enabled; institutions/core/transcripts/all consumers/Massive/global-egress/billing and sustained capacity remain separate gates. No new hosting cost or subscription.
+
+
+## Deployment recovery verified, October14 16:13 UTC
+
+PR632 headfb991602 merged as9ec6b4d727fee0ef9394f8a085952add7c132335. Required CI tool confirms backend workflow38595666178/job115961644321 completed successfully. Runtime receipt calendar-runtime-1791994363.json verifies13 normalized hashes and the deployed October9-13 calendar projection: requests October9/13, skips the reviewed October12 closure and weekend. Process queue is empty at16:12:43; this is not enrichment-backlog or sustained-capacity proof. Ordinary16:47 collector observation remains pending. No deployment was repeated during recovery.
+
+Exact-head CI had unchanged Pillow and frontend dependency-audit failures, with secret/Vercel success; no full-suite or full-CI pass claimed. Prior cached inventory confirms October13 was collected despite holiday errors, with separate canonical reconciliation/amendment/ownership holds remaining. Review2027 official calendar before year end. FMP stays enabled and remaining migration gates are unchanged.
