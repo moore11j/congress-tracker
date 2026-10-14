@@ -19,7 +19,7 @@ import {
   type OutcomeSnapshot,
   type OutcomeSnapshotsResponse,
 } from "@/lib/api";
-import { normalizeTier, storedEntitlementTier, type EntitlementTier } from "@/lib/entitlements";
+import { normalizeTier, type EntitlementTier } from "@/lib/entitlements";
 import { outcomeChartReturnLimit, selectOutcomeChartPoints } from "@/lib/outcome-chart";
 
 const scoreBands = ["0-39", "40-59", "60-64", "65-69", "70-74", "75-79", "80+"];
@@ -310,18 +310,6 @@ function canViewPremiumOutcomes(tier: EntitlementTier) {
 
 function canUsePremiumOutcomeTable(tier: EntitlementTier) {
   return canViewPremiumOutcomes(tier);
-}
-
-function clientEntitlementTier(): EntitlementTier {
-  const stored = storedEntitlementTier();
-  if (stored) return normalizeTier(stored);
-  if (typeof document === "undefined") return "free";
-  const cookieTier = document.cookie
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith("ct_entitlement_hint="))
-    ?.split("=")[1];
-  return normalizeTier(cookieTier);
 }
 
 function csvValue(value: string | number | null | undefined) {
@@ -892,7 +880,7 @@ function EventsTable({
   const totalRows = sortedSnapshots.length;
   const effectivePageSize = hasPremiumTable ? pageSize : 10;
   const pageCount = Math.max(1, Math.ceil(totalRows / effectivePageSize));
-  const safePage = Math.min(page, pageCount - 1);
+  const safePage = hasPremiumTable ? Math.min(page, pageCount - 1) : 0;
   const visibleSnapshots = sortedSnapshots.slice(safePage * effectivePageSize, safePage * effectivePageSize + effectivePageSize);
   const pageStart = totalRows ? safePage * effectivePageSize + 1 : 0;
   const pageEnd = totalRows ? Math.min(totalRows, safePage * effectivePageSize + visibleSnapshots.length) : 0;
@@ -926,10 +914,12 @@ function EventsTable({
   }
 
   function jumpToPage(nextPage: number) {
+    if (!gatePremiumTable()) return;
     setPage(Math.max(0, Math.min(pageCount - 1, nextPage)));
   }
 
   function movePage(delta: number) {
+    if (!gatePremiumTable()) return;
     setPage((current) => Math.max(0, Math.min(pageCount - 1, current + delta)));
   }
 
@@ -950,7 +940,7 @@ function EventsTable({
             </button>
           ))}
         </div>
-        <p className="ml-auto text-xs text-slate-300">{hasPremiumTable ? "Loaded events: leaderboard tickers and tracked history" : "Browse loaded events · 10 rows per page"}</p>
+        <p className="ml-auto text-xs text-slate-300">{hasPremiumTable ? "Loaded events: leaderboard tickers and tracked history" : "Free preview · first 10 rows"}</p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2 text-xs text-slate-300">
         <span>
@@ -1056,7 +1046,7 @@ function EventsTable({
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs text-slate-400">
         <span aria-live="polite">Page {safePage + 1} of {pageCount}</span>
-        <nav aria-label="Outcome table pages" className="flex items-center gap-2">
+        <nav aria-label="Outcome table pages" className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => jumpToPage(0)}
@@ -1076,18 +1066,18 @@ function EventsTable({
           <button
             type="button"
             onClick={() => movePage(1)}
-            disabled={safePage >= pageCount - 1}
+            disabled={hasPremiumTable && safePage >= pageCount - 1}
             className="min-h-9 rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Next
+            Next{!hasPremiumTable ? <span className="ml-1 text-[10px] text-emerald-300">Premium</span> : null}
           </button>
           <button
             type="button"
             onClick={() => jumpToPage(pageCount - 1)}
-            disabled={safePage >= pageCount - 1}
+            disabled={hasPremiumTable && safePage >= pageCount - 1}
             className="min-h-9 rounded-md border border-white/10 px-3 py-1.5 font-semibold text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Last
+            Last{!hasPremiumTable ? <span className="ml-1 text-[10px] text-emerald-300">Premium</span> : null}
           </button>
         </nav>
       </div>
@@ -1271,6 +1261,8 @@ export function OutcomeLedgerClient({
   const [error, setError] = useState<string | null>(null);
   const [entitlementTier, setEntitlementTier] = useState<EntitlementTier>("free");
   const [chartsUnlocked, setChartsUnlocked] = useState(false);
+  const [premiumData, setPremiumData] = useState(false);
+  const [loadedPremiumData, setLoadedPremiumData] = useState(false);
   const [exportGateOpen, setExportGateOpen] = useState(false);
   const [cohortFilter, setCohortFilter] = useState<CohortFilterValue>("all");
   const [horizonFilter, setHorizonFilter] = useState("30D");
@@ -1281,16 +1273,17 @@ export function OutcomeLedgerClient({
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | null>(null);
 
   useEffect(() => {
-    setEntitlementTier(clientEntitlementTier());
     let alive = true;
     getEntitlements(undefined, { source: "OutcomeLedgerEntitlements" })
       .then((entitlements) => {
         if (!alive) return;
-        setEntitlementTier(normalizeTier(entitlements.effective_tier ?? entitlements.tier));
+        const tier = entitlements.status === "temporarily_unavailable" ? "free" : normalizeTier(entitlements.effective_tier ?? entitlements.tier);
+        setEntitlementTier(tier);
+        setPremiumData(canViewPremiumOutcomes(tier));
         setChartsUnlocked(entitlements.status !== "temporarily_unavailable" && canViewPremiumOutcomes(normalizeTier(entitlements.effective_tier ?? entitlements.tier)));
       })
       .catch(() => {
-        if (alive) setEntitlementTier(clientEntitlementTier());
+        if (alive) setEntitlementTier("free");
       });
     return () => {
       alive = false;
@@ -1298,7 +1291,7 @@ export function OutcomeLedgerClient({
   }, []);
 
   useEffect(() => {
-    if (loadedHorizon === horizonFilter && summary && snapshots) return;
+    if (loadedHorizon === horizonFilter && loadedPremiumData === premiumData && summary && snapshots) return;
     let alive = true;
     const requestedHorizon = horizonFilter;
     requestedHorizonRef.current = requestedHorizon;
@@ -1306,13 +1299,14 @@ export function OutcomeLedgerClient({
     setError(null);
     Promise.all([
       getOutcomeLedgerSummary({ horizon: requestedHorizon }),
-      getOutcomeSnapshots({ limit: 500, horizon: requestedHorizon, ticker: initialTicker }),
+      getOutcomeSnapshots({ limit: 500, horizon: requestedHorizon, ticker: initialTicker }, premiumData),
     ])
       .then(([nextSummary, nextSnapshots]) => {
         if (!alive || requestedHorizonRef.current !== requestedHorizon) return;
         setSummary(nextSummary);
         setSnapshots(nextSnapshots);
         setLoadedHorizon(requestedHorizon);
+        setLoadedPremiumData(premiumData);
         setDatasetLoading(false);
         setError(null);
       })
@@ -1324,9 +1318,9 @@ export function OutcomeLedgerClient({
     return () => {
       alive = false;
     };
-  }, [horizonFilter, initialTicker, loadedHorizon, snapshots, summary]);
+  }, [horizonFilter, initialTicker, loadedHorizon, loadedPremiumData, premiumData, snapshots, summary]);
 
-  const datasetReady = !datasetLoading && loadedHorizon === horizonFilter && Boolean(summary && snapshots);
+  const datasetReady = !datasetLoading && loadedPremiumData === premiumData && loadedHorizon === horizonFilter && Boolean(summary && snapshots);
 
   const snapshotItems = useMemo(() => snapshots?.items ?? [], [snapshots?.items]);
   const uniqueSnapshotItems = useMemo(() => {

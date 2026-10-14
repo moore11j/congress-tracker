@@ -6559,8 +6559,7 @@ def outcomes_status(response: Response, db: Session = Depends(get_db)):
     return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
-@app.get("/api/outcomes/overview")
-def outcomes_overview(
+def _outcomes_full_overview(
     response: Response,
     limit: int = Query(100, ge=1, le=5000),
     horizons: str | None = Query("30D,7D"),
@@ -6648,8 +6647,7 @@ def outcomes_summary(
     return _public_outcome_ledger_cache_set(cache_key, payload)
 
 
-@app.get("/api/outcomes/snapshots")
-def outcomes_snapshots(
+def _outcomes_full_snapshots(
     response: Response,
     ticker: str | None = Query(None),
     page: int = Query(0, ge=0),
@@ -6700,6 +6698,72 @@ def outcomes_snapshots(
     response.headers["X-Walnut-Outcome-Cache"] = "miss"
     payload = store_public_outcome_ledger_payload(db, persistent_key, payload)
     return _public_outcome_ledger_cache_set(cache_key, payload)
+
+
+def _outcome_preview(payload: dict[str, Any]) -> dict[str, Any]:
+    # Project after every cache read, including previously warmed full payloads.
+    # Never mutate the shared payload used by authenticated Premium readers.
+    return {**payload, "items": payload.get("items", [])[:10], "page": 0,
+            "limit": min(10, payload.get("limit", 10)), "has_next": False,
+            "preview_locked": True}
+
+
+@app.get("/api/outcomes/overview")
+def outcomes_overview(
+    response: Response,
+    limit: int = Query(100, ge=1, le=5000),
+    horizons: str | None = Query("30D,7D"),
+    db: Session = Depends(get_db),
+):
+    payload = _outcomes_full_overview(response, limit=limit, horizons=horizons, db=db)
+    return {**payload, "snapshots": _outcome_preview(payload["snapshots"])}
+
+
+@app.get("/api/outcomes/premium/snapshots")
+def premium_outcomes_snapshots(
+    request: Request,
+    response: Response,
+    ticker: str | None = Query(None),
+    page: int = Query(0, ge=0),
+    limit: int = Query(500, ge=1, le=5000),
+    horizon: str = Query("30D", pattern="^(7D|30D|90D|180D|365D)$"),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    user = current_user(db, request, required=True)
+    if entitlements_for_user(db, user).tier not in {"premium", "pro", "admin"}:
+        raise HTTPException(status_code=402, detail="The full Outcome Ledger requires Premium.")
+    try:
+        return _outcomes_full_snapshots(
+            response, ticker=ticker, page=page, limit=limit, methodology=None,
+            calculation_type=None, start_date=None, end_date=None, horizon=horizon, db=db,
+        )
+    finally:
+        response.headers["Cache-Control"] = "private, no-store"
+
+
+@app.get("/api/outcomes/snapshots")
+def outcomes_snapshots(
+    response: Response,
+    ticker: str | None = Query(None),
+    page: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=5000),
+    methodology: str | None = Query(None),
+    calculation_type: str | None = Query(None, pattern="^(live|historical_reconstruction|data_correction|manual_test)$"),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    horizon: str | None = Query(None, pattern="^(7D|30D|90D|180D|365D)$"),
+    db: Session = Depends(get_db),
+):
+    if page > 0:
+        response.headers["Cache-Control"] = "no-store"
+        raise HTTPException(status_code=402, detail="Outcome pagination requires Premium.")
+    payload = _outcomes_full_snapshots(
+        response, ticker=ticker, page=0, limit=limit, methodology=methodology,
+        calculation_type=calculation_type, start_date=start_date, end_date=end_date,
+        horizon=horizon, db=db,
+    )
+    return _outcome_preview(payload)
 
 
 @app.get("/api/outcomes/snapshots/{snapshot_id}/price-path")

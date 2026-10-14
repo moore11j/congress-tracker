@@ -8503,6 +8503,7 @@ export type OutcomeHorizonResult = {
 };
 
 export type OutcomeSnapshotsResponse = {
+  preview_locked?: boolean;
   generated_at?: string;
   items: OutcomeSnapshot[];
   page: number;
@@ -8548,7 +8549,7 @@ async function fetchOutcomePublicJson<T>(url: string, init: ApiRequestInit): Pro
 }
 
 export async function getOutcomeLedgerOverview(params: QueryParams = {}): Promise<OutcomeLedgerOverview> {
-  const url = buildApiUrl("/api/outcomes/overview", params);
+  const url = buildApiUrl("/api/outcomes/overview", { ...params, preview_version: 2 });
   return serverCachedJson(
     `outcome-ledger-overview:${url}`,
     () =>
@@ -8589,8 +8590,13 @@ export async function getOutcomeLedgerSummary(params: QueryParams = {}): Promise
   );
 }
 
-export async function getOutcomeSnapshots(params: QueryParams = {}): Promise<OutcomeSnapshotsResponse> {
-  const url = buildApiUrl("/api/outcomes/snapshots", params);
+export async function getOutcomeSnapshots(params: QueryParams = {}, premium = false): Promise<OutcomeSnapshotsResponse> {
+  if (premium) {
+    return fetchJson<OutcomeSnapshotsResponse>(buildApiUrl("/api/outcomes/premium/snapshots", params), {
+      cache: "no-store", next: { revalidate: 0 }, source: "OutcomeLedgerPremium",
+    });
+  }
+  const url = buildApiUrl("/api/outcomes/snapshots", { ...params, preview_version: 2 });
   return serverCachedJson(
     `outcome-ledger-snapshots:${url}`,
     () =>

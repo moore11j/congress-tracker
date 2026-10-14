@@ -49,20 +49,17 @@ test("Outcome headline metrics explicitly exclude provisional points but include
   assert.match(outcomes, /Average measured \$\{horizonFilter\} outcome across \$\{outcomeMetrics\.directionalSampleCount\} open and closed theses/);
 });
 
-test("Outcome table pagination is usable at every tier and supports bounded rapid navigation", () => {
-  assert.match(outcomes, /const totalRows = sortedSnapshots\.length/);
-  assert.match(outcomes, /Browse loaded events · 10 rows per page/);
-  assert.match(outcomes, /function movePage\(delta: number\) \{\s*setPage\(\(current\) => Math\.max\(0, Math\.min\(pageCount - 1, current \+ delta\)\)\);/);
+test("Outcome pagination uses the same Premium gate as larger row counts", () => {
+  assert.match(outcomes, /const safePage = hasPremiumTable \? Math\.min\(page, pageCount - 1\) : 0/);
+  assert.match(outcomes, /Free preview · first 10 rows/);
+  assert.match(outcomes, /function movePage\(delta: number\) \{\s*if \(!gatePremiumTable\(\)\) return;/);
+  assert.match(outcomes, /function jumpToPage\(nextPage: number\) \{\s*if \(!gatePremiumTable\(\)\) return;/);
   assert.match(outcomes, /aria-label="Outcome table pages"/);
-  assert.match(outcomes, />\s*First\s*</);
-  assert.match(outcomes, />\s*Previous\s*</);
-  assert.match(outcomes, />\s*Next\s*</);
-  assert.match(outcomes, />\s*Last\s*</);
-  assert.doesNotMatch(outcomes, /if \(!gatePremiumTable\(\)\) return;\s*setPage/);
+  assert.match(api, /\/api\/outcomes\/premium\/snapshots/);
 });
 
 test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
-  assert.match(outcomes, /getOutcomeSnapshots\(\{ limit: 500, horizon: requestedHorizon, ticker: initialTicker \}\)/);
+  assert.match(outcomes, /getOutcomeSnapshots\(\{ limit: 500, horizon: requestedHorizon, ticker: initialTicker \}, premiumData\)/);
   assert.match(outcomes, /getOutcomeLedgerSummary\(\{ horizon: requestedHorizon \}\)/);
   assert.match(api, /fetchOutcomePublicJson<OutcomeSnapshotsResponse>\(url, \{\s*cache: "force-cache",\s*next: \{ revalidate: 300 \}/);
   assert.match(api, /!\[502, 503, 504\]\.includes\(error\.status\)/);
@@ -70,9 +67,9 @@ test("Outcome chart refreshes a horizon-balanced 500-event sample", () => {
 
 test("Outcome horizon changes hide stale data and commit summary and snapshots together", () => {
   assert.match(outcomes, /setDatasetLoading\(true\);\s*setError\(null\);\s*setHorizonFilter\(nextHorizon\);/);
-  assert.match(outcomes, /Promise\.all\(\[\s*getOutcomeLedgerSummary\(\{ horizon: requestedHorizon \}\),\s*getOutcomeSnapshots\(\{ limit: 500, horizon: requestedHorizon, ticker: initialTicker \}\),\s*\]\)/);
-  assert.match(outcomes, /setSummary\(nextSummary\);\s*setSnapshots\(nextSnapshots\);\s*setLoadedHorizon\(requestedHorizon\);\s*setDatasetLoading\(false\);/);
-  assert.match(outcomes, /const datasetReady = !datasetLoading && loadedHorizon === horizonFilter/);
+  assert.match(outcomes, /Promise\.all\(\[\s*getOutcomeLedgerSummary\(\{ horizon: requestedHorizon \}\),\s*getOutcomeSnapshots\(\{ limit: 500, horizon: requestedHorizon, ticker: initialTicker \}, premiumData\),\s*\]\)/);
+  assert.match(outcomes, /setSummary\(nextSummary\);\s*setSnapshots\(nextSnapshots\);\s*setLoadedHorizon\(requestedHorizon\);\s*setLoadedPremiumData\(premiumData\);\s*setDatasetLoading\(false\);/);
+  assert.match(outcomes, /const datasetReady = !datasetLoading && loadedPremiumData === premiumData && loadedHorizon === horizonFilter/);
   assert.match(outcomes, /Loading \$\{horizonFilter\} outcomes/);
   assert.match(outcomes, /eventDetailOpen && datasetReady/);
 });

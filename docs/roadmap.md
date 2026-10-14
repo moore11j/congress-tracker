@@ -1,3 +1,8 @@
+October12 planning constraint: owner reports30day email cancellation notice. Unsent October13 draft requests November12 termination or confirmed later billing boundary. Timing/final charge and retained-data requirements remain unverified; full cutover gates still apply. See [context log](context-log.md#2026-10-12-cancellation-notice-assessment-and-unsent-email).
+
+October13: Reliability incident supersedes further provider cutovers. PR624 crash protection deployed, but later feed/ticker timeouts recur. PR625 portfolio-cost and PR626 cache-cancellation repairs pass133/48 checks and are deployed8efc1fb8. AtOctober14,06:11UTC browser navigation and feed/news/ticker reads recover, queue empty. Sustained capacity, recurring job failures and scheduled freshness remain blockers. [Incident](insights-outage-2026-10-13.md).
+
+
 2026-10-12,20:20: [House description PR623/db1caf31](house-security-review-2026-10-12.md) deployed/80 runtime hashes/137 tests and actual459-row isolated replay pass. Publication remains held. Corrected next eligible ordinary Congress trigger21:17UTC;20:20 is retry eligibility only. Sustainedcapacity and full FMP exit gates remain.
 
 2026-10-12: [House description enrichment](house-security-review-2026-10-12.md) implemented locally,137 focused tests.457 reviewed/two unclear names, trust headings and459 identities retained; publication remains held. Ten SEC originals support ongoing security review. Not deployed; migration gates unchanged.
