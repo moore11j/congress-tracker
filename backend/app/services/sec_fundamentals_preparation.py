@@ -20,6 +20,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
+    if symbol == 'TSM':
+        from app.services.sec_tsm_financials import VERSION as tsm_version
+        return VERSION+'_'+tsm_version
     if symbol == 'HCA':
         from app.services.sec_operating_components import VERSION as operating_version
         return VERSION+'_'+operating_version
