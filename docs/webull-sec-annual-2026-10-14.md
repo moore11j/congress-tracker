@@ -1,6 +1,6 @@
 # Webull annual financial coverage
 
-October 14, 2026. Implemented and locally verified; release and ordinary production refresh pending.
+October 14, 2026. Deployed and ordinary production refresh verified at 15:59 UTC; historical preparation/hold notes below are dated evidence.
 
 The public BULL historical financial response was unavailable despite a completed enrichment job. Fresh SEC ticker/submissions identity confirms Webull Corp, CIK 0001866364, BULL ordinary shares and BULLW warrants. Webull files annual Form 20-F reports, which the default domestic statement reader excludes. The reviewed foreign annual reader previously covered only NVO, BABA and TSM.
 
@@ -41,3 +41,21 @@ The 14:58 UTC check found exhausted API CPU credits and 18.8-19.5-second ticker 
 Refreshed against deployed dffe004e on branch codex/webull-sec-annual. The application diff remains the reviewed reporting profile and explicit basis. Linux Python 3.12.3 passes 46 affected financial/foreign/cache/absence/comparison/warming checks; full hash-verified saved-source replay passes again, with four annual rows and identical transport-forbidden repeat. Earlier expanded 108 checks remain dated evidence. No new schedule or source activation.
 
 At 15:50 UTC the existing release returns Feed 0.395s and Insights 0.467s with research; AAPL/NVDA 2.790/2.416s. News has 42/42 fresh company caches and 23/23 completed scopes. CPU credits recover from 3,489 at 15:40 to 4,392 at 15:50, with zero sampled throttling. This supports proceeding with the bounded existing-source coverage repair; sustained capacity and broader migration remain open. Partial financial/reference job exit codes match explicit coverage statuses, not proof of worker crashes. Production is still dffe004e before this repair's release.
+
+
+## October 14 coverage and collector follow-up
+
+Read-only cached audit at 15:56 UTC covers 1,751 symbols: 1,098 usable SEC preparations and 1,192 permitted SEC/Finnhub combinations. These are field-presence results, not numerical or methodology parity. Three SEC caches are expired and three missing; 379 symbols are absent from the SEC directory, 254 have no complete trailing-revenue period, and 14 companyfacts sources are absent. Finnhub missing/expired cases remain. Market-derived values are outside this audit; net-debt/EBITDA, cash-flow yield and earnings yield still have retained-field gaps. Core remains FMP. Receipt paired-free-coverage-1791993376.json.
+
+Collector run476 at15:47 records only two discovery errors, both the October12 SEC daily index returning403 for Form4/13F. The official [2026 EDGAR calendar](https://www.sec.gov/submit-filings/filer-support-resources/edgar-calendar), checked October14, lists October12 as closed. Current discovery excludes weekends but requests every weekday. This supports a reviewed closure-calendar fix as the next investigation; it does not justify suppressing arbitrary403s or prove complete filings. The code continues through later dates, so do not claim this one response blocks all subsequent dates. No calendar change has been implemented in this release. Receipt collector-receipts-1791993410.json.
+
+
+## Production release and ordinary refresh verified, 16:00 UTC
+
+PR630 source d91328409e45ee301dee2e1cae9695e5e1020534 merged as 9d7280e1bdfdb2ffab90abc68eec6ff81d44bbfd. Backend workflow38593321440 succeeded. Eleven normalized runtime source hashes match; both existing machine IDs and sizes are unchanged. The exact-head secret scan and Vercel pass. Required CI-tool logs show unchanged Pillow33-advisory and five frontend dependency-group failures; manifests have no diff and no full CI pass is claimed.
+
+The 15:55:41 public cache miss queued normal preparation. The existing15:59 research warmer completes20 scopes with one requested cache miss and zero canonical writes/emails; public BULL then returns four annual2022-2025 rows. Two200 reads take0.445/0.315s. Full payload repeats are identical, all annual values equal the saved-source replay, reporting-basis notes match, and quarterly rows remain empty. Repeated public payload SHA256286e436d70d171f295e0291ecead843c3fbbe1332ecc72e9a3bb36cfc6855bbf. This verifies the API and ordinary preparation, not a fresh rendered-browser test or broad coverage.
+
+Post-release Feed0.465s, Insights0.427s with research, AAPL2.582s and NVDA2.286s. News42/42 fresh company caches,23/23 processed (22ok/oneempty). Sustained capacity remains open. Artifacts: webull-runtime-1791993328.json, webull-public-1791993567.json and1791993591.json, preload-receipts-1791993577.json, insights-incident-1791993594.json. Bounded observer and all command sessions are terminal; no local PostgreSQL server started.
+
+The PR attachment attempt again hit the chat100-attachment limit. An automatic review initially rejected the PR-description update over unverified destination/sensitive-payload concerns; read-only repository/admin and exact-body inspection established the destination and absence of credentials/customer data/production metrics, and re-review approved the update. No bypass or further user approval was needed. Codex execution is currently working with ordinary usage allowed and28% weekly usage reported; no permanent fix for the historical429 is claimed. Existing FMP goal stays active. No provider switch, schedule/host/subscription change or cancellation.
