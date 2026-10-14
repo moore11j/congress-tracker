@@ -27,3 +27,10 @@ Local evidence: primary `artifacts/bull-financials-oct14/` originals and `replay
 At 14:52 UTC the four PR629 runtime hashes still match. Older enrichment types have advanced, including ONDS press completion at 10:02. The current queue still contains 2,686 queued jobs, including 960 quotes, 884 metadata and 577 CIK metadata jobs. Two news jobs are terminal failed. Current row state is not a cumulative execution counter because jobs can be re-enqueued. This verifies continued progress, not complete freshness or sustained CPU capacity. The first SSH observation timed out; its remote process was confirmed absent before one successful retry. Receipt `artifacts/enrichment-runtime-1791989567.json`.
 
 Next: exact release/runtime and ordinary public BULL refresh, then remaining financial and consumer coverage, institutional/transcript gates, sustained reliability, final Massive activation and verified FMP shutdown. No subscription, hosting change or cancellation.
+
+
+## Review state and renewed reliability gate
+
+[PR630](https://github.com/moore11j/congress-tracker/pull/630), tested application head `57e83e3faf28df9965aea56fb24382b94fcef039`, is open and unmerged. Secret scan and Vercel preview pass. Required CI-tool inspection confirms unchanged Pillow and frontend dependency audit failures; no dependency files were modified. Attachment was attempted but the chat already has 100 attachments. No production release or public four-year recovery claim is made.
+
+The 14:58 UTC check found exhausted API CPU credits and 18.8-19.5-second ticker reads. The financial release is held while recurring startup cost is addressed, as recorded in the [incident report](insights-outage-2026-10-13.md#october-14-1458-utc-throttling-recurs-after-the-overnight-recovery). FMP remains enabled. The implementation is preserved; current core, quarterly coverage and all remaining cutover gates remain open.
