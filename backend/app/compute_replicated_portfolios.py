@@ -1631,6 +1631,7 @@ def run_compute(
                         benchmark=benchmark_symbol,
                         issuer=issuer_filter,
                         end_date=end_date,
+                        _loaded_events=(loaded_events, loader_skips),
                     )
                     preflight_result: dict | None = None
                     if price_preflight:
@@ -1645,6 +1646,7 @@ def run_compute(
                                 benchmark=benchmark_symbol,
                                 issuer=issuer_filter,
                                 end_date=end_date,
+                                _loaded_events=(loaded_events, loader_skips),
                             )
 
                         simulation, preflight_result = _run_price_preflight(

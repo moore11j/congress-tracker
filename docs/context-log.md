@@ -1,3 +1,7 @@
+## October 14, 23:50 UTC: Portfolio timeout diagnosis and local repair
+
+2026-10-14,23:50UTC: Continued active goal with reliability first. PR650 remains deployed ae4931ff; precision PR651/9c230e8a held unmerged/undeployed. API credits exhausted23:23; Feed6.508s/Insights4.846s with fallback and both ticker20s timeouts. Portfolio refresh23:18 timed out23:38 after1201.57s; data queue backlogged. Local repair removes unused warmup display snapshots, duplicate same-window event loads and repeated benchmark sorts.135 focused checks and ten complete actual-sample simulation comparisons pass; five-scope report identical. CPU noisy, paired medians5.35% lower, not production capacity proof. See docs/portfolio-refresh-load-2026-10-14.md. Repair not deployed yet. Ordinary full portfolio/source recovery and full migration gates remain. Core/price/transcriptFMP and institutionsfalse retained; goalactive. No schedule/host/subscription/email/video/landing/cancellation change.
+
 # Project context log
 
 ## 2026-10-14,23:08 UTC: Debt maturity reconciliation prepared

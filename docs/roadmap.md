@@ -1,3 +1,5 @@
+October14,23:50UTC: [Portfolio timeout repair](portfolio-refresh-load-2026-10-14.md) local/unreleased,135 focused checks and ten exact complete simulation comparisons pass. Production capacity regressed with23:23 exhausted credits and23:38 portfolio timeout; precision PR651 held. Sustained performance/full scheduled completion and all FMP exit gates remain open.
+
 October14: [ENB CAD PR648](enb-cad-financials-2026-10-14.md) deployed b2c3dd5b;363 checks,14 runtime hashes,34 original input matches and exact eight-ratio reproduction pass. Ordinary ENB propagation pending; public coreFMP and all wider cutover gates remain. SPCX annual/current originals captured, continuity review not complete.
 
 October14,23:08UTC: [Debt maturity reconciliation](sec-debt-maturity-reconciliation-2026-10-14.md) implemented,217 tests/three original filings/71 retained-panel/25 source-pair repeats pass. Five contradictory alternatives held; no canonical ratio or source selection. Release/runtime/ordinary propagation pending; broader migration gates unchanged.

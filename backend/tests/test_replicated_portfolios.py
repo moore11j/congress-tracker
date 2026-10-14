@@ -5253,3 +5253,73 @@ def test_standalone_portfolio_compute_still_initializes_schema(monkeypatch):
     assert len(report["results"]) == 1
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(ReplicatedPortfolioRun)) == 0
+
+
+def test_loaded_trade_reuse_reloads_repaired_prices_and_keeps_next_call_fresh(monkeypatch):
+    import app.services.replicated_portfolios as service
+    from dataclasses import asdict
+
+    db = _session()
+    day = _add_congress_portfolio_fixture(db, member_id="M_REUSE", event_id=99011)
+    next_day = day + timedelta(days=1)
+    db.merge(PriceCache(symbol="AAPL", date=next_day.isoformat(), close=110.0))
+    db.merge(PriceCache(symbol="SPY", date=next_day.isoformat(), close=100.0))
+    db.commit()
+    args = dict(entity_type="congress_member", entity_id="M_REUSE", lookback_days=30,
+                mode="realistic_disclosure_lag", end_date=next_day)
+    loaded = service.load_replicated_portfolio_events(db, entity_type="congress_member",
+        entity_id="M_REUSE", lookback_days=30, end_date=next_day, warmup_days=365)
+    calls = []
+    original = service.load_replicated_portfolio_events
+
+    def counted(*args, **kwargs):
+        calls.append(kwargs["entity_id"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service, "load_replicated_portfolio_events", counted)
+    first = service.run_replicated_portfolio_simulation(db, **args, _loaded_events=loaded)
+    assert calls == []
+    assert first.summary.total_return_pct == 10.0
+    db.merge(PriceCache(symbol="AAPL", date=next_day.isoformat(), close=120.0))
+    db.commit()
+    repaired = service.run_replicated_portfolio_simulation(db, **args, _loaded_events=loaded)
+    assert calls == []
+    assert repaired.summary.total_return_pct == 20.0
+    independent = service.run_replicated_portfolio_simulation(db, **args)
+    assert calls == ["M_REUSE"]
+    assert asdict(repaired) == asdict(independent)
+    assert len(loaded[0]) == 1
+    db.close()
+
+
+def test_batch_reuses_exact_window_trades_but_new_invocation_reloads(monkeypatch):
+    import app.services.replicated_portfolios as service
+
+    engine, factory = _session_factory()
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", factory)
+    with factory() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_WINDOW", event_id=99012)
+        db.commit()
+    calls = []
+    original = service.load_replicated_portfolio_events
+
+    def counted(*args, **kwargs):
+        calls.append((kwargs["entity_id"], kwargs["lookback_days"], kwargs["warmup_days"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service, "load_replicated_portfolio_events", counted)
+    monkeypatch.setattr(compute_module, "load_replicated_portfolio_events", counted)
+    args = dict(entity_type="congress", entity_ids=["M_WINDOW"], lookback_days=[30, 180],
+        mode="realistic_disclosure_lag", limit=1, dry_run=True, benchmark="SPY",
+        summary_only=True, price_preflight=True)
+    first = compute_module.run_compute(**args)
+    assert calls == [("M_WINDOW", 30, 365), ("M_WINDOW", 180, 730)]
+    assert first["summary"]["would_create"] == 2
+    with factory() as db:
+        _add_congress_portfolio_fixture(db, member_id="M_WINDOW", event_id=99013)
+        db.commit()
+    second = compute_module.run_compute(**args)
+    assert len(calls) == 4
+    assert [row["events_used"] for row in first["results"]] == [1, 1]
+    assert [row["events_used"] for row in second["results"]] == [2, 2]
