@@ -203,10 +203,13 @@ def wait_external_request(db, request_id, *, wait_seconds=1800):
 
 
 def owns_process(pid, token):
+    from preloaded_jobs import owns_process as owns_preloaded_process
+    if owns_preloaded_process(pid, token):
+        return True
     try:
         environment = Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
         return ('WALNUT_JOB_TOKEN=' + token).encode() in environment
-    except (FileNotFoundError, ProcessLookupError):
+    except (FileNotFoundError, ProcessLookupError, PermissionError):
         return False
 
 
@@ -253,6 +256,8 @@ def recover(db, lane):
         # Preserve a subsequent scheduled request; an uncertain interrupted call
         # itself is not replayed automatically. Domain idempotency stays intact.
         finish(db, dict(row), -signal.SIGTERM)
+        from preloaded_jobs import forget_identity
+        forget_identity(row['token'])
 
 
 def worker(queue, manifest, lane, *, idle=.5):
@@ -283,8 +288,11 @@ def worker(queue, manifest, lane, *, idle=.5):
             usage_before = resource.getrusage(resource.RUSAGE_CHILDREN)
             try:
                 # A group per job lets shutdown stop shells and descendants.
-                process = subprocess.Popen(['nice', '-n', '10', '/bin/sh', '-c', definition['command']],
-                                           env=env, start_new_session=True)
+                from preloaded_jobs import launch
+                process = launch(definition['command'], env, close_resources=(db, lock)) if lane == 'data' else None
+                if process is None:
+                    process = subprocess.Popen(['nice', '-n', '10', '/bin/sh', '-c', definition['command']],
+                                               env=env, start_new_session=True)
                 db.execute('UPDATE jobs SET pid=? WHERE key=? AND token=?',
                            (process.pid, job['key'], job['token']))
                 print(json.dumps({'event': 'scheduled_job_started', 'key': job['key'], 'lane': lane,
@@ -301,9 +309,12 @@ def worker(queue, manifest, lane, *, idle=.5):
                 cpu_seconds = ((usage_after.ru_utime - usage_before.ru_utime) +
                                (usage_after.ru_stime - usage_before.ru_stime))
                 finish(db, job, code)
+                from preloaded_jobs import forget_identity
+                forget_identity(job['token'])
                 print(json.dumps({'event': 'scheduled_job_finished', 'key': job['key'], 'lane': lane,
                                   'exit_code': code, 'seconds': round(time.time()-job['started_at'], 2),
-                                  'cpu_seconds': round(cpu_seconds, 4)}), flush=True)
+                                  'cpu_seconds': round(cpu_seconds, 4),
+                                  'preloaded': bool(getattr(process, 'preloaded', False))}), flush=True)
             finally:
                 if process is not None and process.poll() is None:
                     stop_process(process.pid, job['token'])
