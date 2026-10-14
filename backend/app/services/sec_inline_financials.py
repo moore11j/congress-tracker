@@ -198,7 +198,8 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
     if basis is None:
         from app.services.sec_leverage import TAGS as leverage_tags
         from app.services.sec_parent_income import TAGS as parent_income_tags
-        auxiliary = {tag for concepts in {**leverage_tags, **parent_income_tags}.values() for tag in concepts} - wanted
+        from app.services.sec_common_income import TAGS as common_income_tags
+        auxiliary = {tag for concepts in {**leverage_tags, **parent_income_tags, **common_income_tags}.values() for tag in concepts} - wanted
         from app.services.sec_depreciation_components import CIK as da_cik, TAGS as da_tags
         if cik == da_cik:
             auxiliary |= {tag for concepts in da_tags.values() for tag in concepts} - wanted

@@ -1,3 +1,7 @@
+October14: [Common-equity income candidate](common-equity-income-2026-10-14.md) is local/unreleased;123 focused checks and three actual-source offline replays pass. Broad common-income coverage, source guards/continuity and price-ratio alert validation remain before release. CoreFMP and all cutover gates remain.
+
+October14: [Reviewed parent income PR646](reviewed-parent-income-2026-10-14.md) deployed a57e5ab9;269 tests/three source-cache-alert replays/20 unchanged controls/14runtime hashes verify six financial-field additions. Ordinary propagation remains pending. JEF common-equity P/E numerator remains a specific pre-Massive acceptance gate; all broader cutover gates remain.
+
 October14: [Ingestion router isolation PR645](ingest-feed-router-isolation-2026-10-14.md) deployed fcb36a2d;146 checks/nine hashes/ordinary120-job completion verify. Isolated import CPU averages15.36% lower; no whole-job or sustained-capacity claim. All original FMP cutover gates remain.
 
 October14: [Reviewed NVDA/JNJ statements PR644](reviewed-consolidated-statements-2026-10-14.md) deployed646ad8dc;255 tests,22 source/control cases,14 runtime hashes and exact ordinary NVDA leverage panel verify. JNJ ordinary refresh and future statement review remain pending. Public coreFMP and debt-policy/all-consumer gates remain. CPU credits exhausted at20:18 with renewed throttle20:22; current recovery does not close sustained capacity. Prioritize measured recurring CPU work before further cutover.
