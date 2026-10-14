@@ -1,4 +1,4 @@
-October14: [Ingestion router isolation](ingest-feed-router-isolation-2026-10-14.md) is prepared with an isolated 15.36% production-runtime import CPU reduction; validation/release/ordinary operation remain pending. No whole-job or sustained-capacity claim; all FMP cutover gates remain.
+October14: [Ingestion router isolation PR645](ingest-feed-router-isolation-2026-10-14.md) deployed fcb36a2d;146 checks/nine hashes/ordinary120-job completion verify. Isolated import CPU averages15.36% lower; no whole-job or sustained-capacity claim. All original FMP cutover gates remain.
 
 # FMP cutover execution
 
