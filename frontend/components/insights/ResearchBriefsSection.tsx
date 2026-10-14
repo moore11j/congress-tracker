@@ -100,7 +100,22 @@ function BriefCard({ brief }: { brief: ResearchBriefCard }) {
 
 export async function ResearchBriefsSection({ mode = "preview", page = 1 }: ResearchBriefsSectionProps) {
   const isArchive = mode === "archive";
-  const briefs = await loadResearchArchive();
+  let briefs: ResearchBriefCard[];
+  try {
+    briefs = await loadResearchArchive();
+  } catch (error) {
+    // The archive must not publish an incomplete list. Its optional Insights
+    // preview can report an outage without crashing news and market panels.
+    if (isArchive) throw error;
+    console.error("[insights] Research briefs temporarily unavailable");
+    return (
+      <section id="research-briefs" className="rounded-lg border border-white/10 bg-slate-950/55 p-4 sm:p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Research Briefs</h2>
+        <p className="mt-3 text-sm text-slate-400" role="status">Research briefs are temporarily unavailable. Please try again shortly.</p>
+        <Link href={researchArchiveHref(1)} className="mt-3 inline-flex text-sm font-semibold text-emerald-200">Open Research Briefs -&gt;</Link>
+      </section>
+    );
+  }
   const totalPages = Math.max(1, Math.ceil(briefs.length / BRIEFS_PER_PAGE));
   if (!Number.isSafeInteger(page) || page < 1 || page > totalPages) notFound();
   const pageIndex = isArchive ? page - 1 : 0;

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { InsightsMarketSnapshotClient } from "@/components/insights/InsightsMarketSnapshotClient";
 import { InsightsMacroPositioningPanel } from "@/components/insights/InsightsMacroPositioningPanel";
 import { InsightsNewsClient } from "@/components/insights/InsightsNewsClient";
@@ -33,7 +34,9 @@ export default async function InsightsPage({ searchParams }: Props) {
         <InsightsNewsClient page={page} limit={limit} />
         <InsightsMacroPositioningPanel />
       </div>
-      <ResearchBriefsSection />
+      <Suspense fallback={<p className="text-sm text-slate-400" role="status">Loading research briefs...</p>}>
+        <ResearchBriefsSection />
+      </Suspense>
     </div>
   );
 }

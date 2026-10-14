@@ -123,3 +123,12 @@ test("generated brief HTML shows truthful publication details, repaired links an
   assert.equal(jsonLd.article.author.name, "Walnut Markets");
   assert.equal(jsonLd.article.datePublished, draft.published_at);
 });
+
+
+test("Insights preview reports a research outage without inventing an empty archive", async () => {
+  const data = archive(async () => { throw new Error("upstream timeout"); });
+  const html = renderToStaticMarkup(await section(data)({}));
+  assert.match(html, /Research briefs are temporarily unavailable/);
+  assert.match(html, /https:\/\/walnutmarkets.com\/research/);
+  assert.doesNotMatch(html, /No research briefs are published yet|older-static/);
+});

@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from app.request_admission import acquire_without_blocking
+
 from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer, case, literal, inspect
@@ -2654,6 +2656,7 @@ app = FastAPI(title="Walnut Market Terminal", version="0.1.0")
 _HEAVY_ROUTE_WAIT_SECONDS = float(os.getenv("HEAVY_ROUTE_WAIT_SECONDS", "2") or 2)
 _HEAVY_ROUTE_MAX_CONCURRENCY = int(os.getenv("HEAVY_ROUTE_MAX_CONCURRENCY", "2") or 2)
 _HEAVY_ROUTE_SEMAPHORE = threading.BoundedSemaphore(max(_HEAVY_ROUTE_MAX_CONCURRENCY, 1))
+_PUBLIC_PROFILE_SSR_SEMAPHORE = threading.BoundedSemaphore(2)
 _TICKER_CHART_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_CHART_MAX_CONCURRENCY", "2") or 2))
 _TICKER_WIDGET_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_WIDGET_MAX_CONCURRENCY", "3") or 3))
 _ANALYTICS_TEMPORARILY_UNAVAILABLE = "Analytics temporarily unavailable. Try again shortly."
@@ -3455,6 +3458,7 @@ async def log_slow_requests(request: Request, call_next):
         }
     )
     heavy_slot_acquired = False
+    public_profile_slot_acquired = False
     heavy_slot_bypassed = _should_bypass_heavy_route_slot(request, priority)
     try:
         request_trace_enabled = os.getenv("WALNUT_REQUEST_TRACE") == "1" or not is_production()
@@ -3468,8 +3472,23 @@ async def log_slow_requests(request: Request, call_next):
                 walnut_component,
             )
 
+        # Anonymous server-rendered profile fan-out shares a small lane. Cache
+        # hits are served by the outer cache before reaching this middleware.
+        # Do not let a cold crawl occupy every interactive request worker.
+        if (
+            _is_secondary_analytics_path(request.url.path)
+            and attribution_fields["request_source"] == "ssr"
+            and attribution_fields["auth_state"] == "logged_out"
+        ):
+            public_profile_slot_acquired = _PUBLIC_PROFILE_SSR_SEMAPHORE.acquire(blocking=False)
+            if not public_profile_slot_acquired:
+                return JSONResponse(
+                    status_code=503,
+                    content={"status": "unavailable", "reason": "public_profile_capacity", "detail": "Profile temporarily busy; please retry shortly."},
+                    headers={"Retry-After": "10", "Cache-Control": "no-store"},
+                )
         if priority == RoutePriority.HEAVY and not heavy_slot_bypassed:
-            heavy_slot_acquired = _HEAVY_ROUTE_SEMAPHORE.acquire(timeout=max(_HEAVY_ROUTE_WAIT_SECONDS, 0))
+            heavy_slot_acquired = await acquire_without_blocking(_HEAVY_ROUTE_SEMAPHORE, max(_HEAVY_ROUTE_WAIT_SECONDS, 0))
             if not heavy_slot_acquired:
                 elapsed_ms = (perf_counter() - started) * 1000
                 logger.warning(
@@ -3561,6 +3580,8 @@ async def log_slow_requests(request: Request, call_next):
     finally:
         if heavy_slot_acquired:
             _HEAVY_ROUTE_SEMAPHORE.release()
+        if public_profile_slot_acquired:
+            _PUBLIC_PROFILE_SSR_SEMAPHORE.release()
         reset_request_context(context_token)
 
 
