@@ -202,6 +202,9 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         from app.services.sec_depreciation_components import CIK as da_cik, TAGS as da_tags
         if cik == da_cik:
             auxiliary |= {tag for concepts in da_tags.values() for tag in concepts} - wanted
+        from app.services.sec_operating_components import CIK as operating_cik, TAGS as operating_tags
+        if cik == operating_cik:
+            auxiliary |= {tag for concepts in operating_tags.values() for tag in concepts} - wanted
         wanted |= auxiliary
     records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}
     for n in nodes(tree, 'nonfraction'):

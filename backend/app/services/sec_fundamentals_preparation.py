@@ -20,6 +20,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
+    if symbol == 'HCA':
+        from app.services.sec_operating_components import VERSION as operating_version
+        return VERSION+'_'+operating_version
     from app.services.sec_depreciation_components import SYMBOL as da_symbol, VERSION as da_version
     if symbol == da_symbol:
         return VERSION+'_'+da_version
