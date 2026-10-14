@@ -1,5 +1,7 @@
 # FMP cutover execution
 
+October14: [HCA SEC operating-income repair](hca-operating-income-2026-10-14.md) PR640/1752fe1d is deployed and exact runtime verified.145 tests, actual-source/cache/consumer and20-company control replays pass; ordinary HCA rotation remains pending. Yahoo remains unselected after four-symbol source mismatches/gaps. CoreFMP and remaining coverage/consumer/capacity/Massive/globalFMP gates remain.
+
 October14,18:53UTC: [PR639 debt reconciliation](sec-debt-representations-2026-10-14.md) deployed6b2f680d;175 focused checks,71-panel/22-original replays and12 runtime hashes/two actual fixtures verify. Ordinary18:51 preparation produces five v5 panels; issuer-specific GT/SON refresh still pending. Incorrect subtotal/lease-addition alternatives are held, no canonical ratio selected. CoreFMP and all broader coverage/consumer/capacity/Massive/globalFMP/billing gates remain.
 
 October14,18:23UTC: [PR638 bank revenue](bank-current-revenue-2026-10-14.md) deployed5e848e02;136tests/12hashes/live12value parity and three public panels verify. SEC usable coverage1102; full audit still366lost/72gained classifications. CoreFMP remains, per-bank ordinary refresh/all-consumer/sustainedcapacity/institutions/transcripts/finalMassive/globalFMP/billing gates open.

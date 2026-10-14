@@ -101,8 +101,13 @@ def fetch_fundamentals(symbol: str):
                 values['market_cap'] = cap
                 evidence['market'] = {'provider': 'massive', 'observed_at': now.isoformat(),
                     'basis': 'current reference, not historical point-in-time', 'reference': details}
-                revenue = evidence['current'].get('revenue')
-                income = evidence['current'].get('net_income')
+                # The market cap is USD. Foreign reported amounts must never
+                # be divided into it without a reviewed currency conversion.
+                usd = evidence.get('reporting_currency', 'USD') == 'USD'
+                revenue = evidence['current'].get('revenue') if usd else None
+                income = evidence['current'].get('net_income') if usd else None
+                if not usd:
+                    evidence['limitations'].append('USD market-cap ratios are unavailable for non-USD reported amounts.')
                 if revenue and revenue['value'] > 0:
                     values['price_to_sales'] = cap / revenue['value']
                     evidence['calculations']['price_to_sales'] = 'current Massive market cap / TTM revenue'
@@ -114,7 +119,7 @@ def fetch_fundamentals(symbol: str):
                     if income['value'] > 0:
                         values['trailing_pe'] = cap / income['value']
                         evidence['calculations']['trailing_pe'] = 'current Massive market cap / '+income_basis
-                if 'free_cash_flow' in values:
+                if usd and 'free_cash_flow' in values:
                     values['fcf_yield'] = values['free_cash_flow'] / cap * 100
                     evidence['calculations']['fcf_yield'] = 'TTM free cash flow / current Massive market cap * 100'
             end = now.astimezone(timezone.utc).date() - timedelta(days=1)
@@ -253,6 +258,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     if not symbol or tickers.count(symbol) != 1 or not company.get("name"):
         raise SecFundamentalsError("SEC symbol identity is missing or ambiguous")
     available_by = observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)
+    if symbol == 'TSM':
+        from app.services.sec_tsm_financials import project
+        return project(facts_raw, company_raw, symbol=symbol, cik=cik,
+                       observed_at=observed_at, supplement=filing_supplement)
     from app.services.sec_financial_continuity import record_sets
     from app.services import sec_leverage, sec_parent_income, sec_depreciation_components
     metric_tags = {**TAGS, **sec_leverage.TAGS, **sec_parent_income.TAGS}

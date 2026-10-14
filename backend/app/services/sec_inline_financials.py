@@ -269,6 +269,12 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
 
 
 def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
+    if symbol == 'TSM':
+        from app.services import sec_tsm_financials as tsm
+        try:
+            return tsm.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
+        except tsm.TsmFinancialError as exc:
+            return {'tsm_documents': {}, 'tsm_error': str(exc)}
     from app.services import sec_fundamentals as sec
     from app.utils.symbols import canonical_symbol
     if observed_at.tzinfo is None:
