@@ -1,0 +1,30 @@
+# Common-shareholder income candidate, October 14, 2026
+
+## Scope and current state
+
+Local candidate on codex/common-equity-income, based on deployed a57e5ab9 plus documentation checkpoint3624431f. Not committed, released or activated. The remote Codex429 screenshot concerns a failed agent turn; current account inspection permits ordinary usage with72% of the weekly window used and no reached-limit/spend-control flag. This turn executes successfully. The exact historical cause and permanent prevention are not established; no account or retry configuration was changed.
+
+The pending SEC/Massive valuation adapter previously used parent net income for common-equity P/E and earnings yield. Explicit common-shareholder earnings now take priority. JEF can reuse its already accepted, exact original-statement parent reconciliation and explicitly reported preferred dividends to obtain common income. Missing, conflicting or misaligned common earnings remain unavailable. Parent-equity ROE/net margin and leverage retain their current basis. No public source selection, refresh version, schedule or hosting change is included.
+
+## Current validation
+
+Linux Python3.12.3:123 focused checks pass across test_sec_common_income.py, test_sec_parent_income.py, test_sec_fundamentals.py and test_sec_inline_financials.py. Two initial failures asserted the old parent-based P/E contract. One fixture now explicitly reports common income; the other verifies missing common earnings retain independently valid market and revenue inputs without a P/E value. Positive, zero and negative common earnings, conflicts, missing periods, wrong currency, filing availability, identity and inline-source cases are covered. No full-suite pass is claimed.
+
+Offline replay against the existing hashed SEC originals on Windows Python3.14.2 verifies JEF common trailing income852.597million versus parent936.650million, FOX common1.685billion, and unavailable FLEX common income versus parent973million. Synthetic market cap10billion is used only to exercise the adapter; it is not a market observation. All existing financial values and current/prior/instant/leverage evidence remain identical. Complete adapter repeats match. Network is disabled; zero production writes or emails. Receipt: artifacts/parent-gaps-oct14/common-income-replay.json; script: artifacts/replay-common-income-oct14.py.
+
+## Remaining work
+
+Review and test JEF-specific changed-dividend, source-hash/context and future-filing rejection. Resolve the currently unused observed_at/history_raw parameters and validate historical continuity where needed. Measure common-income coverage broadly: unavailable common earnings are an explicit coverage gap, not completed replacement parity. Validate prepared/cache and price-ratio alert transition/repeat/rollback behavior before release. Public core financials remain FMP; no Massive subscription or endpoint activation occurred. Ordinary FLEX/FOX/JEF preparation was still pending at the earlier21:48 receipt and has not been freshly rechecked here. Full source/consumer/scheduled-operation/capacity, institutions/transcripts, final Massive and zero-FMP/billing gates remain open.
+
+
+## Completed release preparation
+
+The final adapter validates the original facts hash, issuer identity and completed filing-day boundary. It uses the existing reviewed accounting-continuity helper for historical common-income facts, retaining source CIKs and rejecting overlapping conflicts. JEF's preferred-dividend observation must match the accepted parent statement's period, filing, accession, amount and any available source URL/hash/context. Reported common-income conflicts take precedence over reconciliation. Parent earnings never substitute for an unverified common numerator. No preparation version or public selector changes.
+
+The affected source/preparation/alert suite now passes 288 checks on Linux Python 3.12.3. A separate downstream provider/combined-metric suite passes 95 checks on the same runtime, for 383 passing checks across the two non-overlapping selected groups. Twenty retained October 8 source controls preserve their complete core output exactly; four have usable common-income observations (AMT, CAT, JPM, TSLA), ten have incomplete or unverified common income and six retain broader financial coverage holds. This dated cohort does not establish current universe coverage. Fresh FOX and JEF originals support common earnings, while FLEX stays explicitly unavailable. Combined free metrics can still supply separately attributed Finnhub P/E; that is not the same as a verified SEC common-income calculation.
+
+The JEF actual-income/synthetic-market-cap replay exercises the real SQLite watchlist evaluator with the same provider before and after the formula correction: zero transition alerts, zero repeat duplicates and zero rollback alerts. A later synthetic threshold crossing creates exactly one monitoring record. No live quote, email delivery, daily/weekly digest or complete ranking claim. All 20 core controls and three fresh issuer values repeat identically; parent metrics and leverage remain unchanged. Receipts: artifacts/parent-gaps-oct14/common-consumers.json and common-income-replay.json.
+
+At 21:59 UTC the ordinary production preparation for FLEX, FOX and JEF is verified at 21:51 with the exact reviewed parent-income evidence and values. This closes the prior three-symbol propagation wait without forced refreshes. HCA still retains its older leverage preparation. Receipt: ordinary-1792015176.json. At 22:03 UTC current API throttle is zero and CPU balance is about 15,272; the two-hour history still includes earlier exhaustion and deployments, so sustained capacity is not proven. Receipt: cpu-quota-1792015384.json under artifacts/direct-feeds/free-replacements-2026-10-09.
+
+Release is being prepared; deployment remains unverified until the release receipt below. FMP remains selected and institutional publication remains disabled. Broader common-income coverage and original cutover gates remain open.

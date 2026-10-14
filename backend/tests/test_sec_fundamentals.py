@@ -200,7 +200,10 @@ def test_selected_market_fields_and_rank_inputs_use_massive_provenance(monkeypat
     values = sec.fetch_fundamentals('ABC')
     assert values['market_cap'] == 1300 and values['avg_volume'] == 110.5
     if coverage == 'complete':
-        assert values['price_to_sales'] == 10 and values['trailing_pe'] == 100
+        assert values['price_to_sales'] == 10
+        # Parent earnings alone do not establish common-shareholder P/E.
+        assert 'trailing_pe' not in values and 'earnings_yield' not in values
+        assert json.loads(values['source_evidence_json'])['market_income']['status'] == 'unavailable'
         assert values['fcf_yield'] == 2.5
     else:
         assert values['period_date'] is None

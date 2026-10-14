@@ -55,13 +55,14 @@ def test_reported_parent_wins_and_its_conflicts_are_never_filled():
 
 
 
-def test_market_valuations_retain_derived_parent_income_basis(monkeypatch):
+def test_market_valuations_use_reported_common_income_and_retain_parent_roe(monkeypatch):
     from app.services import sec_fundamentals as sec, sec_inline_financials as inline
     from app.clients.direct_sources import DirectSourceClient
     from app.clients.massive_stocks import MassiveStocksClient
     from test_sec_fundamentals import sources, NOW
     from datetime import datetime
-    facts,_ = parent_sources()
+    facts,income = parent_sources()
+    facts['facts']['us-gaap']['NetIncomeLossAvailableToCommonStockholdersBasic'] = {'units': {'USD': deepcopy(income)}}
     company = sources()[1]
     class Clock(datetime):
         @classmethod
@@ -77,8 +78,10 @@ def test_market_valuations_retain_derived_parent_income_basis(monkeypatch):
     result = sec.fetch_fundamentals('ABC')
     assert result['trailing_pe'] == 100 and result['earnings_yield'] == 1
     e=json.loads(result['source_evidence_json'])
-    for field in ('net_margin','roe','earnings_yield','trailing_pe'):
+    for field in ('net_margin','roe'):
         assert 'noncontrolling interest' in e['calculations'][field]
+    for field in ('earnings_yield','trailing_pe'):
+        assert 'common shareholders' in e['calculations'][field]
 
 
 def test_original_inline_parent_components_remain_explicit_evidence():

@@ -105,18 +105,20 @@ def fetch_fundamentals(symbol: str):
                 # be divided into it without a reviewed currency conversion.
                 usd = evidence.get('reporting_currency', 'USD') == 'USD'
                 revenue = evidence['current'].get('revenue') if usd else None
-                income = evidence['current'].get('net_income') if usd else None
+                from app.services.sec_common_income import resolve as common_income
+                common = common_income(facts, company, evidence, symbol=symbol, cik=cik,
+                    observed_at=now, history_raw=history, filing_supplement=filing)
+                evidence['market_income'] = common
+                income = common['point'] if usd and common['status'] == 'available' else None
+                if income is None:
+                    evidence['limitations'].append('P/E and earnings yield require verified income available to common shareholders.')
                 if not usd:
                     evidence['limitations'].append('USD market-cap ratios are unavailable for non-USD reported amounts.')
                 if revenue and revenue['value'] > 0:
                     values['price_to_sales'] = cap / revenue['value']
                     evidence['calculations']['price_to_sales'] = 'current Massive market cap / TTM revenue'
                 if income:
-                    from app.services.sec_parent_income import is_derived
-                    income_basis = 'TTM parent net income (consolidated profit minus reported noncontrolling interest)' if is_derived(income) else 'TTM net income'
-                    from app.services.sec_parent_statement_income import is_reviewed
-                    if is_reviewed(income):
-                        income_basis = 'TTM parent net income (reviewed original-statement reconciliation)'
+                    income_basis = 'TTM income available to common shareholders'
                     values['earnings_yield'] = income['value'] / cap * 100
                     evidence['calculations']['earnings_yield'] = income_basis+' / current Massive market cap * 100'
                     if income['value'] > 0:
