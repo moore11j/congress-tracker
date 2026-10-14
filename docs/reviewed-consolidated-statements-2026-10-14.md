@@ -1,6 +1,6 @@
 # Reviewed consolidated income statements
 
-October 14, 2026. Implemented and locally verified; release/runtime/ordinary operation pending. Public fundamentals remain FMP. No canonical leverage policy is selected.
+October 14, 2026. Deployed as646ad8dc; exact runtime and ordinary NVDA preparation verified. JNJ ordinary new-version refresh remains pending. Public fundamentals remain FMP. No canonical leverage policy is selected.
 
 ## Source finding
 
@@ -32,6 +32,18 @@ The first cache harness compared the companyfacts-only path with forced-inline p
 
 Receipts: `artifacts/income-statements-oct14/manifest.json`, `inventory.json`, `audit.json`, `source-replay.json`, `cache-replay.json`. The source audit's first read-only production check also confirms remaining unsupported foreign financial coverage; `artifacts/unsupported-financials-1792010209.json`. Presence of these gaps is not evidence that source content does not exist.
 
+## Deployment and ordinary operation
+
+[PR644](https://github.com/moore11j/congress-tracker/pull/644), source `825a7aefebcbd065a49d9d4d88bfa7ed9627e575`, merged as `646ad8dc824680f8f13f36f176b0a54c68a95d94`; backend workflow38635186145/job116096407164 is terminal success. Managed backend exactly matches origin/main.14 deployed source hashes and six retained-original identity/repeat/rejection fixtures pass onPython3.12.15. The same API shared2CPU/2048MB and database performance1CPU/2048MB remain.
+
+Ordinary NVDA preparation at20:51:01.701385 contains the new scoped version,10 core fields and three reviewed statement periods. Its complete leverage panel equals the offline source-derived companyfacts panel exactly, including all debt/lease holds and source proofs. JNJ's cache is still its07:01 prior version; its ordinary new-version refresh remains pending. No forced source refresh or public selection occurred.
+
+Postrelease checks all return200: Feed0.594s, Insights0.813s with research, news0.401s, research0.569s, AAPL2.789s, NVDA2.442s; database ready is okay. Fresh two-hour CPU history separately shows credit exhaustion at20:18 and throttle peak1.489 at20:22, before the previous deployment. Current throttle0 and fast samples do not prove sustained recovery. Recurring CPU work remains the next priority, with no resource increase. Recent structured job receipts include enrichment9.7511CPU seconds and direct collection3.1131CPU seconds; these later samples do not identify the20:22 cause. Nonzero warmer exits map to partial source receipts rather than a demonstrated Python exception; coverage remains incomplete. News23/23 prepared scopes and42/42 fresh company caches pass.
+
+Secret scanning passes. Unchanged frontend production dependency audit reports4high/1critical and backend Pillow10.4.0 audit lists33 advisories; this is not an all-CI pass. One CI job-log read returns502, while the required run-level tool independently confirms terminal successful deployment. Attachment is prevented by the existing100-item limit. No attachments were removed.
+
+Receipts: `artifacts/income-statements-oct14/runtime-1792011138.json`, `ordinary-1792011138.json`, `ordinary-verification.json`; public probe `artifacts/direct-feeds/free-replacements-2026-10-09/insights-incident-1792011140.json`; CPU `cpu-quota-1792010962.json` and structured scheduler sample `scheduled-job-cpu-1792011012.json` in that same folder; source receipts `artifacts/source-receipts-1792011068.json`. All local handles terminal; no local PostgreSQL remains running.
+
 ## Remaining gates
 
-Release and exact deployed behavior, ordinary NVDA/JNJ refresh, broader/future consolidated source coverage, debt-policy acceptance, whole-universe financial and score/ranking/all-alert checks, institutions/transcripts, sustained capacity, final Massive, zero global FMP traffic and billing remain. FMP stays enabled. No change to schedules, hosting, subscriptions, customer emails, videos or the landing page.
+Ordinary JNJ refresh, broader/future consolidated source coverage, debt-policy acceptance, whole-universe financial and score/ranking/all-alert checks, institutions/transcripts, sustained capacity, final Massive, zero global FMP traffic and billing remain. FMP stays enabled. No change to schedules, hosting, subscriptions, customer emails, videos or the landing page.

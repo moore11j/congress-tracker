@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app.db import DATABASE_URL, SessionLocal
 from app.models import Event, Filing, Member, Security, Transaction
-from app.routers.events import list_events
 from app.security.redaction import redact_database_url
 from app.services.congress_assets import (
     CONGRESS_DISCLOSURE_EVENT_TYPES,
@@ -322,6 +321,10 @@ def _merge_value(current: object | None, incoming: object | None) -> object | No
 
 
 def verify_event_filters(db: Session) -> None:
+    # Scheduled ingestion needs the canonical event writer, not HTTP route setup.
+    # Load the unchanged public reader only for an explicit filter verification.
+    from app.routers.events import list_events
+
     empty_symbol = list_events(
         db=db,
         symbol="ZZZZZZ",
