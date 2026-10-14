@@ -1,0 +1,31 @@
+# Financial consumer provider isolation, October 14, 2026
+
+## Current-universe cutover rehearsal
+
+Read-only production capture at17:27:15UTC covers1,751 tracked cached symbols using deployed SEC preparation/version/freshness checks, the real SEC-first Finnhub combiner, financial summary and Confirmation fundamentals-source conversion. Public source remains FMP. The rehearsal excludes market-derived fields and does not select prepared leverage candidates. It does not invoke providers, write caches/scores or send email.
+
+1,361 legacy rows have enough financial inputs for a classification;1,066 free preparations do.367 previously classified symbols become unavailable and72 previously unavailable symbols become classified. There are1,433 changed fundamentals source summaries; this is not1,433 changed complete Confirmation Scores. Neutralizing legacy cache age isolates field/definition effects; these are not refreshed legacy observations or whole-product numerical parity. No existing acceptance threshold was relaxed.
+
+Large affected names include TSM, BRK-B, ASML and BULL. Foreign reporting, absent/denied free metric coverage, missing operating-margin comparisons and unselected leverage remain real gaps. Prepared free cash flow and earnings yields also await independently verified Massive market inputs. Earlier financial-statement panel recovery does not imply current core financial classification coverage. Do not turn core fundamentals off on this evidence.
+
+Receipt: artifacts/financial-consumer-readiness-1791998838.json, SHA256662b56628a493a4a18033c5eb83443f25d3a7146c2d5ca8bb9f1b341dbfbe55f. The first diagnostic stopped on incorrect dataclass serialization before producing a receipt; corrected read-only repeat passed. No production changes.
+
+## Reproduced consumer defect and repair
+
+Five live readers selected the newest fundamentals row across providers: custom watchlist rules, Research Memory suggestion evidence, research brief identity, research brief financial context and macro positioning. Ticker hydration separately hardcoded FMP. Preparing a newer canonical replacement cache could therefore change a consumer before explicit activation; a newer legacy refresh could reverse it afterward.
+
+Six readers now reuse the existing selected-provider cache accessor already used by ticker summaries and screening. Missing or failed selected rows remain unavailable, rather than falling back to another provider. Explicit selection and rollback govern transitions. Imports stay local to the reader to avoid adding scheduler startup cost. No provider selector, source row, historical research, schedule, entitlement or delivery preference is changed by this release.
+
+All30 new regression cases were run before repair:29 failed and one passed. Existing tests that used the fictitious provider test now use supported FMP; alert transition fixtures explicitly select providers. One SQL-count fixture was corrected so inspecting its expired ORM row did not add an unrelated query to the count.
+
+## Captured-value watchlist replay
+
+The actual evaluator runs200 financial rules for20 public companies in isolated SQLite on Python3.12.3.104 rules have legacy values and134 have replacement values; missing observations remain explicit. A newer unselected replacement, explicit switch, identical repeat, newer unselected legacy refresh and explicit rollback each create zero alerts. Synthetic later below/above-threshold observations produce134 triggers and134 monitoring records, all uniquely identified; repeat creates none. These later values are test inputs, not issuer observations. Both immediate/daily eligibility use the same retained monitoring records; actual email delivery and full ranking/score rebaseline are not claimed.
+
+Receipt: artifacts/financial-consumer-replay-oct14.json. Network calls, emails and production writes arezero. Source snapshot and application hashes are recorded. No customer watchlists or private records were exported.
+
+## Validation and release state
+
+Final focused Linux3.12.3 selection/alerts/macro/hydration run93pass. Expanded Linux run initially200pass/10fail; fixture corrections resolve three, while the other seven research failures reproduce identically against exact unchanged3f69704d code (both comparison runs7fail/2pass). Windows3.14.2 research/monitoring/daily-weekly group212pass/one fixture failure, followed by15/15 passing affected alert checks after correcting instrumentation. This is not a full-suite pass. Release pending. Linux API TestClient collection is unavailable because its isolated environment lacks httpx2; the configured Windows environment covers that suite. No dependency manifest was changed.
+
+CPU sample17:25UTC has zero current throttling and approximately0.087CPU against0.125sustained allowance, with10,871burst credits. The preceding two-hour window includes exhaustion and deployments, so sustained recovery remains unproved. Two hosts unchanged. All financial coverage, institutions/transcripts, full consumer/scheduled operation, final Massive and global FMP/billing gates remain.

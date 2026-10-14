@@ -32,3 +32,8 @@ Postrelease feed0.388seconds and Insights0.466seconds pass, while fresh AAPL/NVD
 Core fundamentals is still FMP, institutions publication remainsfalse, and other foreign currencies/forms remain separate coverage work. Sustained CPU/latency, all alert/ranking consumers, transcripts, final Massive/globalFMP/billing remain open. No new schedules, hosting costs, subscription, customer email or cancellation.
 
 The16:16 aggregate two-hour FMP inventory confirms provider_call entries for prices, core fundamentals and operational transcripts. A narrower earlier query excluded provider_call cache-status rows and returned empty; it must not be cited as zero traffic. Authorization telemetry does not independently prove completed HTTP requests. Source ownership remains Houseofficial, Form4SEC, SECpress and Senatecommunity generation5. This audit does not change ownership.
+
+
+## Ordinary core preparation, October14 at17:21 UTC
+
+The existing scheduled financial run now refreshes ARM with the reviewed reporting-policy version. All ten prepared values and the June30 period match the saved annual/quarterly-original replay exactly. Receipt `artifacts/arm-ordinary-core-oct14.json`, backed by `da-receipt-1791998486.json`. Earlier pending-core-rotation notes are superseded. Public core remainsFMP; missing interest expense and other broad coverage/consumer gates remain unresolved. No forced refresh, schedule change or public source activation.

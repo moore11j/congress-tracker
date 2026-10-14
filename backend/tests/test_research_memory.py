@@ -272,7 +272,7 @@ def test_suggestions_reuse_cache_and_change_when_evidence_changes(db: Session):
     now = datetime.now(timezone.utc)
     db.add_all([
         TickerMeta(symbol="MU", company_name="Micron Technology", sector="Technology", industry="Semiconductors"),
-        FundamentalsCache(symbol="MU", provider="test", fetched_at=now, revenue_growth=12.5, operating_margin_expansion=2.0),
+        FundamentalsCache(symbol="MU", provider="fmp", fetched_at=now, revenue_growth=12.5, operating_margin_expansion=2.0),
     ])
     db.commit()
 

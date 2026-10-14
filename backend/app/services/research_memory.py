@@ -294,7 +294,8 @@ def list_active_theses_for_security(db: Session, *, user: UserAccount, security_
 def _evidence_state(db: Session, security: Security) -> dict[str, Any]:
     symbol = security.symbol or ""
     meta = db.get(TickerMeta, symbol)
-    fundamentals = db.execute(select(FundamentalsCache).where(FundamentalsCache.symbol == symbol).order_by(FundamentalsCache.fetched_at.desc(), FundamentalsCache.id.desc()).limit(1)).scalar_one_or_none()
+    from app.services.fundamentals_cache import cached_fundamentals_by_symbol
+    fundamentals = cached_fundamentals_by_symbol(db, [symbol]).get(symbol)
     score = db.execute(select(ConfirmationScoreSnapshot).where(ConfirmationScoreSnapshot.security_id == security.id).order_by(ConfirmationScoreSnapshot.calculated_at.desc(), ConfirmationScoreSnapshot.id.desc()).limit(1)).scalar_one_or_none()
     return {
         "security_id": security.id,

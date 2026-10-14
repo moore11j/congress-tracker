@@ -49,9 +49,8 @@ FUNDAMENTAL_METRICS = frozenset({"revenue_growth", "eps_growth", "trailing_pe", 
 
 
 def _fundamentals_row(db: Session, ticker: str) -> FundamentalsCache | None:
-    return db.execute(select(FundamentalsCache).where(
-        func.upper(FundamentalsCache.symbol) == ticker, FundamentalsCache.status == "ok"
-    ).order_by(FundamentalsCache.fetched_at.desc(), FundamentalsCache.id.desc()).limit(1)).scalar_one_or_none()
+    from app.services.fundamentals_cache import cached_fundamentals_by_symbol
+    return cached_fundamentals_by_symbol(db, [ticker]).get(ticker)
 
 
 def _fundamental_basis(row: FundamentalsCache | None, metrics: set[str]) -> dict[str, Any]:

@@ -357,14 +357,8 @@ def _financials_content_state(
 
 
 def _latest_fundamentals(db: Session, symbol: str) -> FundamentalsCache | None:
-    return db.execute(
-        select(FundamentalsCache)
-        .where(FundamentalsCache.symbol == symbol)
-        .where(FundamentalsCache.provider == "fmp")
-        .where(FundamentalsCache.status == "ok")
-        .order_by(FundamentalsCache.fetched_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    from app.services.fundamentals_cache import cached_fundamentals_by_symbol
+    return cached_fundamentals_by_symbol(db, [symbol]).get(symbol)
 
 
 def _chart_counts(db: Session, symbol: str, *, now: datetime) -> dict[str, int]:

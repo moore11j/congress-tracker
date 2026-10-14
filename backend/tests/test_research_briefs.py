@@ -419,7 +419,7 @@ def _seed_ticker(db, symbol: str = "MU"):
     db.add(
         FundamentalsCache(
             symbol=symbol,
-            provider="test",
+            provider="fmp",
             fetched_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
             status="ok",
             company_name=f"{symbol} Corp",
