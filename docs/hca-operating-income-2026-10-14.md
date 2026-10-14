@@ -36,8 +36,12 @@ The ordinary19:16 batch completes10 scopes, but HCA still has its prior version 
 
 Secret scanning passed. Unchanged frontend dependencies and Pillow still fail audits; no all-CI/full-suite claim. One CI diagnostic request returned502, then the dedicated diagnostics service confirmed terminal success. PR attachment failed because this chat already has100 attachments; the PR itself is created and merged. No source selector, schedule, subscription or host configuration changed.
 
+## Ordinary follow-up, October14
+
+The existing19:31 scheduled refresh now prepares HCA on the new version. All eight persisted fields and the complete current/prior/operating-income reconciliation match the original-source replay. This supersedes the pending ordinary refresh note above; public core remainsFMP. Captured at19:41 in `artifacts/tsm-interim-oct14/rollout-1792006890.json`, with repeat verification in `artifacts/tsm-interim-oct14/ordinary-verification.json`.
+
 ## Remaining gates
 
-Observe ordinary HCA refresh and source-equivalent persisted values. Broad financial coverage, actual score/ranking transitions, all alert/digest consumers, institutions, transcripts, sustained workload capacity, final Massive prices and global FMP retirement remain open. No subscription, host-size, video, landing-page or cancellation change.
+Broad financial coverage, actual score/ranking transitions, all alert/digest consumers, institutions, transcripts, sustained workload capacity, final Massive prices and global FMP retirement remain open. No subscription, host-size, video, landing-page or cancellation change.
 
 Final affected regression suite: 145 passed on Linux Python 3.12.3. Includes integer overflow, missing/zero, identity, currency, prior disposal losses, reported conflicts and cache-version isolation.
