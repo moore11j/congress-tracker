@@ -33,3 +33,25 @@ FMP remains enabled. Both changes make concrete migration progress without weake
 
 
 October15,22:58UTC: The separate Form4 publisher normal run now verifies200attempts/96published filings/243events, with source-identity checks and352remaining unattempted filings. See form4-publication-fairness-2026-10-15.md. This does not establish the collector's next ordinary source run, which remains pending.
+
+
+## Manual live collection recovery verified, October 15 23:28 UTC
+
+One bounded existing collector jobfc9fcb5090f3f5be0ed847d2 was manually enqueued through the serialized data lane after the installed proof. Limits remain200documents per source,168hour rechecks and unchanged identified source transport. Scheduler run124 finishes23:28:11UTC, CPU9.7891seconds, exit1. Collection run625 starts23:24:14 and finishes23:28:10, processing400documents:369parsed/31quarantined. This is a completed partial run, not a clean all-source result.
+
+Complete public-index comparison confirms all543 October14 accessions are newly present after release with zero missing rows, zero metadata/URL mismatches and the October13 filing date preserved for the delayed entry. Current states in that complete cohort are178parsed/22quarantined/98pending Form4, and191parsed/9quarantined/45pending13F. The bounded batch has not fetched all543originals. Across the seven-day discovery window the collector reports1435Form4/82513F, versus1137/580 before the repair: exactly298/245additional index rows. Receipts: artifacts/sec-index-live-1792106903.json and artifacts/sec-collector-schedule-1792106891.json. The first log observer expired while the collector continued; a second observer followed the same job, without re-enqueue or restart, to terminal completion.
+
+The former unexpected-index-date error is absent. All six errors in this run are specific Sec13FCoverMismatch holds. Every affected complete original was independently fetched from its public SEC URL and replayed locally on Python3.14.2, with an independent XML row count/value sum confirming the same discrepancy. Each has one cover and one information table; this is not duplicate-table aggregation. Evidence: artifacts/sec-cover-oct14/replay.json and structure.json.
+
+| Public accession | Cover rows / actual rows | Cover value / actual sum, USD |
+|---|---:|---:|
+| [0001598352-26-000004](https://www.sec.gov/Archives/edgar/data/1598352/0001598352-26-000004.txt) | 39 / 39 | 141515712 / 141515713 |
+| [0001730813-26-000005](https://www.sec.gov/Archives/edgar/data/1730813/0001730813-26-000005.txt) | 62 / 61 | 352254343 / 352254343 |
+| [0001962838-26-000005](https://www.sec.gov/Archives/edgar/data/1962838/0001962838-26-000005.txt) | 81 / 245 | 294697332 / 820710054 |
+| [0001977500-26-000004](https://www.sec.gov/Archives/edgar/data/1977500/0001977500-26-000004.txt) | 221 / 221 | 650085781 / 639911992 |
+| [0002035533-26-000006](https://www.sec.gov/Archives/edgar/data/2035533/0002035533-26-000006.txt) | 88 / 88 | 326173258 / 328529815 |
+| [0002050848-26-000005](https://www.sec.gov/Archives/edgar/data/2050848/0002050848-26-000005.txt) | 92 / 91 | 247226588 / 247226588 |
+
+All six remain quarantined; no source correction or relaxed tolerance is inferred. The ordinary next collector and backlog rotation remain separate acceptance gates. At23:28:36 the newly parsed sources increase eligible unattempted Form4 to330, with306held; old source reconciliation is not declared complete. Public response checks during collection pass200/no rendered errors at0.241-0.441seconds, not sustained capacity or complete consumer proof.
+
+No application edits/new deployment in this validation turn, no institutional activation, subscription, host/schedule change, forced email or global FMP switch. Pending private-export approvals remain untouched. Source discovery recovery and actual canonical insider publication are concrete progress; full source/consumer/capacity/final-provider/zero-FMP/billing gates remain.
