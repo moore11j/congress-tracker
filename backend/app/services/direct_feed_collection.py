@@ -79,11 +79,9 @@ def discover_sources(db, client, *, sources, start, end, symbols, issuer_registr
                 quarter = (current.month - 1) // 3 + 1
                 url = f"https://www.sec.gov/Archives/edgar/daily-index/{current.year}/QTR{quarter}/master.{current:%Y%m%d}.idx"
                 try:
-                    rows = parse_sec_index(client.get(url), forms=tuple(sec_forms))
+                    rows = parse_sec_index(client.get(url), forms=tuple(sec_forms), index_date=current)
                     day_counts = {}
                     for row in rows:
-                        if date.fromisoformat(row["filing_date"]) != current:
-                            raise DirectSourceError("SEC daily index contains an unexpected filing date")
                         feed = sec_forms[row["form"]]
                         discover(db, feed, row)
                         day_counts[feed] = day_counts.get(feed, 0) + 1

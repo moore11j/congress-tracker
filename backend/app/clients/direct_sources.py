@@ -130,20 +130,36 @@ class DirectSourceClient:
             raise DirectSourceError(f"Expected source JSON: {url}") from exc
 
 
-def parse_sec_index(raw: bytes, *, forms=("4", "4/A")) -> list[dict]:
+def parse_sec_index(raw: bytes, *, forms=("4", "4/A"), index_date: date | None = None) -> list[dict]:
     rows = []
     text = raw.decode("utf-8", errors="replace")
     if not re.search(r"^CIK\|Company Name\|Form Type\|Date Filed\|File\s*Name\s*$", text, re.I | re.M):
         raise DirectSourceError("SEC master index header missing")
+    header_date = None
+    if index_date is not None:
+        stamp = re.search(r"^Last Data Received:\s*([^\r\n]+)", text, re.I | re.M)
+        if stamp:
+            try:
+                header_date = datetime.strptime(stamp.group(1).strip(), "%b %d, %Y").date()
+            except ValueError as exc:
+                raise DirectSourceError("SEC daily index date header is invalid") from exc
+            if header_date != index_date:
+                raise DirectSourceError("SEC daily index header does not match requested date")
     for line in text.splitlines():
         fields = line.split("|")
         if len(fields) != 5 or fields[2] not in forms:
             continue
         cik, name, form, filed, filename = fields
+        filed_date = date.fromisoformat(filed)
+        # SEC can disseminate an earlier filing in a later daily index. Bind
+        # that exception to the index's own date, never rewrite the filing date.
+        if index_date is not None and (filed_date > index_date or
+                (filed_date < index_date and header_date != index_date)):
+            raise DirectSourceError("SEC daily index contains an unexpected filing date")
         if not re.fullmatch(r"edgar/data/\d+/\d{10}-\d{2}-\d{6}\.txt", filename):
             raise DirectSourceError("Unrecognized SEC filing path")
         rows.append({"key": filename.rsplit("/", 1)[1][:-4], "cik": cik.zfill(10), "name": name,
-                     "form": form, "filing_date": date.fromisoformat(filed).isoformat(),
+                     "form": form, "filing_date": filed_date.isoformat(),
                      "url": "https://www.sec.gov/Archives/" + filename})
     # Joint filers can occupy multiple index lines for one accession.
     return list({row["key"]: row for row in rows}.values())

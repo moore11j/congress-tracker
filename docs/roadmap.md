@@ -610,3 +610,6 @@ October15,22:32UTC: [Shutdown repair](fmp-shutdown-transport-2026-10-15.md#deplo
 
 
 October15: [Form 4 backlog repair](form4-publication-fairness-2026-10-15.md) is locally verified:200 held sources starve552 eligible new sources in production.115 distinct checks and actual PostgreSQL selection comparison pass. Release/runtime/ordinary processing remain pending; source reconciliation and all broader FMP retirement gates remain.
+
+
+**2026-10-15,22:49UTC Form4 deployed; SEC index repair prepared:** PR691/5a3bc04d guarded38819347547 succeeds;115distinct checks/four installed hashes/no-autoflush synthetic backlog-repeat proof verify, ordinary backlog progression pending. [Publisher report](form4-publication-fairness-2026-10-15.md). Separate actual Oct14SEC index contains542same-day/one verified prior-day filing; old validation rejects entire day. [Index repair](sec-delayed-index-2026-10-15.md) locally passes105Linux checks/full543-source unchanged-field/repeat staging. Collector release/runtime/ordinary recovery pending. Current deployed repair and verified source evidence are concrete progress; goalactive, all broader FMP gates remain.
