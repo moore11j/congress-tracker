@@ -4110,6 +4110,8 @@ def _cached_financials_snapshot(db: Session, symbol: str) -> dict[str, Any] | No
             return None
         from app.models import InsightsSnapshot
         row = db.get(InsightsSnapshot, f'sec-financials:{symbol}:v1')
+        from app.services.finnhub_paid_readers import attach_financials
+        payload = attach_financials(db, symbol, payload)
         status = payload.get('status')
     elif fmp_provider_disabled():
         return None
@@ -4257,6 +4259,16 @@ def _has_nested_value(mapping: Any, paths: list[tuple[str, ...]]) -> bool:
     return False
 
 
+def _has_pure_consensus(financials: dict[str, Any], *keys: str) -> bool:
+    forecasts = financials.get("forecasts")
+    if not isinstance(forecasts, dict):
+        return False
+    return any(isinstance(row, dict)
+               and row.get("estimateBasis") != "provider_average_includes_proprietary_estimates"
+               and _has_value(row, list(keys))
+               for row in (forecasts.get("nextQuarter"), forecasts.get("nextFiscalYear")))
+
+
 def _research_data_availability(primary: dict[str, Any], external_research: dict[str, Any]) -> dict[str, bool]:
     quote = primary.get("quote") if isinstance(primary.get("quote"), dict) else {}
     market_state = primary.get("market_state") if isinstance(primary.get("market_state"), dict) else {}
@@ -4277,18 +4289,11 @@ def _research_data_availability(primary: dict[str, Any], external_research: dict
             ("forecasts", "nextFiscalYear", "revenueEstimate"),
         ],
     ) or "current_revenue_consensus" in official_facts
-    has_forecast_eps = _has_nested_value(
-        financials,
-        [
-            ("forecasts", "nextQuarter", "epsEstimate"),
-            ("forecasts", "nextFiscalYear", "epsEstimate"),
-        ],
-    ) or "current_eps_consensus" in official_facts
     return {
         "revenue": _has_value(fundamentals, ["revenue_growth"]) or "revenue" in official_facts or has_forecast_revenue,
         "revenue growth": _has_value(fundamentals, ["revenue_growth"]) or "revenue_growth" in official_facts,
-        "revenue consensus": has_forecast_revenue,
-        "eps consensus": has_forecast_eps,
+        "revenue consensus": "current_revenue_consensus" in official_facts or _has_pure_consensus(financials, "revenueEstimate", "estimatedRevenueAvg"),
+        "eps consensus": "current_eps_consensus" in official_facts or _has_pure_consensus(financials, "epsEstimate"),
         "upcoming earnings date": "upcoming_earnings_date" in official_facts,
         "previous quarter revenue": "previous_quarter_revenue" in official_facts or "revenue" in official_facts,
         "previous quarter eps": "previous_quarter_eps" in official_facts or "diluted_eps" in official_facts,
@@ -4710,7 +4715,11 @@ def _deterministic_valuation(market: dict[str, Any], financials: dict[str, Any],
     price = market.get("price")
     forecasts = financials.get("forecasts") if isinstance(financials.get("forecasts"), dict) else {}
     next_year = forecasts.get("nextFiscalYear") if isinstance(forecasts.get("nextFiscalYear"), dict) else {}
-    forward_eps = next_year.get("epsEstimate") or next_year.get("estimatedEpsAvg")
+    forward_eps = next_year.get("epsEstimate")
+    if forward_eps is None:
+        forward_eps = next_year.get("estimatedEpsAvg")
+    if next_year.get("forwardValuationEligible") is False:
+        forward_eps = None
     result: dict[str, Any] = {}
     if price is not None and forward_eps is not None:
         try:

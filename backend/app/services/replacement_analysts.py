@@ -49,7 +49,7 @@ def refresh(db, symbol):
     return {'status': payload['status']}
 
 
-def current_payload(db, symbol, *, include_details):
+def _recommendation_payload(db, symbol, *, include_details):
     from app.services import analyst_consensus as legacy
     from app.services.data_enrichment_queue import enqueue_data_enrichment_job
     now = datetime.now(timezone.utc)
@@ -93,3 +93,9 @@ def current_payload(db, symbol, *, include_details):
         freshness={'status': 'partial', 'daysOld': (now.date()-date.fromisoformat(current['period'])).days,
                    'basis': 'provider_recommendation_period'})
     return result
+
+
+def current_payload(db, symbol, *, include_details):
+    from app.services.finnhub_paid_readers import attach_targets
+    payload = _recommendation_payload(db, symbol, include_details=include_details)
+    return attach_targets(db, symbol, payload, include_details=include_details)

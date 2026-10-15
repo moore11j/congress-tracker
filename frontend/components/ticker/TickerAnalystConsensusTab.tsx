@@ -147,6 +147,7 @@ function PriceTargetRange({ snapshot }: { snapshot: TickerAnalystConsensusSnapsh
         <div>
           <p className="text-sm font-semibold text-white">Price Targets</p>
           <p className="mt-1 text-xs text-slate-400">{formatNumber(range.analystCount, { maximumFractionDigits: 0 })} target observations</p>
+          {snapshot.targetSourceUpdatedAt ? <p className="mt-1 text-xs text-slate-400">Finnhub targets updated {formatDateShort(snapshot.targetSourceUpdatedAt.slice(0, 10))}. USD per listed share. {snapshot.targetHorizon === "unverified" ? "Target horizon unavailable." : ""}</p> : null}
         </div>
         <p className={`text-sm font-semibold tabular-nums ${toneForPercent(snapshot.impliedUpside?.consensusPct)}`}>
           {formatPercent(snapshot.impliedUpside?.consensusPct, { signed: true })} consensus
