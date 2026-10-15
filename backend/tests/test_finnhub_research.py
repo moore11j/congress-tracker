@@ -111,13 +111,16 @@ def test_conflicting_recommendation_period_is_not_arbitrarily_picked():
         adapter.normalize_recommendations([rating_row(), rating_row(buy=9)], "AAPL", observed_at=NOW)
 
 
-def test_no_key_no_http_and_no_premium_endpoints(monkeypatch):
+def test_no_key_no_http_and_paid_preparation_disabled(monkeypatch):
+    monkeypatch.delenv("FINNHUB_PAID_PREPARATION_ENABLED", raising=False)
     monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
     monkeypatch.setattr(adapter.requests, "get", forbidden)
     with pytest.raises(adapter.FinnhubUnavailable, match="missing_api_key"):
         adapter.fetch_recommendations("AAPL")
-    with pytest.raises(ValueError, match="Unsupported research endpoint"):
+    with pytest.raises(adapter.FinnhubUnavailable, match="paid_preparation_disabled"):
         adapter.request_rows("stock/price-target", {})
+    with pytest.raises(ValueError, match="Unsupported research endpoint"):
+        adapter.request_json("stock/unreviewed", {})
 
 
 @pytest.mark.parametrize("code,reason", [(401, "authentication_failed"), (403, "access_denied"), (429, "rate_limited"), (302, "provider_unavailable")])
