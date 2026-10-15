@@ -30,10 +30,7 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          set -euo pipefail
-          flyctl deploy --app congress-tracker-api --remote-only --strategy rolling --ha=false \
-            --image-label "release-${GITHUB_SHA}" --wait-timeout 180s
-          flyctl status --app congress-tracker-api
+          bash scripts/deploy_backend_guarded.sh
 
       - name: Verify production Research Memory routes
         run: |
