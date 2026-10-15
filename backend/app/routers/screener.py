@@ -15,6 +15,7 @@ from app.clients.fmp import FMPClientError
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature, required_tier_for_feature
 from app.rate_limit import rate_limit_export, rate_limit_provider_backed
+from app.services.fundamentals_cache import selected_fundamentals_provider
 from app.services.screener import (
     DEFAULT_PAGE_SIZE,
     MAX_EXPORT_ROWS,
@@ -55,7 +56,8 @@ def _screener_response_cache_key(request: Request, entitlements) -> str | None:
         "limits": getattr(entitlements, "limits", {}) or {},
     }
     return "screener:" + json.dumps(
-        {"query": query_items, "entitlements": entitlement_key},
+        {"query": query_items, "entitlements": entitlement_key,
+         "fundamentals_provider": selected_fundamentals_provider()},
         sort_keys=True,
         separators=(",", ":"),
         default=str,
