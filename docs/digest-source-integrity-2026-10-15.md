@@ -23,3 +23,12 @@ Initial test scaffolding omitted the required security asset class, reused a uni
 ## Release and remaining work
 
 Local branch codex/digest-source-integrity, based on b1195899. Exact release/review/runtime and ordinary schedule observation remain pending. No new customer email, source activation, subscription, hardware/schedule change or FMP cancellation. Full financial/institutional/transcript coverage, sustained capacity, all scheduled consumers, paid Finnhub validation, final Massive and zero-global-FMP/billing retirement remain open.
+
+
+## Ordinary daily observation, October15 20:05-20:10UTC
+
+After deployed PR682/425fdd1c, the scheduled monitoring job completed20:05:13 with exit0 and3.5022CPU seconds. Existing job aggregates show force=false/dry_run=false, four results: three sent, one skipped, zero failures;21 selected items from314 candidates,293 excluded. This is the job's send result, not inbox receipt or proof that every source/consumer is complete. Only numeric totals and scheduler metadata were retained; no customer identities or message contents were exported and no sends were manually triggered. Receipts artifacts/digest-schedule-observation-1792094726.json and digest-summary-observation-1792094881.json.
+
+The ordinary Top Ideas job completed20:10:04 with exit0/1.9039CPU seconds, but returned zero results/deliveries. It establishes execution, not populated daily or weekly delivery. Current code skips weekly subscribers outside Friday; this Thursday observation alone does not establish why all results were empty. Receipts artifacts/digest-schedule-observation-1792095046.json and digest-summary-observation-1792095035.json.
+
+Public response samples20:06:42 were all200/no server-render errors, Feed0.269s/Insights0.396s/AAPL0.304s/NVDA0.249s, artifacts/public-render-1792094802004.json. Sustained capacity and full source values remain unproved. Backend PR683 was deployed only after both observed jobs completed; no delivery schedule or preferences changed.

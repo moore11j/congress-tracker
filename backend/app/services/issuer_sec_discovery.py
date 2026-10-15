@@ -100,13 +100,14 @@ def day_from_match(match):
 def parse_event(raw, metadata, observed):
     if metadata.get('discovery_kind')!=KIND or metadata.get('discovery_stage')!='event' or 'parent_event' in metadata:
         raise DirectSourceError('Unreviewed SEC transcript cover stage')
-    root=tree(raw);text=' '.join(root.text_content().split())
-    if (not re.search(r'\bMAGNA INTERNATIONAL INC\.',text) or not re.search(r'\bFORM\s+6-K\b',text)
-            or not re.search(r'Commission File Number\s+001-11444\b',text)):
+    root=tree(raw);text=' '.join(' '.join(root.itertext()).split())
+    if (not re.search(r'\bMAGNA INTERNATIONAL INC\.',text,re.I) or not re.search(r'\bFORM\s+6-K\b',text,re.I)
+            or not re.search(r'Commission File Number\s*:?\s+001-11444\b',text,re.I)):
         raise DirectSourceError('SEC transcript cover issuer or form mismatch')
     dates=[day_from_match(m) for m in re.finditer(r'Date:\s*'+DATE_PATTERN,text)]
-    if len(dates)!=1 or dates[0].isoformat()!=metadata['filing_date'] or dates[0]>available_day(observed):
-        raise DirectSourceError('SEC transcript cover filing date mismatch')
+    filed=date.fromisoformat(metadata['filing_date'])
+    if len(dates)!=1 or dates[0]>filed or filed>available_day(observed):
+        raise DirectSourceError('SEC transcript cover signing or filing date mismatch')
     links=[a for a in root.xpath('//a[@href]') if re.search(r'transcript',' '.join(a.text_content().split()),re.I)]
     if not links:
         return []  # Verified cover contains no transcript; not a fabricated period.
@@ -114,21 +115,24 @@ def parse_event(raw, metadata, observed):
         raise DirectSourceError('Ambiguous SEC transcript exhibit links')
     link=links[0];label=' '.join(link.text_content().split())
     match=re.fullmatch(r'Q([1-4]) (20\d{2}) Results Webcast Transcript \('+DATE_PATTERN+r'\)',label)
-    if not match:
+    annual=re.fullmatch(r'Q4 & Full Year (20\d{2}) Results and (20\d{2}) Outlook Webcast transcript \('+DATE_PATTERN+r'\)',label)
+    if match:
+        quarter,year=int(match[1]),int(match[2])
+    elif annual and int(annual[2])==int(annual[1])+1:
+        quarter,year=4,int(annual[1]);match=annual
+    else:
         raise DirectSourceError('Unreviewed SEC transcript exhibit description')
-    quarter,year=int(match[1]),int(match[2])
     try:
         event=date(int(match[5]),MONTHS.index(match[3])+1,int(match[4]))
     except ValueError as exc:
         raise DirectSourceError('SEC transcript event date invalid') from exc
-    end=date(year,quarter*3,calendar.monthrange(year,quarter*3)[1]);filed=dates[0]
-    if not observed.year-1<=year<=observed.year or not end<=event<=min(filed,end+timedelta(days=100)):
+    end=date(year,quarter*3,calendar.monthrange(year,quarter*3)[1])
+    if not filed.year-1<=year<=filed.year or not end<=event<=min(dates[0],end+timedelta(days=100)):
         raise DirectSourceError('SEC transcript fiscal period or call date invalid')
     url=urljoin(metadata['url'],link.get('href'));directory=metadata['url'].rsplit('/',1)[0]+'/'
     if not url.startswith(directory) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.html?',url[len(directory):]):
         raise DirectSourceError('SEC transcript exhibit leaves its filing')
-    period=(rf'(?:MAGNA INTERNATIONAL\s*-\s*{QUARTERS[quarter-1]} QUARTER {year} RESULTS WEBCAST'
-            rf'|Magna International\s+Q{quarter} {year} Results)')
+    period=period_pattern(year,quarter,annual=bool(annual))
     stamp=f'{event.year%100:02d}{MONTHS[event.month-1][:3].upper()}{event.day:02d}'
     numeric=rf'0?{event.month}\s*[\u2013-]\s*0?{event.day}\s*-\s*{event.year}'
     return [{**metadata,'key':f'MGA:earnings_transcript:{year}:Q{quarter}',
@@ -138,9 +142,39 @@ def parse_event(raw, metadata, observed):
         'source_format':'html','discovery_stage':'transcript','parent_event':dict(metadata),
         'source_page_url':metadata['url'],'source_page_sha256':hashlib.sha256(raw).hexdigest(),
         'period_pattern':period,'company_pattern':r'\bMAGNA INTERNATIONAL\b',
+        **({'exhibit_number':'99.2'} if annual else {}),
         'publication_pattern':rf'(?:{re.escape(stamp)}|{numeric})','transcript_pattern':r'This transcript is derived from a recording of the webcast',
-        'qa_pattern':r'\b(?:QUESTION\s*&\s*ANSWER|QUESTIONS)\s*:',
+        'qa_pattern':qa_pattern(quarter,annual=bool(annual)),
         'transcript_publisher':'Magna International Inc. (SEC-filed webcast transcript)'}]
+
+
+def period_pattern(year,quarter,*,annual=False,legacy=False):
+    if annual:
+        return (rf'Magna International(?: Inc\.?)?\s+Q4\s*&\s*(?:FY {year} and {year+1} OUTLOOK RESULTS'
+                rf'|YEAR END {year} RESULTS and {year+1} OUTLOOK) WEBCAST(?: TRANSCRIPT)?')
+    old=(rf'(?:MAGNA INTERNATIONAL\s*-\s*{QUARTERS[quarter-1]} QUARTER {year} RESULTS WEBCAST'
+         rf'|Magna International\s+Q{quarter} {year} Results)')
+    if legacy or quarter not in (1,3):return old
+    return (rf'(?:{old}|Magna International Inc\.?\s+(?:Q{quarter} {year} Results(?: WEBCAST TRANSCRIPT)?'
+            rf'|{QUARTERS[quarter-1]} QUARTER {year} RESULTS WEBCAST))')
+
+
+def qa_pattern(quarter,*,annual=False,legacy=False):
+    marker=r'\b(?:QUESTION\s*&\s*ANSWER|QUESTIONS)\s*:'
+    if legacy or (quarter!=1 and not annual):return marker
+    question=r'\bOperator\^.{0,250}\bfirst question(?: comes)? from\b'
+    transition=(r"(?:Now operator, let's open it up for questions\.|"
+                r"we (?:would be|will be|are|[\u2019\u0027]ll be)?\s*happy to take your questions(?: now)?\.|"
+                r"we[\u2019\u0027]ll be happy to take your questions now\.)")
+    return rf'(?:{marker}.{{0,500}}{question}|{transition}\s+{question})'
+
+
+def upgrade_unparsed_metadata(metadata):
+    """Only pending originals may adopt the explicitly reviewed expanded headings."""
+    year,quarter=metadata['fiscal_year'],metadata['fiscal_quarter']
+    if metadata['period_pattern']==period_pattern(year,quarter,legacy=True):
+        return {**metadata,'period_pattern':period_pattern(year,quarter),'qa_pattern':qa_pattern(quarter)}
+    return dict(metadata)
 
 
 def parse_candidate(raw, metadata, observed):
@@ -149,17 +183,46 @@ def parse_candidate(raw, metadata, observed):
     text,parsed=parse_issuer_material(raw,metadata)
     # EDGAR may retain its SGML document envelope before the HTML body.
     filename=re.escape(metadata['url'].rsplit('/',1)[1])
-    envelope=rf'(?:EX-99\.3\s+[0-9]+\s+{filename}\s+EXHIBIT 99\.3\s+)?'
+    exhibit=re.escape(metadata.get('exhibit_number','99.3'))
+    envelope=rf'(?:EX-{exhibit}\s+[0-9]+\s+{filename}\s+EXHIBIT {exhibit}\s+)?'
     prefix=r'^'+envelope+r'(?:Exhibit\s+99\.[0-9]+\s+)?'
     heading=(prefix+r'(?:'+metadata['period_pattern']+r'\s*[\u2013\u2014-]\s*'+metadata['publication_pattern']
              +r'|TRANSCRIPT\s+'+metadata['publication_pattern']+r'\s+'+metadata['period_pattern']+r')\b')
-    qa=metadata['qa_pattern']+r'.{0,500}\bOperator\^.{0,250}\bfirst question comes from\b'
-    if (not re.search(heading,text,re.I) or not re.search(qa,text,re.I)
-            or not re.search(r'Operator\^.{0,160}\b(?:does conclude today[\u2019\u0027]s conference call|This concludes today[\u2019\u0027]s call)\b',text,re.I)
+    qa=metadata['qa_pattern']
+    if qa==qa_pattern(metadata['fiscal_quarter'],legacy=True):
+        qa+=r'.{0,500}\bOperator\^.{0,250}\bfirst question comes from\b'
+    dated=bool(re.search(heading,text,re.I))
+    dateless=bool(re.search(prefix+metadata['period_pattern']+r'\s+DISCLAIMER:',text,re.I))
+    date_source=metadata.get('transcript_date_source')
+    if date_source not in (None,'sec_cover') or (date_source=='sec_cover' and not dateless):
+        raise DirectSourceError('SEC transcript date evidence changed')
+    if (not (dated or dateless) or not re.search(qa,text,re.I)
+            or not re.search(r'Operator\^.{0,160}\b(?:does conclude|(?:This|That) concludes) today[\u2019\u0027]s (?:conference call|call|meeting)\b',text,re.I)
             or not re.search(r'transcription may still contain inaccuracies, errors, or omissions',text,re.I)
             or date.fromisoformat(metadata['published_at'])>available_day(observed)):
         raise DirectSourceError('SEC transcript heading, date, Q&A, ending or disclaimer mismatch')
-    return dict(metadata),text,parsed
+    resolved={**metadata,**({'transcript_date_source':'sec_cover'} if dateless else {})}
+    return resolved,text,{**parsed,**resolved}
+
+
+def compatible_metadata(expected, actual, *, allow_date_source=True):
+    """Accept only explicit parser-policy evolution; retain every source identity."""
+    if not isinstance(actual,dict):return False
+    candidate=dict(expected)
+    if allow_date_source and actual.get('transcript_date_source')=='sec_cover':
+        candidate['transcript_date_source']='sec_cover'
+    if candidate==actual:return True
+    if 'exhibit_number' in candidate:return False
+    candidate['period_pattern']=period_pattern(candidate['fiscal_year'],candidate['fiscal_quarter'],legacy=True)
+    candidate['qa_pattern']=qa_pattern(candidate['fiscal_quarter'],legacy=True)
+    return candidate==actual
+
+
+def compatible_cover_parse(expected, actual):
+    if not isinstance(actual,dict) or set(actual)!={'candidates'}:return False
+    candidates=actual['candidates']
+    return (isinstance(candidates,list) and len(candidates)==len(expected)
+            and all(compatible_metadata(e,a,allow_date_source=False) for e,a in zip(expected,candidates)))
 
 
 def verified_transcript_metadata(db,company,metadata,verify_parent):
@@ -179,7 +242,7 @@ def verified_transcript_metadata(db,company,metadata,verify_parent):
         raise DirectSourceError('SEC transcript cover checksum mismatch')
     observed=revision.fetched_at.replace(tzinfo=timezone.utc) if revision.fetched_at.tzinfo is None else revision.fetched_at
     expected=parse_event(revision.source_bytes,parent,observed)
-    if expected!=[metadata]:
+    if len(expected)!=1 or not compatible_metadata(expected[0],metadata):
         raise DirectSourceError('SEC transcript metadata changed from cover evidence')
     return dict(metadata)
 
@@ -250,7 +313,7 @@ def latest_metadata(db,company,*,observed):
         fetched=rev.fetched_at.replace(tzinfo=timezone.utc) if rev.fetched_at.tzinfo is None else rev.fetched_at
         if fetched>observed:pending.append(current['filing_date']);continue
         found=parse_event(rev.source_bytes,meta,fetched)
-        if json.loads(rev.parsed_json)!={'candidates':found} or json.loads(row.parsed_json)!={'candidates':found}:
+        if not compatible_cover_parse(found,json.loads(rev.parsed_json)) or not compatible_cover_parse(found,json.loads(row.parsed_json)):
             raise DirectSourceError('SEC transcript cover parse changed')
         candidates.extend(found)
     if not candidates:return hold('sec_transcript_not_discovered')

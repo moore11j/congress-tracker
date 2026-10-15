@@ -366,6 +366,9 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
                 if (base.get('discovery_kind') == KIND and not has_revision and not metadata.get('published_at')
                         and parser_policy(base) < PARSER_POLICY):
                     base = {**base, **format_policy(base['fiscal_year'], base['fiscal_quarter'], PARSER_POLICY)}
+                if base.get('discovery_kind') == SEC_KIND and base.get('discovery_stage') == 'transcript' and not has_revision:
+                    from app.services.issuer_sec_discovery import upgrade_unparsed_metadata
+                    base = upgrade_unparsed_metadata(base)
                 # Grant this one validated link, never its CDN host or siblings.
                 client.issuer_document_urls = frozenset([*client.issuer_document_urls, url])
             db.commit()  # Release pooled connection/transaction before HTTP.

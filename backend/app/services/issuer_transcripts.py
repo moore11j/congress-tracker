@@ -64,7 +64,14 @@ def prepared_transcript(db, symbol, *, observed_by=None):
                                                     DirectFeedDocument.source_key == metadata['key']))
     if row is None or row.status != 'parsed':
         return unavailable('reviewed_period_not_prepared')
-    if row.source_url != metadata['url'] or json.loads(row.metadata_json) != metadata:
+    sec_transcript = metadata.get('discovery_kind') == 'magna_sec_transcripts_v1' and metadata.get('discovery_stage') == 'transcript'
+    stored_metadata = json.loads(row.metadata_json)
+    if sec_transcript:
+        from app.services.issuer_sec_discovery import compatible_metadata
+        if not compatible_metadata(metadata, stored_metadata):
+            return unavailable('reviewed_source_changed')
+        metadata = stored_metadata
+    if row.source_url != metadata['url'] or stored_metadata != metadata:
         return unavailable('reviewed_source_changed')
     revision = db.scalar(select(DirectFeedRevision).where(DirectFeedRevision.document_id == row.id,
                                                          DirectFeedRevision.content_hash == row.content_hash))
@@ -77,11 +84,19 @@ def prepared_transcript(db, symbol, *, observed_by=None):
     now = observed_by or datetime.now(timezone.utc)
     if now.tzinfo is None or observed > now:
         return unavailable('source_not_yet_observed')
-    text, parsed = parse_issuer_material(raw, metadata)
+    if sec_transcript:
+        from app.services.issuer_sec_discovery import parse_candidate
+        resolved, text, parsed = parse_candidate(raw, metadata, observed)
+        if resolved != metadata:
+            return unavailable('reviewed_source_changed')
+    else:
+        text, parsed = parse_issuer_material(raw, metadata)
     if (revision.source_text != text or json.loads(revision.parsed_json) != parsed
             or json.loads(row.parsed_json) != parsed or parsed['canonical_key'] != metadata['key']):
         raise ValueError('Issuer parser or fiscal identity changed')
     for field in ('company_pattern', 'publication_pattern'):
+        if field == 'publication_pattern' and sec_transcript and metadata.get('transcript_date_source') == 'sec_cover':
+            continue  # Immutable cover explicitly dates this exact transcript exhibit.
         if not metadata.get(field) or not re.search(metadata[field], text, re.I):
             return unavailable('reviewed_source_identity_incomplete')
     publication_date = date.fromisoformat(metadata['published_at'])
@@ -96,6 +111,7 @@ def prepared_transcript(db, symbol, *, observed_by=None):
             'has_qa': parsed['has_qa'], 'canonical_key': metadata['key'],
             'transcript_publisher': metadata.get('transcript_publisher'),
             'source_format': metadata.get('source_format', 'html'),
+            **({'transcript_date_source': metadata['transcript_date_source']} if metadata.get('transcript_date_source') else {}),
             **{key: metadata[key] for key in ('source_page_url', 'source_page_sha256') if metadata.get(key)}}
 
 
