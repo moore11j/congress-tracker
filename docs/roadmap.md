@@ -572,3 +572,6 @@ October15,06:10UTC: [Partial SEC response recovery](sec-partial-companyfacts-rec
 
 
 October15: [CAT complete balance debt](cat-interest-evidence-2026-10-15.md#complete-balance-sheet-debt-prepared-october15) is locally prepared,350 distinct checks and full original/repeat/alert parity pass. Net debt/EBITDA2.0858026701400196 recovered with existing fields preserved. PR656 remains unreleased; minimized production verification approval and ordinary operation remain pending. Broader source/consumer/capacity/finalMassive/zero-FMP/billing gates unchanged.
+
+
+October15: [CAT independent debt acquisition](cat-interest-evidence-2026-10-15.md#independent-debt-acquisition-october15-follow-up) now handles reported consolidated interest locally;357 checks pass and real-original output is unchanged. This supersedes the earlier missing-interest-only restriction. PR656 remains unreleased; source/runtime/ordinary verification and all broader retirement gates remain.

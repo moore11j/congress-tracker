@@ -94,3 +94,16 @@ Automatic approval review rejected the separate minimized CAT production check b
 
 
 PR656 now reviews source da15cb99ef8e542fd7cee1dc8f1ad5cdbc390966, pushed with updated EBITDA/debt scope. Exact-head CI38757019170 secret scan passes; required CI-tool logs show backend Pillow10.4.0 audit33 advisories and frontend production audit five vulnerability groups (four high/one critical). Dependency manifests are unchanged from main. Vercel preview remains pending at this check; no full-CI success, merge or deployment claimed. Only unrelated managed tsbuild metadata remains dirty before this documentation receipt. Limited-output production approval remains pending.
+
+
+## Independent debt acquisition, October15 follow-up
+
+The earlier restriction tying debt recovery to missing interest is repaired locally. A complete reported EBITDA with an unavailable finance-inclusive debt basis now triggers the same bounded maximum-two-original acquisition. This path uses standard original facts and the independently validated balance sheet, so the former two-row interest layout is not required. An already complete ratio makes no optional requests. Unsupported industry/currency policies and incomplete non-interest EBITDA components retain their existing holds.
+
+Reported income/tax/interest/depreciation values are never replaced. Complete same-period groups acquire original provenance together after exact issuer, value, tag, period, unit, filing and source-hash checks. Incomplete groups remain as reported; they cannot corrupt a valid EBITDA decomposition or produce a ratio with unbound closing income. Failed requests retain all previous values.
+
+Seven new tests simulate replacing the former split interest rows with directly reported consolidated interest. These are explicitly synthetic format-transition cases, not newly observed future CAT filings. They verify successful debt-only recovery, no repeated request once complete, conflicting/missing source evidence, incorrect currency/issuer and failure of either optional request. All357 selected Linux Python3.12.3 checks pass in145.29seconds, including existing source, preparation/cache, alert-baseline and release guard tests. Receipt artifacts/cat-independent-debt-regression-oct15.log. Complete real-original replay remains byte-for-byte identical at projection SHA256 eac7dfc56747912216ca7bd643133949f78a90366f7b90af64d6391779a428f0; two fixture reads, exact repeat and zero network/production writes/emails. Actual future filing availability/layout and live scheduled preparation remain unverified.
+
+The dated90-scope missing-input diagnosis was reviewed locally to prioritize wider coverage. Many entries are financial institutions; no banking pretax subtotal was relabeled as industrial operating income and no classification threshold changed. Existing owner decisions about landing/pricing, SEO/videos, hosting, acceptance, turnkey cutover, migration ordering and Massive were missing from the managed AGENTS decision section. Those seven paragraphs were restored from the primary project memory without adding policy or altering application behavior.
+
+This remains a local follow-up to PR656. Pending production verification permission has not arrived; no rejected read/export or alternate route ran. Last verified backend remains2543d410, core remainsFMP. Full migration gates are unchanged.

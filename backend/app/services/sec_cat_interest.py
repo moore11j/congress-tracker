@@ -111,10 +111,18 @@ def acquire(values, company_raw, *, symbol, cik, observed_at, client):
         if not 0 <= (available-end).days <= 180:
             raise CatInterestError('stale_period')
         ebitda = evidence['leverage_preparation']['ebitda']
-        if ebitda.get('status') != 'incomplete' or ebitda.get('missing_components') != ['leverage_interest']:
+        needs_interest = (ebitda.get('status') == 'incomplete'
+                          and ebitda.get('missing_components') == ['leverage_interest'])
+        needs_debt = (ebitda.get('status') == 'components_complete'
+                      and ebitda.get('missing_components') == []
+                      and evidence.get('net_debt_policy', {}).get('reason') == 'no_verified_finance_inclusive_debt')
+        if not (needs_interest or needs_debt):
             return None
-        components = [ebitda['components'][name] for name in
-                      ('leverage_net_income','leverage_tax','leverage_da')]
+        result['debt_only'] = not needs_interest
+        names = ('leverage_net_income','leverage_tax','leverage_da')
+        if needs_debt:
+            names += ('leverage_interest',)
+        components = [ebitda['components'][name] for name in names]
         if any(not point or point['end'] != str(end) or point['start'] != ebitda['period_start'] for point in components):
             raise CatInterestError('incomplete_companions')
         identities = {(p['accession'],p['filed']) for point in components for p in point['inputs']}
@@ -145,7 +153,15 @@ def acquire(values, company_raw, *, symbol, cik, observed_at, client):
         for source in sources:
             raw = client.get(source['url'])
             source['sha256'] = hashlib.sha256(raw).hexdigest()
-            records, standard = parse(raw, source)
+            if needs_interest:
+                records, standard = parse(raw, source)
+            else:
+                # Reported consolidated interest does not require the former
+                # dimensional interest layout to remain in future originals.
+                records = {}
+                standard = inline.parse(raw, cik=CIK, accession=source['accession'],
+                    filed=source['filed'], report_date=source['period'],
+                    form=source['form'], url=source['url'])
             proof['documents'].append(dict(source))
             if source['period'] == str(end):
                 from app.services import sec_cat_debt
@@ -225,12 +241,41 @@ def apply(records, supplement, *, symbol, cik, available_by):
         interest[key] = deepcopy(fact)
         proof['accepted_periods'].append({'start':fact['start'],'end':fact['end'],
             'accession':fact['accession'],'value':fact['value']})
+    if supplement.get('debt_only'):
+        # Bind complete same-period groups together. Partial original coverage
+        # cannot degrade an otherwise valid reported EBITDA decomposition.
+        verified_periods = []
+        keys = set.intersection(*(set(result.get(name, {})) for name in DURATION))
+        for key in sorted(keys):
+            bound = []
+            for name in DURATION:
+                point = result[name].get(key)
+                if not point:
+                    break
+                identity = tuple(point.get(k) for k in ('tag','start','end','filed','accession','value'))
+                origin = supplement['points'].get(identity)
+                if (not origin or origin.get('source_cik') != CIK
+                        or point.get('source_cik', CIK) != CIK or point.get('unit') != 'USD'
+                        or (point['accession'],point['filed'],origin['source_sha256'],origin['source_url']) not in allowed
+                        or any(k in point and point[k] != origin[k] for k in ('source_url','source_sha256'))):
+                    break
+                bound.append((point,origin))
+            if (len(bound) != len(DURATION) or len({
+                    (point['filed'],point['accession'],origin['source_sha256'])
+                    for point,origin in bound}) != 1):
+                continue
+            for point,origin in bound:
+                point.update(origin)
+            verified_periods.append({'start':str(key[0]),'end':str(key[1])})
+        proof['reported_components_verified'] = verified_periods
     proof['status'] = 'prepared' if proof['accepted_periods'] else 'held'
     from app.services import sec_cat_debt
     result, debt_evidence = sec_cat_debt.apply(result, supplement.get('debt'),
         available_by=available_by, allowed=allowed)
     if debt_evidence is not None:
         proof['debt_reconciliation'] = debt_evidence
+        if debt_evidence['status'] == 'prepared':
+            proof['status'] = 'prepared'
     return result, proof
 
 
