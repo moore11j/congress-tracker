@@ -1,5 +1,8 @@
 October15: [IBM transcript chain](ibm-transcript-rollover-2026-10-15.md) PR664/665 deployed3e3f219c; four complete public transcripts/nine source originals, focused suites and seven runtime hashes/synthetic repeat/tamper/partial-status checks verify. Six reviewed issuer discovery policies deployed. Ordinary collection, NVIDIA/Alphabet403-held discovery, broad publication and all wider FMP gates remain open.
 
+October15,05:12UTC: [FUSB correction](fusb-bank-revenue-2026-10-15.md) PR666/c6c7f91d deployed:160 checks, seven runtime hashes, five original/source cache ratios and two public statement repeats verify. Ordinary refresh, sustained capacity and all wider FMP cutover gates remain.
+
+
 October15: [FUSB bank revenue](fusb-bank-revenue-2026-10-15.md) implemented locally and original/cache/alert replay verified. Release, ordinary refresh and all broader FMP cutover gates remain pending.
 
 
