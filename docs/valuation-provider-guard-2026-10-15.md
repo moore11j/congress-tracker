@@ -29,3 +29,7 @@ These are additional explicit cutover gates alongside financial coverage/definit
 The screenshot's remote429 is a Codex request failure. Current account tool reports weekly ordinary allowance100% used, available credits and reset October20,03:25Pacific. The current session executes; this is not proof of a permanent remote-service repair. Official documentation describes shared usage and credit continuation: https://learn.chatgpt.com/docs/pricing . No account/model/reset changes were made.
 
 PR656 remains separately held for explicit permission after automatic approval review rejected CAT financial/scheduler payload copies to OneDrive. The separate institutional snapshot export also awaits its own approval. Neither rejected command was retried, and this work uses local code/fixtures only. Last verified production remains12fd3668; FMP stays enabled and institutional publication stays disabled.
+
+## Deployed release verification
+
+PR657 is merged and deployed as1b85b84d, workflow38669903883success. Four runtime source hashes and seven synthetic guard checks pass onPython3.12.15 without database reads/writes/provider requests. Readiness/Feed/Insights return200; Feed0.577s/Insights0.584s are short HTTP samples only. See [current release and screener evidence](screener-source-provenance-2026-10-15.md). FMP selections and pending payload approvals remain unchanged.

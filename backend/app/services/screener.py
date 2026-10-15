@@ -479,7 +479,8 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
         "sort": {"sort_by": sort, "sort_dir": sort_dir},
         "filters": _response_filters(params),
         "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()) + list(_technical_filter_keys()) + list(_fundamental_filter_keys()),
-        "source": "fmp_company_screener",
+        "source": dataset["source"],
+        "fundamentals_provider": dataset["fundamentals_provider"],
         "lookback_days": lookback_days,
         "overlay_availability": dataset["overlay_availability"],
         "ignored_filters": dataset["ignored_filters"],
@@ -527,7 +528,8 @@ def build_screener_response_for_entitlements(
         "sort": {"sort_by": sort, "sort_dir": sort_dir},
         "filters": _response_filters(params),
         "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()) + list(_technical_filter_keys()) + list(_fundamental_filter_keys()),
-        "source": "fmp_company_screener",
+        "source": dataset["source"],
+        "fundamentals_provider": dataset["fundamentals_provider"],
         "lookback_days": lookback_days,
         "overlay_availability": overlay_availability,
         "ignored_filters": dataset["ignored_filters"],
@@ -581,13 +583,16 @@ def _build_screener_dataset(
 
     cache_fetch_limit = MAX_FETCH_ROWS if _has_cache_filters(params) else fetch_limit
     cache_filters = _cache_filters(params)
-    cached_rows = cached_screener_rows(db, limit=cache_fetch_limit, filters=cache_filters)
+    fundamentals_provider = selected_fundamentals_provider()
+    source = "walnut_cached_screener"
+    cached_rows = cached_screener_rows(db, provider=fundamentals_provider, limit=cache_fetch_limit, filters=cache_filters)
     total_available: int | None = None
     if _uses_broad_core_universe(params):
         core_universe_rows, core_universe_total = _cached_core_universe_rows(
             db,
             limit=cache_fetch_limit,
             filters=cache_filters,
+            provider=fundamentals_provider,
         )
         normalized_rows = _merge_screener_rows(core_universe_rows, cached_rows)
         if core_universe_total is not None:
@@ -602,9 +607,10 @@ def _build_screener_dataset(
             reason="fundamentals_cache_empty",
             priority=50,
         )
-    if not normalized_rows and selected_fundamentals_provider() == 'fmp' and _allow_provider_screener_fallback():
+    if not normalized_rows and fundamentals_provider == 'fmp' and _allow_provider_screener_fallback():
         fmp_filters = _fmp_filters(params)
         raw_rows = fetch_company_screener(filters=fmp_filters, limit=fetch_limit)
+        source = "fmp_company_screener"
         normalized_rows = [_normalize_fmp_row(row) for row in raw_rows]
         normalized_rows = [row for row in normalized_rows if row is not None]
     normalized_rows = [row for row in normalized_rows if _matches_core_filters(row, params)]
@@ -768,6 +774,8 @@ def _build_screener_dataset(
     rows.sort(key=lambda row: _sort_key(row, sort), reverse=sort_dir == "desc")
     return {
         "rows": rows,
+        "source": source,
+        "fundamentals_provider": fundamentals_provider,
         "total_available": total_available,
         "overlay_availability": overlay_availability,
         "ignored_filters": ignored_filters,
@@ -926,6 +934,7 @@ def _cached_core_universe_rows(
     *,
     limit: int,
     filters: Mapping[str, Any],
+    provider: str | None = None,
 ) -> tuple[list[dict[str, Any]], int | None]:
     latest_dates = (
         select(PriceCache.symbol.label("symbol"), func.max(PriceCache.date).label("latest_date"))
@@ -980,7 +989,7 @@ def _cached_core_universe_rows(
             FundamentalsCache.__table__,
             and_(
                 FundamentalsCache.symbol == TickerMeta.symbol,
-                FundamentalsCache.provider == selected_fundamentals_provider(),
+                FundamentalsCache.provider == (provider or selected_fundamentals_provider()),
                 FundamentalsCache.status == "ok",
             ),
         )
