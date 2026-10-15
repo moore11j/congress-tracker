@@ -6187,6 +6187,7 @@ def _fetch_eod_light_closes_for_symbol(
     timeout_seconds: float,
 ) -> list[dict]:
     try:
+        ensure_fmp_live_allowed(category="market:previous-close", symbol=symbol)
         response = requests.get(
             f"{FMP_BASE_URL}/historical-price-eod/light",
             params={
@@ -6197,6 +6198,9 @@ def _fetch_eod_light_closes_for_symbol(
             },
             timeout=timeout_seconds,
         )
+        record_provider_response(category="market:previous-close", symbol=symbol, status_code=response.status_code)
+    except ProviderUnavailable:
+        return []
     except requests.RequestException:
         logger.info("market_quotes previous_close_unavailable symbol=%s reason=request_exception", symbol)
         return []
