@@ -1,3 +1,5 @@
+October15: [Historical similarity query repair](historical-similarity-query-batching-2026-10-15.md) implemented locally/unreleased,78 checks and exact actual AAPL/NVDA result parity pass;214/101 queries become3. Exact release/public speed/sustained capacity remain unverified. Full portfolio and FMP cutover gates unchanged.
+
 October15,00:19UTC: [Portfolio continuation](portfolio-refresh-continuation-2026-10-15.md) PR653/c4eaa0f0 deployed and nine hashes/isolated five-scope continuation verified.216 affected checks and28 finalchecks pass. Ordinary news23/23 and emptyqueue verify; full ordinary portfolio/external receipt, ticker latency and sustained capacity remain gates. PR651 held; all FMP cutover gates unchanged.
 
 October15: [Portfolio continuation](portfolio-refresh-continuation-2026-10-15.md) implemented locally/unreleased;216 affected checks plus28 finalfocused checks and exact actual-capture persisted parity pass. Fair queue progress is tested, ordinary full-cycle duration, external completion and sustained capacity remain unverified. All FMP cutover gates remain; PR651 held.
