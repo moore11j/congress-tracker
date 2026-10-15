@@ -19,3 +19,6 @@ f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/orm/unitof
 # Exact historical prose false positives: the documented phrase market/trading/news.
 652394109611eb1c202baaa5b9ca6e59a81f2907:AGENTS.md:generic-api-key:77
 652394109611eb1c202baaa5b9ca6e59a81f2907:docs/context-log.md:generic-api-key:588
+
+# Public sector warming cursor setting, not a credential; constant renamed CURSOR_SETTING.
+9571d755c254cdb0c21dbc17af823594abf0f7fb:backend/app/services/sector_etf_snapshot.py:generic-api-key:13

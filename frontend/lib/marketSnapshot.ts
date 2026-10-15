@@ -461,7 +461,7 @@ function orderedSectorRows(sectors: SectorPerformancePoint[]): SectorPerformance
     const match = sectors.find((item) => sectorKey(item.sector) === key);
     consumed.add(key);
     if (!match) return { sector, change_pct: Number.NaN };
-    return { ...match, sector };
+    return { ...match, sector: match.is_proxy ? match.sector : sector };
   });
   const additional = sectors.filter((item) => {
     const key = sectorKey(item.sector);
@@ -493,7 +493,7 @@ export function marketSnapshotDetailRows(snapshot: MacroSnapshotResponse, slug: 
     return ordered.map((item) => ({
       id: item.sector,
       name: item.sector,
-      valueText: "-",
+      valueText: item.is_proxy ? "ETF price return" : "-",
       changeText: formatPercent(item.change_pct) ?? "Unavailable",
       changeValue: item.change_pct,
       dateText: formatDateShort(item.date ?? asOf) ?? "-",
