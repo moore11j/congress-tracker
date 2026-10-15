@@ -200,3 +200,24 @@ def test_event_source_change_quarantines_pdf_without_overwriting_proof(db, monke
     assert row.status == 'quarantined' and row.metadata_json == old_metadata and row.source_url == PDF
     assert issuer.prepared_transcript(db, 'IBM')['reason'] == 'reviewed_period_not_prepared'
 
+
+
+@pytest.mark.parametrize('state', ['pending', 'failed', 'quarantined'])
+def test_outer_report_keeps_unresolved_event_hops_partial(db, monkeypatch, state):
+    from app.services.direct_feed_collection import collect_direct_feeds
+    monkeypatch.setenv('ISSUER_TRANSCRIPT_DISCOVERY_ENABLED', '1')
+    client = Client(db); c = company(); c['documents'] = []
+    first = collect_direct_feeds(db, client, sources=['issuer_earnings'], start=NOW.date(),
+        end=NOW.date(), issuer_registry=[c], limit=1, recheck_hours=24)
+    assert first['pending_documents'] == first['unresolved_documents'] == 1
+    assert first['status'] == 'partial' and len(client.calls) == 1
+    event_row = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed == policy.EVENT_FEED))
+    event_row.status = state; event_row.checked_at = NOW
+    event_row.error = ('Issuer period changed source URL; review required' if state == 'quarantined' else None)
+    db.commit()
+    repeat = collect_direct_feeds(db, client, sources=['issuer_earnings'], start=NOW.date(),
+        end=NOW.date(), issuer_registry=[c], limit=2, recheck_hours=24)
+    assert repeat['status'] == 'partial' and repeat['unresolved_documents'] == 1
+    assert repeat['pending_documents'] == int(state == 'pending')
+    assert not repeat['errors'] and len(client.calls) == 1 and repeat['public_writes'] == 0
+

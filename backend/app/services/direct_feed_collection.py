@@ -355,7 +355,7 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
                     break
     unresolved_sources = list(sources)
     if 'issuer_earnings' in sources and os.getenv('ISSUER_TRANSCRIPT_DISCOVERY_ENABLED', '0') == '1':
-        unresolved_sources.append('issuer_earnings_index')
+        unresolved_sources.extend(['issuer_earnings_index', 'issuer_earnings_event'])
     unresolved = list(db.scalars(select(DirectFeedDocument).where(
         DirectFeedDocument.feed.in_(unresolved_sources),
         DirectFeedDocument.status.in_(("pending", "failed", "quarantined")),

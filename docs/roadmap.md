@@ -1,3 +1,5 @@
+October15: [IBM report correction](ibm-transcript-rollover-2026-10-15.md) locally passes133 affected checks after PR664 deployed. Final combined release/runtime and ordinary collection remain pending; all wider FMP gates remain.
+
 October15: [IBM event-chain discovery](ibm-transcript-rollover-2026-10-15.md) local implementation passes438 distinct focused checks and full four-original/nine-hop-source replay. Release/runtime, ordinary collection and broad publication remain unverified. NVIDIA/Alphabet public indexes403 held. All other FMP cutover gates remain.
 
 October15: [Moderna transcript rollover](moderna-transcript-rollover-2026-10-15.md) PR663 deployed1dcccc30;397 focused checks, six-original replay and seven runtime hashes/synthetic repeat/tamper checks pass. Ordinary collection, three other issuer policies, broad publication and full FMP cutover gates remain.

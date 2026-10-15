@@ -1,6 +1,6 @@
 # IBM transcript discovery through event pages
 
-October 15, 2026. Local implementation; release and ordinary collection not yet verified.
+October 15, 2026. PR664 deployed; follow-up collection-status correction is locally tested and awaiting release. Final runtime and ordinary collection remain unverified.
 
 ## Source contract
 
@@ -23,3 +23,9 @@ The affected issuer/research/monitoring/digest suite passes431 checks in95.94sec
 The normal public NVIDIA and Alphabet financial-report feeds each returned HTTP 403 on their first reviewed request. No retry, private endpoint, credential substitution or access-control workaround was used. Their automatic discovery remains unresolved; the captured public Q4 widget describes the public route but does not establish usable access. Receipts: artifacts/q4-transcript-indexes-oct15/financial-index-capture.json and protocol-capture.json.
 
 IBM ordinary collection, broader transcript coverage and selected publication remain gates. Core financial and valuation coverage, institutional activation/current-cohort consumers, all scheduled alerts/rankings, sustained capacity, final Massive prices, global zero-FMP requests and billing remain incomplete. Core/prices/transcripts remain FMP; institutional publication remains disabled. Pending CAT/institutional payload permissions and valuation-model choice remain unchanged. No subscription, host, schedule, source selector, video, landing page, customer email or cancellation change.
+
+## Collection-report correction
+
+PR664 source bf6511231cabe57d4a0b7ce2dc40acee8dea2594 merged c0ce021c4efaea05527d9f91e086bc0cf6fec84d and backend workflow38682990185/job116251470933 succeeded with readiness/Premium privacy checks. Exact-head preview and secret scan passed; unchanged dependency audits failed (33 Pillow advisory rows and five frontend groups, four high/one critical).
+
+Final outer-collector review found that unresolved event pages were absent from its status query. Reader publication already holds missing new periods, but an idle run could incorrectly report collected. The follow-up includes issuer_earnings_event in unresolved sources and adds three full outer-collector regressions for pending, failed and quarantined pages. All133 affected tests pass on Linux3.12.3 in32.19seconds. No retry, request-budget or publication change. Final combined runtime verification is held until this correction is deployed.
