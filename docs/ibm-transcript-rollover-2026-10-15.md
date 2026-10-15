@@ -1,6 +1,6 @@
 # IBM transcript discovery through event pages
 
-October 15, 2026. PR664 deployed; follow-up collection-status correction is locally tested and awaiting release. Final runtime and ordinary collection remain unverified.
+October 15, 2026. PR664/665 deployed and exact combined runtime verified. Ordinary collection and broad publication remain unverified.
 
 ## Source contract
 
@@ -29,3 +29,11 @@ IBM ordinary collection, broader transcript coverage and selected publication re
 PR664 source bf6511231cabe57d4a0b7ce2dc40acee8dea2594 merged c0ce021c4efaea05527d9f91e086bc0cf6fec84d and backend workflow38682990185/job116251470933 succeeded with readiness/Premium privacy checks. Exact-head preview and secret scan passed; unchanged dependency audits failed (33 Pillow advisory rows and five frontend groups, four high/one critical).
 
 Final outer-collector review found that unresolved event pages were absent from its status query. Reader publication already holds missing new periods, but an idle run could incorrectly report collected. The follow-up includes issuer_earnings_event in unresolved sources and adds three full outer-collector regressions for pending, failed and quarantined pages. All133 affected tests pass on Linux3.12.3 in32.19seconds. No retry, request-budget or publication change. Final combined runtime verification is held until this correction is deployed.
+
+## Final deployed verification, October15 04:51UTC
+
+[PR665](https://github.com/moore11j/congress-tracker/pull/665) source3013b6d4d9960c6e89f7987a1df7b74cf57b00e4 merged3e3f219c280ede22c3f4b43887676654482dc74c. Backend workflow38683486299/job116253010512 succeeded, including readiness and Premium research privacy checks. Exact-head preview and secret scan pass; unchanged dependency audits retain the same33 Pillow advisory rows and five frontend groups. Both PR attachment attempts hit the chat100-item limit; ordinary PR links remain available.
+
+Deployed Python3.12.15 matches all seven expected source hashes. Synthetic-only validation follows all three IBM hops, prepares one canonical document/zero research events, and repeats with identical whole-database state/no additional fetch. Both homepage and event byte tampering and stored-date tampering are held. A failed event remains partial in the outer report without additional requests. Network is blocked and SQLite in-memory; zero production records read/written and zero provider requests. Receipt: artifacts/ibm-runtime-1792039878.json.
+
+Readiness/Feed/Insights return200, database ready and no server-error marker. Feed0.582s and Insights0.767s are immediate HTTP samples, not sustained capacity proof. Receipt: artifacts/ibm-public-1792039874.json. Six reviewed issuer discovery policies are deployed; NVIDIA/Alphabet rollover and broad coverage remain unresolved. Ordinary collection is not inferred from the synthetic check. All broader financial/institutional/consumer/capacity/finalMassive/globalFMP/billing gates and pending model/payload approvals remain. All processes from this turn are terminal; no source selector, resource, schedule, subscription, customer email, video, landing or cancellation changes.
