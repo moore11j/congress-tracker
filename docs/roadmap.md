@@ -1,3 +1,5 @@
+October15: [Unilever restated financials](ul-restated-financials-2026-10-15.md) locally reconcile seven EUR ratios with complete-source consumer repeats; release/ordinary rollover and all broader FMP gates remain.
+
 October15: [SEC transcript cover compatibility](sec-transcript-cover-compatibility-2026-10-15.md) locally verifies all31 covers/seven transcripts,445 Linux checks and exact consumer repeat. Exact release/ordinary recovery and broader FMP gates remain.
 
 October15: [Unilever transcript discovery](unilever-transcript-discovery-2026-10-15.md) locally passes434 selected checks and complete public-original consumer replay. Exact release/ordinary collection, broad transcript publication and all FMP retirement gates remain.

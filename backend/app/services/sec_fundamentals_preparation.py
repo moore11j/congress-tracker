@@ -31,6 +31,9 @@ def version_for_symbol(symbol):
 
 
 def _base_version_for_symbol(symbol):
+    if symbol == 'UL':
+        from app.services.sec_ul_financials import VERSION as ul_version
+        return VERSION+'_'+ul_version
     if symbol == 'CNQ':
         from app.services.sec_cnq_financials import VERSION as cnq_version
         return VERSION+'_'+cnq_version

@@ -292,6 +292,12 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
             return registration.acquire(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
         except registration.RegistrationHistoryError as exc:
             return {'registration_error':str(exc)}
+    if symbol == 'UL':
+        from app.services import sec_ul_financials as ul
+        try:
+            return ul.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
+        except ul.UnileverFinancialError as exc:
+            return {'ul_error':str(exc)}
     if symbol == 'ASML':
         from app.services import sec_asml_financials as asml
         try:
