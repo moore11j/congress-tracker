@@ -1,0 +1,1140 @@
+{
+  "current": {
+    "original_sha256": "f2afc72d4c46b140350ebf7e6476d00f1c393fba172451995972cb26eaf14329",
+    "tables": [
+      {
+        "rows": [
+          [
+            "\u20ac millions, unless otherwise stated",
+            "",
+            "Q1\u2013Q2 2026",
+            "Q1\u2013Q2 2025",
+            "\u2206 in %"
+          ],
+          [
+            "Cloud",
+            "",
+            "12,244",
+            "10,124",
+            "21"
+          ],
+          [
+            "Software licenses",
+            "",
+            "247",
+            "377",
+            "\u201334"
+          ],
+          [
+            "Software support",
+            "",
+            "4,908",
+            "5,403",
+            "\u20139"
+          ],
+          [
+            "Software licenses and support",
+            "",
+            "5,155",
+            "5,780",
+            "\u201311"
+          ],
+          [
+            "Cloud and software",
+            "",
+            "17,399",
+            "15,904",
+            "9"
+          ],
+          [
+            "Services",
+            "",
+            "2,033",
+            "2,136",
+            "\u20135"
+          ],
+          [
+            "Total revenue",
+            "",
+            "19,432",
+            "18,040",
+            "8"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Cost of cloud",
+            "",
+            "\u20133,130",
+            "\u20132,570",
+            "22"
+          ],
+          [
+            "Cost of software licenses and support",
+            "",
+            "\u2013559",
+            "\u2013605",
+            "\u20138"
+          ],
+          [
+            "Cost of cloud and software",
+            "",
+            "\u20133,688",
+            "\u20133,176",
+            "16"
+          ],
+          [
+            "Cost of services",
+            "",
+            "\u20131,543",
+            "\u20131,638",
+            "\u20136"
+          ],
+          [
+            "Total cost of revenue",
+            "",
+            "\u20135,232",
+            "\u20134,813",
+            "9"
+          ],
+          [
+            "Gross profit",
+            "",
+            "14,201",
+            "13,226",
+            "7"
+          ],
+          [
+            "Research and development",
+            "",
+            "\u20133,546",
+            "\u20133,291",
+            "8"
+          ],
+          [
+            "Sales and marketing",
+            "",
+            "\u20134,455",
+            "\u20134,391",
+            "1"
+          ],
+          [
+            "General and administration",
+            "",
+            "\u2013762",
+            "\u2013719",
+            "6"
+          ],
+          [
+            "Restructuring",
+            "",
+            "\u201319",
+            "\u201318",
+            "8"
+          ],
+          [
+            "Other operating income/expense, net",
+            "",
+            "\u201336",
+            "\u201319",
+            "86"
+          ],
+          [
+            "Total operating expenses",
+            "",
+            "\u201314,049",
+            "\u201313,251",
+            "6"
+          ],
+          [
+            "Operating profit (loss)",
+            "",
+            "5,383",
+            "4,789",
+            "12"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Other non-operating income/expense, net",
+            "",
+            "\u201316",
+            "7",
+            "N/A"
+          ],
+          [
+            "Finance income",
+            "",
+            "1,000",
+            "722",
+            "39"
+          ],
+          [
+            "Finance costs",
+            "",
+            "\u2013615",
+            "\u2013548",
+            "12"
+          ],
+          [
+            "Financial income, net",
+            "",
+            "385",
+            "175",
+            ">100"
+          ],
+          [
+            "Profit (loss) before tax",
+            "",
+            "5,753",
+            "4,970",
+            "16"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Income tax expense",
+            "",
+            "\u20131,597",
+            "\u20131,425",
+            "12"
+          ],
+          [
+            "Profit (loss) after tax",
+            "",
+            "4,155",
+            "3,545",
+            "17"
+          ],
+          [
+            "Attributable to owners of parent",
+            "",
+            "4,112",
+            "3,477",
+            "18"
+          ],
+          [
+            "Attributable to non-controlling interests",
+            "",
+            "44",
+            "68",
+            "\u201336"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Earnings per share, basic (in \u20ac)1",
+            "",
+            "3.55",
+            "2.98",
+            "19"
+          ],
+          [
+            "Earnings per share, diluted (in \u20ac)1",
+            "",
+            "3.54",
+            "2.96",
+            "20"
+          ]
+        ],
+        "prefix": "onsolidated Half - Year Financial Statements, Note (B.1) . 1 This describes the overall rate of terminations (that is, employees leaving SAP, not internal transfers). It applies to headcount-relevant employees only and is calculated based on FTE numbers. 22 /50 SAP Half-Year Report 2026 Consolidated Half-Year Financial Statements \u2013 IFRS Consolidated Income Statement of SAP Group (IFRS) \u2013 Half Year"
+      },
+      {
+        "rows": [
+          [
+            "as at 6/30/2026 and 12/31/2025"
+          ],
+          [
+            "\u20ac millions",
+            "2026",
+            "2025"
+          ],
+          [
+            "Cash and cash equivalents",
+            "10,511",
+            "8,220"
+          ],
+          [
+            "Other financial assets",
+            "1,114",
+            "1,552"
+          ],
+          [
+            "Trade and other receivables",
+            "7,076",
+            "6,675"
+          ],
+          [
+            "Other non-financial assets",
+            "3,267",
+            "3,212"
+          ],
+          [
+            "Tax assets",
+            "680",
+            "598"
+          ],
+          [
+            "Total current assets",
+            "22,649",
+            "20,256"
+          ],
+          [
+            "Goodwill",
+            "30,408",
+            "29,014"
+          ],
+          [
+            "Intangible assets",
+            "2,638",
+            "2,282"
+          ],
+          [
+            "Property, plant, and equipment",
+            "4,504",
+            "4,497"
+          ],
+          [
+            "Other financial assets",
+            "8,123",
+            "7,269"
+          ],
+          [
+            "Trade and other receivables",
+            "149",
+            "218"
+          ],
+          [
+            "Other non-financial assets",
+            "4,450",
+            "4,419"
+          ],
+          [
+            "Tax assets",
+            "307",
+            "244"
+          ],
+          [
+            "Deferred tax assets",
+            "2,381",
+            "2,163"
+          ],
+          [
+            "Total non-current assets",
+            "52,960",
+            "50,106"
+          ],
+          [
+            "Total assets",
+            "75,609",
+            "70,362"
+          ],
+          [
+            ""
+          ],
+          [
+            "\u20ac millions",
+            "2026",
+            "2025"
+          ],
+          [
+            "Trade and other payables",
+            "2,747",
+            "2,431"
+          ],
+          [
+            "Tax liabilities",
+            "1,359",
+            "968"
+          ],
+          [
+            "Financial liabilities",
+            "1,966",
+            "2,050"
+          ],
+          [
+            "Other non-financial liabilities",
+            "3,699",
+            "4,849"
+          ],
+          [
+            "Provisions",
+            "119",
+            "537"
+          ],
+          [
+            "Contract liabilities",
+            "9,843",
+            "6,581"
+          ],
+          [
+            "Total current liabilities",
+            "19,734",
+            "17,416"
+          ],
+          [
+            "Trade and other payables",
+            "1",
+            "2"
+          ],
+          [
+            "Tax liabilities",
+            "670",
+            "562"
+          ],
+          [
+            "Financial liabilities",
+            "8,541",
+            "6,021"
+          ],
+          [
+            "Other non-financial liabilities",
+            "456",
+            "524"
+          ],
+          [
+            "Provisions",
+            "611",
+            "550"
+          ],
+          [
+            "Deferred tax liabilities",
+            "211",
+            "72"
+          ],
+          [
+            "Contract liabilities",
+            "136",
+            "144"
+          ],
+          [
+            "Total non-current liabilities",
+            "10,627",
+            "7,873"
+          ],
+          [
+            "Total liabilities",
+            "30,361",
+            "25,288"
+          ],
+          [
+            "Issued capital",
+            "1,229",
+            "1,229"
+          ],
+          [
+            "Share premium",
+            "2,969",
+            "2,778"
+          ],
+          [
+            "Retained earnings",
+            "48,579",
+            "47,345"
+          ],
+          [
+            "Other components of equity",
+            "1,155",
+            "182"
+          ],
+          [
+            "Treasury shares",
+            "\u20139,190",
+            "\u20136,948"
+          ],
+          [
+            "Equity attributable to owners of parent",
+            "44,742",
+            "44,586"
+          ],
+          [
+            "",
+            "",
+            ""
+          ],
+          [
+            "Non-controlling interests",
+            "505",
+            "488"
+          ],
+          [
+            "Total equity",
+            "45,248",
+            "45,073"
+          ],
+          [
+            "Total equity and liabilities",
+            "75,609",
+            "70,362"
+          ]
+        ],
+        "prefix": " net of tax \u201365 156 Other comprehensive income for items that will be reclassified to profit or loss, net of tax 991 \u20134,291 Other comprehensive income, net of tax 986 \u20134,280 Total comprehensive income 5,141 \u2013735 Attributable to owners of parent 5,079 \u2013741 Attributable to non-controlling interests 62 6 24 /50 SAP Half-Year Report 2026 Consolidated Statement of Financial Position of SAP Group (IFRS)"
+      }
+    ]
+  },
+  "prior": {
+    "original_sha256": "df76b849c9b76ad1eda631efb47a9d2d9d8aa54bb615789cfc098d37206dca9d",
+    "tables": [
+      {
+        "rows": [
+          [
+            "\u20ac millions, unless otherwise stated",
+            "",
+            "Q1\u2013Q2 2025",
+            "Q1\u2013Q2 2024",
+            "\u2206 in %"
+          ],
+          [
+            "Cloud",
+            "",
+            "10,124",
+            "8,082",
+            "25"
+          ],
+          [
+            "Software licenses",
+            "",
+            "377",
+            "432",
+            "\u201313"
+          ],
+          [
+            "Software support",
+            "",
+            "5,403",
+            "5,621",
+            "\u20134"
+          ],
+          [
+            "Software licenses and support",
+            "",
+            "5,780",
+            "6,053",
+            "\u20134"
+          ],
+          [
+            "Cloud and software",
+            "",
+            "15,904",
+            "14,134",
+            "13"
+          ],
+          [
+            "Services",
+            "",
+            "2,136",
+            "2,195",
+            "\u20133"
+          ],
+          [
+            "Total revenue",
+            "(A.1), (C.2)",
+            "18,040",
+            "16,329",
+            "10"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Cost of cloud",
+            "",
+            "\u20132,570",
+            "\u20132,214",
+            "16"
+          ],
+          [
+            "Cost of software licenses and support",
+            "",
+            "\u2013605",
+            "\u2013637",
+            "\u20135"
+          ],
+          [
+            "Cost of cloud and software",
+            "",
+            "\u20133,176",
+            "\u20132,851",
+            "11"
+          ],
+          [
+            "Cost of services",
+            "",
+            "\u20131,638",
+            "\u20131,699",
+            "\u20134"
+          ],
+          [
+            "Total cost of revenue",
+            "",
+            "\u20134,813",
+            "\u20134,550",
+            "6"
+          ],
+          [
+            "Gross profit",
+            "",
+            "13,226",
+            "11,778",
+            "12"
+          ],
+          [
+            "Research and development",
+            "",
+            "\u20133,291",
+            "\u20133,270",
+            "1"
+          ],
+          [
+            "Sales and marketing",
+            "",
+            "\u20134,391",
+            "\u20134,496",
+            "\u20132"
+          ],
+          [
+            "General and administration",
+            "",
+            "\u2013719",
+            "\u2013696",
+            "3"
+          ],
+          [
+            "Restructuring",
+            "(B.4)",
+            "\u201318",
+            "\u20132,873",
+            "\u201399"
+          ],
+          [
+            "Other operating income/expense, net",
+            "",
+            "\u201319",
+            "\u20139",
+            ">100"
+          ],
+          [
+            "Total operating expenses",
+            "",
+            "\u201313,251",
+            "\u201315,894",
+            "\u201317"
+          ],
+          [
+            "Operating profit (loss)",
+            "",
+            "4,789",
+            "434",
+            ">100"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Other non-operating income/expense, net",
+            "",
+            "7",
+            "\u2013153",
+            "NA"
+          ],
+          [
+            "Finance income",
+            "",
+            "722",
+            "611",
+            "18"
+          ],
+          [
+            "Finance costs",
+            "",
+            "\u2013548",
+            "\u2013486",
+            "13"
+          ],
+          [
+            "Financial income, net",
+            "(C.3)",
+            "175",
+            "125",
+            "40"
+          ],
+          [
+            "Profit (loss) before tax",
+            "(C.2)",
+            "4,970",
+            "407",
+            ">100"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Income tax expense",
+            "",
+            "\u20131,425",
+            "\u2013313",
+            ">100"
+          ],
+          [
+            "Profit (loss) after tax",
+            "",
+            "3,545",
+            "94",
+            ">100"
+          ],
+          [
+            "Attributable to owners of parent",
+            "",
+            "3,477",
+            "60",
+            ">100"
+          ],
+          [
+            "Attributable to non-controlling interests",
+            "",
+            "68",
+            "34",
+            "100"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Earnings per share, basic (in \u20ac)1",
+            "",
+            "2.98",
+            "0.05",
+            ">100"
+          ],
+          [
+            "Earnings per share, diluted (in \u20ac)1",
+            "",
+            "2.96",
+            "0.05",
+            ">100"
+          ]
+        ],
+        "prefix": "ancial Risk Factors, Financial Risk Management, and Fair Value Disclosures on Financial Instruments 39 Section G \u2013 Other Disclosures 40 (G.1) Other Litigation, Claims, and Legal Contingencies 40 (G.2) Related Party Transactions 41 (G.3) Events After the Reporting Period 42 (G.4) Scope of Consolidation 42 19 /51 SAP Half-Year Report 2025 Consolidated Income Statement of SAP Group (IFRS) \u2013 Half Year"
+      },
+      {
+        "rows": [
+          [
+            "",
+            "as at 6/30/2025 and 12/31/2024"
+          ],
+          [
+            "\u20ac millions",
+            "",
+            "2025",
+            "2024"
+          ],
+          [
+            "Cash and cash equivalents",
+            "",
+            "7,942",
+            "9,609"
+          ],
+          [
+            "Other financial assets",
+            "",
+            "2,236",
+            "1,629"
+          ],
+          [
+            "Trade and other receivables",
+            "",
+            "6,289",
+            "6,774"
+          ],
+          [
+            "Other non-financial assets",
+            "(A.2)",
+            "2,652",
+            "2,682"
+          ],
+          [
+            "Tax assets",
+            "",
+            "520",
+            "707"
+          ],
+          [
+            "Total current assets",
+            "",
+            "19,638",
+            "21,401"
+          ],
+          [
+            "Goodwill",
+            "(D.1)",
+            "28,537",
+            "31,243"
+          ],
+          [
+            "Intangible assets",
+            "",
+            "2,289",
+            "2,706"
+          ],
+          [
+            "Property, plant, and equipment",
+            "(D.2)",
+            "4,339",
+            "4,493"
+          ],
+          [
+            "Other financial assets",
+            "",
+            "6,807",
+            "7,141"
+          ],
+          [
+            "Trade and other receivables",
+            "",
+            "118",
+            "209"
+          ],
+          [
+            "Other non-financial assets",
+            "(A.2)",
+            "3,840",
+            "3,990"
+          ],
+          [
+            "Tax assets",
+            "",
+            "328",
+            "359"
+          ],
+          [
+            "Deferred tax assets",
+            "",
+            "2,503",
+            "2,676"
+          ],
+          [
+            "Total non-current assets",
+            "",
+            "48,761",
+            "52,817"
+          ],
+          [
+            "Total assets",
+            "",
+            "68,399",
+            "74,218"
+          ],
+          [
+            "",
+            ""
+          ],
+          [
+            "\u20ac millions",
+            "",
+            "2025",
+            "2024"
+          ],
+          [
+            "Trade and other payables",
+            "",
+            "2,210",
+            "1,988"
+          ],
+          [
+            "Tax liabilities",
+            "",
+            "965",
+            "585"
+          ],
+          [
+            "Financial liabilities",
+            "(E.2)",
+            "3,347",
+            "4,277"
+          ],
+          [
+            "Other non-financial liabilities",
+            "",
+            "3,913",
+            "5,533"
+          ],
+          [
+            "Provisions",
+            "(B.4)",
+            "220",
+            "716"
+          ],
+          [
+            "Contract liabilities",
+            "",
+            "8,395",
+            "5,978"
+          ],
+          [
+            "Total current liabilities",
+            "",
+            "19,050",
+            "19,078"
+          ],
+          [
+            "Trade and other payables",
+            "",
+            "5",
+            "10"
+          ],
+          [
+            "Tax liabilities",
+            "",
+            "471",
+            "509"
+          ],
+          [
+            "Financial liabilities",
+            "(E.2)",
+            "6,034",
+            "7,169"
+          ],
+          [
+            "Other non-financial liabilities",
+            "",
+            "542",
+            "749"
+          ],
+          [
+            "Provisions",
+            "",
+            "468",
+            "494"
+          ],
+          [
+            "Deferred tax liabilities",
+            "",
+            "292",
+            "313"
+          ],
+          [
+            "Contract liabilities",
+            "",
+            "139",
+            "88"
+          ],
+          [
+            "Total non-current liabilities",
+            "",
+            "7,950",
+            "9,332"
+          ],
+          [
+            "Total liabilities",
+            "",
+            "27,000",
+            "28,410"
+          ],
+          [
+            "Issued capital",
+            "",
+            "1,229",
+            "1,229"
+          ],
+          [
+            "Share premium",
+            "",
+            "2,776",
+            "2,564"
+          ],
+          [
+            "Retained earnings",
+            "",
+            "43,653",
+            "42,907"
+          ],
+          [
+            "Other components of equity",
+            "",
+            "463",
+            "4,694"
+          ],
+          [
+            "Treasury shares",
+            "",
+            "\u20137,123",
+            "\u20135,954"
+          ],
+          [
+            "Equity attributable to owners of parent",
+            "",
+            "40,998",
+            "45,440"
+          ],
+          [
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "Non-controlling interests",
+            "",
+            "401",
+            "368"
+          ],
+          [
+            "Total equity",
+            "(E.1)",
+            "41,400",
+            "45,808"
+          ],
+          [
+            "Total equity and liabilities",
+            "",
+            "68,399",
+            "74,218"
+          ],
+          [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        ],
+        "prefix": "et of tax 156 1 Other comprehensive income for items that will be reclassified to profit or loss, net of tax \u20134,293 1,164 Other comprehensive income, net of tax \u20134,283 1,160 Total comprehensive income \u2013738 1,253 Attributable to owners of parent \u2013744 1,207 Attributable to non-controlling interests 6 47 21 /51 SAP Half-Year Report 2025 Consolidated Statement of Financial Position of SAP Group (IFRS)"
+      }
+    ]
+  },
+  "annual": {
+    "original_sha256": "4628dc2d12f68bfbbe7c07a2099a6916db30d9547b8f3d1424b451272790fc15"
+  },
+  "company": {
+    "cik": "0001000184",
+    "name": "SAP SE",
+    "tickers": [
+      "SAP",
+      "SAPGF"
+    ],
+    "exchanges": [
+      "NYSE",
+      "OTC"
+    ],
+    "filings": {
+      "recent": {
+        "accessionNumber": [
+          "0001104659-26-087251",
+          "0001104659-26-020058",
+          "0001104659-25-070485"
+        ],
+        "filingDate": [
+          "2026-07-28",
+          "2026-02-26",
+          "2025-07-25"
+        ],
+        "reportDate": [
+          "2026-07-28",
+          "2025-12-31",
+          "2025-07-25"
+        ],
+        "acceptanceDateTime": [
+          "2026-07-28T10:00:18.000Z",
+          "2026-02-26T12:01:22.000Z",
+          "2025-07-25T10:01:01.000Z"
+        ],
+        "act": [
+          "34",
+          "34",
+          "34"
+        ],
+        "form": [
+          "6-K",
+          "20-F",
+          "6-K"
+        ],
+        "fileNumber": [
+          "001-14251",
+          "001-14251",
+          "001-14251"
+        ],
+        "filmNumber": [
+          "261207323",
+          "26681635",
+          "251148441"
+        ],
+        "items": [
+          "",
+          "",
+          ""
+        ],
+        "core_type": [
+          "6-K",
+          "XBRL",
+          "6-K"
+        ],
+        "size": [
+          2038989,
+          52604911,
+          2572605
+        ],
+        "isXBRL": [
+          0,
+          1,
+          0
+        ],
+        "isInlineXBRL": [
+          0,
+          1,
+          0
+        ],
+        "isXBRLNumeric": [
+          0,
+          null,
+          null
+        ],
+        "primaryDocument": [
+          "tm2621275d1_6k.htm",
+          "sap-20251231x20f.htm",
+          "tm2521516d1_6k.htm"
+        ],
+        "primaryDocDescription": [
+          "FORM 6-K",
+          "FORM 20-F",
+          "FORM 6-K"
+        ]
+      }
+    }
+  }
+}

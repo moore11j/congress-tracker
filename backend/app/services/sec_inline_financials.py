@@ -298,6 +298,12 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
             return asml.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
         except asml.AsmlFinancialError as exc:
             return {'asml_documents': {}, 'asml_error': str(exc)}
+    if symbol == 'SAP':
+        from app.services import sec_sap_financials as sap
+        try:
+            return sap.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
+        except sap.SapFinancialError as exc:
+            return {'sap_error': str(exc)}
     if symbol == 'MGA':
         from app.services import sec_mga_financials as mga
         try:

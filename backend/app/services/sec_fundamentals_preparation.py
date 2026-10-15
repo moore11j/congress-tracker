@@ -31,6 +31,9 @@ def version_for_symbol(symbol):
 
 
 def _base_version_for_symbol(symbol):
+    if symbol == 'SAP':
+        from app.services.sec_sap_financials import VERSION as sap_version
+        return VERSION+'_'+sap_version
     if symbol == 'NVS':
         from app.services.sec_nvs_financials import VERSION as nvs_version
         return VERSION+'_'+nvs_version

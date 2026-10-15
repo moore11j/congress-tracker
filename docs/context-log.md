@@ -1,3 +1,15 @@
+## October 15, 2026: SAP final validation and release preparation
+
+- **2026-10-15 SAP release preparation:** Final 304 selected Linux3.12.3 tests and full-original Linux cache/confirmation/watchlist/20-control replay pass. Seven EUR ratios,18 annual/companyfacts matches and46 fixture/original facts verified; no false source-transition or duplicate alerts. Prior percentage-only turn was no progress; current final review and release preparation advance the goal. Exact release/runtime and ordinary preparation/rollover remain pending; all broad FMP gates and pending export approvals remain. No public selector/subscription/schedule/host change.
+
+Reviewed four service files,42 new tests and four public source fixtures. Final tests and original consumer replay are terminal/pass; no full-suite or production coverage claim. Source report updated. Next exact-head checks and guarded release/runtime verification.
+
+## October 15, 2026: SAP financial preparation
+
+- **2026-10-15 SAP financial preparation:** Current/prior SEC half-year originals and annual IFRS source now produce seven EUR ratios locally.46 fixture/original observations and18 annual/companyfacts matches verify; full cache/confirmation/watchlist/20-control replay passes.40 initial Windows checks pass; expanded Linux suite/replay running. Explicit combined-intangible/PPE, cash classification and EUR/USD limitations retained. No release/source switch; ordinary rollover and full FMP gates remain. Previous Novartis release and current SAP source/code/consumer work are progress; goal active, pending exports unrun.
+
+Files: sec_sap_financials and three integration hooks, fixtures/tests/report. No new product decision or source activation. Next finish Linux/release/runtime checks and preserve ordinary operation and broad migration gates.
+
 ## October 15, 2026: Novartis interim financial preparation
 
 - **2026-10-15 Novartis financial preparation:** NVS-only USD IFRS current/interim reader implemented locally. Forty inputs match three complete statement originals; ten metrics, full isolated cache/confirmation/watchlist repeat and twenty unchanged controls verify. Final33 Windows and237 distinct Linux checks pass; full-original Linux consumer repeat and local installed-probe rehearsal pass. Source evidence explicitly distinguishes net sales, parent earnings/equity and consolidated cash flow. Not released; ordinary operation and all wider FMP cutover gates remain. Previous status-only turn was no progress; current source/code/test/consumer evidence is progress. Goal active; pending exports unrun.
