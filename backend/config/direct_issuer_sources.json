@@ -1,6 +1,7 @@
 [
   {
     "symbol": "MSFT",
+    "discovery": {"kind": "microsoft_events_v1"},
     "company_website": "https://www.microsoft.com/",
     "investor_website": "https://www.microsoft.com/en-us/Investor",
     "verification": "Official Microsoft FY2026 Q2 and Q4 event pages reviewed October10,2026. Selected-company transcript coverage only; not a broad market transcript feed.",
