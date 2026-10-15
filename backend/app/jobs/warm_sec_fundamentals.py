@@ -21,6 +21,26 @@ METRIC_MAX_SECONDS = 20
 PRIORITY_REFRESH = timedelta(hours=20)
 
 
+def scope_batch(due, limit, *, priority, changed_dependencies, changed_versions):
+    """Give a waiting parser update one ordinary slot without expanding work.
+
+    Active watch/research scopes and changed issuer evidence retain priority.
+    All other slots preserve oldest-attempt order. After an update is attempted,
+    the existing version receipt and deadline remove its special eligibility.
+    """
+    selected = due[:limit]
+    if not selected or any(symbol in changed_versions for symbol in selected):
+        return selected
+    update = next((symbol for symbol in due[limit:] if symbol in changed_versions), None)
+    if update is None:
+        return selected
+    for index in range(len(selected)-1, -1, -1):
+        if selected[index] not in priority and selected[index] not in changed_dependencies:
+            selected[index] = update
+            break
+    return selected
+
+
 def metric_batch_limit():
     try:
         return max(1, min(8, int(os.getenv('FINNHUB_METRICS_BATCH_SIZE', '2'))))
@@ -106,7 +126,10 @@ def _run_locked():
         if broad:
             batch_limit = max(1, min(10, int(os.getenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE', '5'))))
         due_symbols = [s for s in symbols if not broad or due_scope(s)]
-        selected = due_symbols[:batch_limit]
+        changed_versions = {s for s in due_symbols if broad and
+            versions.get(s) != sec_fundamentals_preparation.version_for_symbol(s)}
+        selected = scope_batch(due_symbols, batch_limit, priority=priority_symbols,
+            changed_dependencies=changed_dependencies, changed_versions=changed_versions)
         truncated = len(watched)>1000 or len(research)>1000 or len(ranked)>5000
         token = uuid.uuid4().hex
         if row is None:
