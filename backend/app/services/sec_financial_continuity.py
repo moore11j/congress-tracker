@@ -47,6 +47,9 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
         raise RegistrationHistoryError(filing_supplement['registration_error'])
     from app.services.sec_reporting_policy import forms_for
     forms = forms_for(symbol, cik)
+    from app.services.sec_currency_ratios import basis as reporting_basis
+    native_basis = reporting_basis(symbol, cik)
+    namespace = native_basis['namespace'] if native_basis else 'us-gaap'
     registration_proof = None
     if filing_supplement and filing_supplement.get('evidence', {}).get('methodology') == 'sec_spcx_registration_v1':
         from app.services import sec_registration_history as registration
@@ -56,7 +59,7 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
             registration.validate_company(company,symbol=symbol,cik=cik,observed_at=observed_at)
         registration_proof = registration.validate_bridge(payload,filing_supplement,available_by=available_by)
     effective = payload if registration_proof else inline.merge(payload,filing_supplement,available_by=available_by)
-    current = {name:sec._records(effective,'equity' if name in instant_names else name,available_by,concepts=tags,unit=unit,forms=forms)
+    current = {name:sec._records(effective,'equity' if name in instant_names else name,available_by,concepts=tags,unit=unit,forms=forms,namespace=namespace)
                for name,(tags,unit) in metrics.items()}
     if registration_proof:
         # Scope registration-form acceptance to the parsed, hash-bound original,

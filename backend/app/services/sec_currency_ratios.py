@@ -1,4 +1,4 @@
-"""Reviewed non-USD US GAAP basis for dimensionless fundamentals.
+"""Reviewed issuer currency and accounting bases for fundamentals.
 
 Amounts remain in the reported currency. This grants no FX conversion,
 per-share mapping, or permission to combine them with USD market values.
@@ -18,6 +18,9 @@ REVIEW = {
 
 
 def basis(symbol, cik):
+    if symbol == 'NVS':
+        from app.services.sec_nvs_financials import basis as nvs_basis
+        return nvs_basis(cik)
     if symbol != SYMBOL:
         return None
     if str(cik).zfill(10) != CIK:

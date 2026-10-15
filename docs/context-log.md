@@ -1,3 +1,9 @@
+## October 15, 2026: Novartis interim financial preparation
+
+- **2026-10-15 Novartis financial preparation:** NVS-only USD IFRS current/interim reader implemented locally. Forty inputs match three complete statement originals; ten metrics, full isolated cache/confirmation/watchlist repeat and twenty unchanged controls verify. Final33 Windows and237 distinct Linux checks pass; full-original Linux consumer repeat and local installed-probe rehearsal pass. Source evidence explicitly distinguishes net sales, parent earnings/equity and consolidated cash flow. Not released; ordinary operation and all wider FMP cutover gates remain. Previous status-only turn was no progress; current source/code/test/consumer evidence is progress. Goal active; pending exports unrun.
+
+Files: seven financial services, NVS original-node fixtures, regression tests and detailed report. No deployment or source selection. Next finish Linux regression, exact release and installed validation, then ordinary preparation and broader migration acceptance.
+
 ## October 15, 2026: SEC transcript discovery implementation
 
 - **2026-10-15 SEC transcript discovery:** [Evidence](docs/sec-transcript-discovery-2026-10-15.md). Magna directory/6-K/transcript chain implemented with368 Linux checks, two full transcript originals and exact isolated collection/research/database-repeat proof. Current31-cover reader uses6queries, unchanged2request/daily budget; future/stale/ambiguous sources held. Local synthetic runtime rehearsal passes; not yet released or ordinarily observed. Previous percentage-only turn was no progress; current source/code/tests/consumer evidence is progress. Full migration and pending export approvals remain open; goal active. No source switch, spend, schedule, customer email or cancellation.
