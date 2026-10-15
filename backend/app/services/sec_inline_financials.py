@@ -370,7 +370,7 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
         end, filing = sec._day(report), sec._day(filed)
         if (end and filing and end <= filing <= available
                 and (latest_fact < end or (latest_fact == end and (sec._ttm(revenue_records, end) is None
-                    or (symbol == 'NVS' and latest_revenue_filed is not None and filing > latest_revenue_filed))))
+                    or (symbol in {'NVS', 'VALE'} and latest_revenue_filed is not None and filing > latest_revenue_filed))))
                 and periodic_document(symbol, cik, form, report, filename)):
             candidates.append((str(end),str(filing),accession,form,filename))
     if not candidates:

@@ -31,6 +31,9 @@ def version_for_symbol(symbol):
 
 
 def _base_version_for_symbol(symbol):
+    if symbol == 'VALE':
+        from app.services.sec_vale_financials import VERSION as vale_version
+        return VERSION+'_'+vale_version
     if symbol == 'UL':
         from app.services.sec_ul_financials import VERSION as ul_version
         return VERSION+'_'+ul_version
