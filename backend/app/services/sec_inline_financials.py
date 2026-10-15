@@ -1,4 +1,4 @@
-"""Bounded standard-fact recovery when companyfacts lags a filed US GAAP report."""
+"""Bounded standard-fact recovery for reviewed SEC accounting bases."""
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
@@ -93,7 +93,7 @@ def _consistent_precision(previous, previous_decimals, value, decimals):
     return None
 
 
-def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
+def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cover_raw=None, cover_url=None):
     from app.services.sec_fundamentals import TAGS
     namespace = basis['namespace'] if basis else 'us-gaap'
     currency = basis['currency'] if basis else 'USD'
@@ -176,6 +176,15 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
                 else:
                     raise InlineFactsError('unsupported_report_date')
             dates.add(str(date.fromisoformat(value)))
+    cover_evidence = None
+    if cover_raw is not None or cover_url is not None:
+        from app.services.sec_nvs_financials import form_proof
+        if namespace != 'ifrs-full' or currency != 'USD':
+            raise InlineFactsError('unsupported_cover_basis')
+        cover_evidence = form_proof(cover_raw, cover_url, url=url, cik=cik, form=form,
+            report_date=report_date, contexts=contexts)
+        if not forms:
+            forms = {form}
     if identity != {cik} or forms != {form} or dates != {report_date}:
         raise InlineFactsError('filing_identity')
     units = {}; unit_ids = set()
@@ -270,6 +279,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         'cik':cik, 'accession':accession, 'filed':filed, 'report_date':report_date, 'form':form,
         'url':url, 'sha256':source_sha256, 'reported_facts':len(records),
         'namespace':namespace, 'currency':currency,
+        **({'cover_evidence':cover_evidence} if cover_evidence else {}),
         **({'auxiliary_rounded_duplicates':rounded_duplicates} if rounded_duplicates else {}),
         **({'auxiliary_holds':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3], 'reason':v}
             for k,v in sorted(auxiliary_holds.items(), key=lambda item: repr(item[0]))]} if auxiliary_holds else {})}}
@@ -317,7 +327,7 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
     tags = native_basis['tags'] if native_basis else sec.TAGS
     currency = native_basis['currency'] if native_basis else 'USD'
     ends = [end for name, concepts in tags.items() for (_,end),value in
-            sec._records(payload,name,available,forms=forms,concepts=concepts,unit=currency).items() if value]
+            sec._records(payload,name,available,forms=forms,concepts=concepts,unit=currency, namespace=native_basis['namespace'] if native_basis else 'us-gaap').items() if value]
     if not ends:
         return None  # Unsupported taxonomy/currency requires a separate adapter.
     latest_fact = max(ends)
@@ -325,11 +335,13 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
     # has arrived. Recover the same report when its trailing revenue is still
     # incomplete, while retaining the no-request path for complete histories.
     revenue_records = sec._records(payload, 'revenue', available, forms=forms,
-        concepts=tags['revenue'], unit=currency)
+        concepts=tags['revenue'], unit=currency, namespace=native_basis['namespace'] if native_basis else 'us-gaap')
     if native_basis is None:
         from app.services.sec_bank_revenue import apply as bank_revenue
         revenue_records = bank_revenue({'revenue': revenue_records}, payload, company,
             available_by=available)['revenue']
+    latest_revenue_filed = max((sec._day(p['filed']) for (start, end), p in revenue_records.items()
+        if p and end == latest_fact), default=None)
     recent = company.get('filings',{}).get('recent',{})
     keys = ['accessionNumber','form','filingDate','reportDate','primaryDocument']
     arrays = [recent.get(k,[]) for k in keys]
@@ -339,7 +351,8 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
     for accession, form, filed, report, filename in zip(*arrays):
         end, filing = sec._day(report), sec._day(filed)
         if (end and filing and end <= filing <= available
-                and (latest_fact < end or (latest_fact == end and sec._ttm(revenue_records, end) is None))
+                and (latest_fact < end or (latest_fact == end and (sec._ttm(revenue_records, end) is None
+                    or (symbol == 'NVS' and latest_revenue_filed is not None and filing > latest_revenue_filed))))
                 and periodic_document(symbol, cik, form, report, filename)):
             candidates.append((str(end),str(filing),accession,form,filename))
     if not candidates:
@@ -357,6 +370,12 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
             or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.html?',filename)):
         raise InlineFactsError('filing_directory_identity')
     url=f'https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace("-", "")}/{filename}'
+    if symbol == 'NVS' and form in {'6-K', '6-K/A'}:
+        from app.services.sec_nvs_financials import exhibit_url
+        cover = client.get(url)
+        exhibit = exhibit_url(cover, url, cik=cik)
+        return parse(client.get(exhibit), cik=cik, accession=accession, filed=filed, report_date=report,
+            form=form, url=exhibit, basis=native_basis, cover_raw=cover, cover_url=url)
     return parse(client.get(url),cik=cik,accession=accession,filed=filed,report_date=report,form=form,url=url,basis=native_basis)
 
 

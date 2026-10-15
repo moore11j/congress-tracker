@@ -331,9 +331,16 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
             "SIC is not mapped to vendor sectors; exchange comes from SEC company metadata"]}
     if native_basis:
         evidence['reporting_currency'] = currency
-        evidence['reviewed_currency_basis'] = dict(currency_review)
-        evidence['limitations'][0] = currency+' US GAAP standard concepts under the reviewed issuer policy'
-        evidence['limitations'].append('Only dimensionless ratios are published; no FX conversion or USD cash amounts.')
+        evidence['reviewed_currency_basis'] = dict(native_basis.get('review', currency_review))
+        accounting = 'IFRS' if native_basis['namespace'] == 'ifrs-full' else 'US GAAP'
+        evidence['limitations'][0] = currency+' '+accounting+' standard concepts under the reviewed issuer policy'
+        if currency != 'USD':
+            evidence['limitations'].append('Only dimensionless ratios are published; no FX conversion or USD cash amounts.')
+        else:
+            evidence['limitations'].extend([
+                'Reported USD cash amounts and ratios; no FX conversion or ADR per-share inference.',
+                'Margin denominators use net sales, excluding separately reported other revenue.',
+                native_basis['review']['cash_flow_basis']])
     from app.services.sec_reporting_policy import reviewed
     reporting_policy = reviewed(symbol, cik)
     if reporting_policy:
@@ -424,7 +431,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     evidence["leverage_preparation"] = sec_leverage.project(all_records, end=end, start=reference_start)
     if native_basis:
         evidence['leverage_preparation']['reporting_currency'] = currency
-        evidence['leverage_preparation']['currency_policy'] = 'Non-USD leverage is not prepared by this ratios adapter.'
+        evidence['leverage_preparation']['currency_policy'] = ('Reviewed IFRS leverage is not prepared by this ratios adapter.' if native_basis['namespace'] == 'ifrs-full' else 'Non-USD leverage is not prepared by this ratios adapter.')
         evidence['leverage_preparation']['ebitda']['unit'] = currency
     evidence['leverage_preparation']['income_reconciliation'] = consolidated_income_evidence
     if statement_income_evidence is not None:

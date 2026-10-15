@@ -31,6 +31,9 @@ def version_for_symbol(symbol):
 
 
 def _base_version_for_symbol(symbol):
+    if symbol == 'NVS':
+        from app.services.sec_nvs_financials import VERSION as nvs_version
+        return VERSION+'_'+nvs_version
     from app.services.sec_bank_revenue import REVIEWED_SYMBOL, REVIEWED_VERSION
     if symbol == REVIEWED_SYMBOL:
         return VERSION+'_'+REVIEWED_VERSION
