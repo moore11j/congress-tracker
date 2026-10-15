@@ -1,4 +1,5 @@
 """Derived bank revenue with aligned, same-filing standard SEC inputs."""
+from datetime import date
 from app.services import sec_fundamentals as sec
 
 BANK_SICS = {'6021', '6022', '6029', '6035', '6036'}
@@ -7,6 +8,22 @@ FEES = 'NoninterestIncome'
 TAG = 'walnut:NetInterestIncomePlusNoninterestIncome'
 CONTRACT_TAGS = frozenset({'RevenueFromContractWithCustomerIncludingAssessedTax',
     'RevenueFromContractWithCustomerExcludingAssessedTax'})
+REVIEWED_SYMBOL = 'FUSB'
+REVIEWED_CIK = '0000717806'
+REVIEWED_VERSION = 'sec_fusb_bank_revenue_v1'
+REVIEWED_START = date(2024, 1, 1)
+REVIEWED_CONTRACT = 'RevenueFromContractWithCustomerIncludingAssessedTax'
+REVIEW = {
+    'basis': 'Contract revenue is deposit service charges, a subset of non-interest income',
+    'sources': [
+        {'url': 'https://www.sec.gov/Archives/edgar/data/717806/000119312526337583/fusb-20260630.htm',
+         'sha256': '89ec0af760fa23e70097fb0188ec205ad49bae5cd75a8e0122c903f0cb22d0d8'},
+        {'url': 'https://www.sec.gov/Archives/edgar/data/717806/000119312526103635/fusb-20251231.htm',
+         'sha256': 'f886ae0c02db76dfbae8f85435c4ced55dc38ed6ed756268cc45478b045a6699'},
+        {'url': 'https://www.sec.gov/Archives/edgar/data/717806/000095017025104822/fusb-20250630.htm',
+         'sha256': '5c45be682ec466a8dafea11e40633c8de24515d9fee73dc4909891921b5eb8e7'},
+    ],
+}
 BASIS = 'Net interest income before credit-loss provisions plus non-interest income'
 
 
@@ -17,7 +34,9 @@ def apply(records, payload, company, *, available_by):
         raise sec.SecFundamentalsError('bank_company_identity')
     interest = sec._records(payload, 'revenue', available_by, concepts=(INTEREST,))
     fees = sec._records(payload, 'revenue', available_by, concepts=(FEES,))
-    if not interest or not fees:
+    reviewed = (str(company.get('cik', '')).zfill(10) == REVIEWED_CIK
+                and company.get('tickers', []).count(REVIEWED_SYMBOL) == 1)
+    if (not interest or not fees) and not reviewed:
         return records
     combined = {}
     for period in interest.keys() | fees.keys():
@@ -35,6 +54,8 @@ def apply(records, payload, company, *, available_by):
             'inputs': [left, right],
         }
     ordinary = records.get('revenue', {})
+    if reviewed:
+        return _reviewed_contract(records, payload, ordinary, combined, fees, available_by)
     if ordinary:
         # A bank's discontinued contract-revenue component must not block its
         # current complete banking denominator. Never splice those two bases.
@@ -61,3 +82,32 @@ def apply(records, payload, company, *, available_by):
 
 def basis(records):
     return BASIS if any(r and r.get('tag') == TAG for r in records.get('revenue', {}).values()) else None
+
+
+def _reviewed_contract(records, payload, ordinary, combined, fees, available_by):
+    """Use one reviewed bank basis; never fall back to known fee-only revenue."""
+    totals = sec._records(payload, 'revenue', available_by,
+        concepts=tuple(tag for tag in sec.TAGS['revenue'] if tag not in CONTRACT_TAGS))
+    if any(start >= REVIEWED_START for start, _ in totals):
+        # An explicit total within the reviewed series (including conflicts)
+        # needs no inference. A newer fee-only period must still block fallback.
+        selected = {period: None for period in ordinary if period[0] >= REVIEWED_START}
+        selected.update({period: row for period, row in totals.items()
+                         if period[0] >= REVIEWED_START})
+        return {**records, 'revenue': selected}
+    selected = {}
+    for period in combined.keys() | ordinary.keys():
+        if period[0] < REVIEWED_START:
+            continue
+        selected[period] = None
+        total, component, noninterest = combined.get(period), ordinary.get(period), fees.get(period)
+        if (not total or not component or not noninterest
+                or component.get('tag') != REVIEWED_CONTRACT
+                or component['accession'] != total['accession']
+                or component['filed'] != total['filed']
+                or not 0 <= component['value'] <= noninterest['value']):
+            continue
+        selected[period] = {**total, 'revenue_selection': {
+            'method': REVIEWED_VERSION, 'review': REVIEW,
+            'superseded_component': component, 'basis_spliced': False}}
+    return {**records, 'revenue': selected}
