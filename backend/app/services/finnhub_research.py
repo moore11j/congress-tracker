@@ -1,4 +1,4 @@
-"""Bounded Finnhub news/recommendation adapter. No prices or premium endpoints.
+"""Bounded Finnhub research transport; paid preparation is separately opt-in.
 
 Recommendation periods are source dates, not ingestion dates. This adapter does
 not write canonical analyst history, confirmation scores, or notification events.
@@ -33,8 +33,21 @@ def selected_news_provider() -> str:
     return value
 
 
+PAID_PREPARATION_PATHS = frozenset({"stock/eps-estimate", "stock/revenue-estimate", "stock/price-target"})
+
+
+def require_paid_preparation():
+    if os.getenv("FINNHUB_PAID_PREPARATION_ENABLED", "0") != "1":
+        raise FinnhubUnavailable("paid_preparation_disabled")
+    from app.services.finnhub_budget import enabled
+    if not enabled():
+        raise FinnhubUnavailable("shared_request_budget_required")
+
+
 def request_json(path: str, params: dict):
-    if path not in {"news", "company-news", "stock/recommendation", "calendar/earnings",
+    if path in PAID_PREPARATION_PATHS:
+        require_paid_preparation()
+    if path not in PAID_PREPARATION_PATHS and path not in {"news", "company-news", "stock/recommendation", "calendar/earnings",
                     "stock/earnings", "stock/metric", "stock/profile2", "stock/peers"}:
         raise ValueError("Unsupported research endpoint")
     key = (os.getenv("FINNHUB_API_KEY") or "").strip()
