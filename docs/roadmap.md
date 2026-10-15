@@ -1,3 +1,5 @@
+October15: [SAP EUR IFRS preparation](sap-interim-financials-2026-10-15.md) implemented locally; seven ratios,304 Linux checks and full-original isolated consumers verified. Cash definitions, release/ordinary rollover and all broader FMP gates remain.
+
 October15: [Novartis IFRS preparation](nvs-interim-financials-2026-10-15.md) implemented locally; ten metrics/40 original-input matches/isolated consumer repeat verified. Release, ordinary operation and full FMP gates remain.
 
 October15: [Magna SEC transcript discovery](sec-transcript-discovery-2026-10-15.md) implemented locally,368 Linux checks and full-original/research repeat verified; release/runtime/ordinary operation pending. Broad transcript coverage and all FMP cutover gates remain.
