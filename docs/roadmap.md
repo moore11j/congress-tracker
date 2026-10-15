@@ -1,3 +1,5 @@
+October15: [SEC transcript cover compatibility](sec-transcript-cover-compatibility-2026-10-15.md) locally verifies all31 covers/seven transcripts,445 Linux checks and exact consumer repeat. Exact release/ordinary recovery and broader FMP gates remain.
+
 October15: [Unilever transcript discovery](unilever-transcript-discovery-2026-10-15.md) locally passes434 selected checks and complete public-original consumer replay. Exact release/ordinary collection, broad transcript publication and all FMP retirement gates remain.
 
 October15: [Scheduled digest repair](digest-source-integrity-2026-10-15.md) locally verifies preference enforcement and distinct content identity,215 distinct Windows/56 Linux checks. Release/runtime and all scheduled/full migration gates remain.

@@ -1,3 +1,9 @@
+## October 15, 2026: SEC transcript cover compatibility
+
+**2026-10-15 SEC cover compatibility repair:** [Evidence](docs/sec-transcript-cover-compatibility-2026-10-15.md). All31 captured covers/seven complete transcripts now pass isolated collector/reader/research replay on Windows/Linux;39 bounded requests, six reader queries, one document/zero events and exact database repeat.445 Linux tests pass, including legacy immutable receipts and explicit cover-date evidence. Local/unreleased; ordinary recovery and broad FMP gates remain. Previous status-only turn was no progress; this source/code/consumer evidence advances the active migration.
+
+No new product decision. Application files: issuer_sec_discovery, issuer_discovery, issuer_transcripts and regression tests. Corrected complete-source compatibility without weakening provenance, source freshness or duplication guards. Exact release and scheduled recovery are next. Pending production-payload approvals untouched.
+
 ## October 15, 2026: Unilever transcript preparation
 
 **2026-10-15 Unilever transcript preparation:** [Evidence](docs/unilever-transcript-discovery-2026-10-15.md). Official current index plus three complete public PDFs verified; bounded rollover collector and current-index hold added locally.434 Linux checks and full current-source collector/research/database repeat pass on Windows/Linux;44-45-page originals required a reviewed60-page ceiling, with byte/decoded guards unchanged. Exact release/runtime and ordinary collection pending. Prior percentage-only turn was no progress; current source, implementation and consumer evidence advances the active migration. All broader FMP gates remain; no selector/subscription/schedule/host change.

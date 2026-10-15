@@ -321,3 +321,166 @@ def test_daily_directory_refresh_reuses_immutable_sec_originals(db, monkeypatch)
     assert client.calls == [policy.INDEX_URL, COVER, TRANSCRIPT, policy.INDEX_URL]
     assert before == [(r.id, r.content_hash, r.fetched_at) for r in db.scalars(select(DirectFeedRevision))]
     assert issuer.prepared_transcript(db, 'MGA', observed_by=later)['status'] == 'prepared'
+
+
+
+def split_cover(day='July 31, 2026', links=''):
+    return ('<html><p>Form 6-K</p><p>Commission File Number: 001-11444</p>'
+            '<p>MAGNA INTERNATIONAL INC.</p><p>Date: '+day+'</p>'+links+'</html>').encode()
+
+
+@pytest.mark.parametrize('day',['July 31, 2026','July 30, 2026'])
+def test_non_transcript_cover_preserves_signing_vs_filing_clock(day):
+    metadata=policy.parse_index(index(),company(),NOW)[0]
+    assert policy.parse_event(split_cover(day),metadata,NOW)==[]
+
+
+@pytest.mark.parametrize('mutation',['issuer','commission','form','missing_date','duplicate_date','future_signature','future_filing'])
+def test_non_transcript_cover_still_requires_verified_identity(mutation):
+    raw=split_cover();metadata=policy.parse_index(index(),company(),NOW)[0]
+    if mutation=='issuer':raw=raw.replace(b'MAGNA',b'OTHER')
+    if mutation=='commission':raw=raw.replace(b'001-11444',b'001-99999')
+    if mutation=='form':raw=raw.replace(b'Form 6-K',b'Form 10-Q')
+    if mutation=='missing_date':raw=raw.replace(b'Date:',b'Unknown:')
+    if mutation=='duplicate_date':raw=raw.replace(b'</html>',b'<p>Date: July 31, 2026</p></html>')
+    if mutation=='future_signature':raw=split_cover('August 1, 2026')
+    if mutation=='future_filing':metadata['filing_date']='2026-10-15'
+    with pytest.raises(DirectSourceError):policy.parse_event(raw,metadata,NOW)
+
+
+def annual_cover(year=2025,outlook=2026,day='February 13, 2026'):
+    return cover(label=f'Q4 & Full Year {year} Results and {outlook} Outlook Webcast transcript ({day})',
+                 href='tm2618646d2_ex99-2.htm',day=day)
+
+
+def annual_metadata():
+    return policy.parse_event(annual_cover(),policy.parse_index(index().replace(b'2026-07-31',b'2026-02-13'),company(),NOW)[0],NOW)[0]
+
+
+def annual_text(*,dated=False,closing=True,qa=True):
+    title='Magna International Q4 & FY 2025 and 2026 OUTLOOK RESULTS WEBCAST TRANSCRIPT'
+    heading=('TRANSCRIPT 02 - 13 - 2026 ' if dated else '')+title
+    return ('<html><p>Exhibit 99.2 '+heading+'</p> <p>DISCLAIMER: This transcript is derived from a recording of the webcast. '
+            'The transcription may still contain inaccuracies, errors, or omissions.</p>'
+            '<p>Financial results earnings discussion. '+'Synthetic material. '*80+'</p>'
+            +('<p>QUESTIONS: Operator^ Our first question comes from an analyst. '+ 'Synthetic answer. '*30+'</p>' if qa else '')
+            +("<p>Operator^ This concludes today's conference call. Thank you.</p>" if closing else '')+'</html>').encode()
+
+
+def test_annual_fiscal_year_is_not_outlook_or_publication_year():
+    m=annual_metadata()
+    assert m['fiscal_year']==2025 and m['fiscal_quarter']==4 and m['published_at']=='2026-02-13'
+    assert m['event_date']=='2026-02-13' and m['exhibit_number']=='99.2'
+    # A filing in January-February of the prior calendar year can cover Q4
+    # two years before observation, while remaining inside the reviewed index.
+    parent=policy.parse_index(index().replace(b'2026-07-31',b'2025-02-14'),company(),NOW)[0]
+    old=policy.parse_event(annual_cover(2024,2025,'February 14, 2025'),parent,NOW)[0]
+    assert old['fiscal_year']==2024 and old['published_at']=='2025-02-14'
+    with pytest.raises(DirectSourceError):policy.parse_event(annual_cover(2025,2027),m['parent_event'],NOW)
+
+
+def test_cover_only_call_date_is_explicit_and_reparsed():
+    m=annual_metadata();resolved,text,parsed=policy.parse_candidate(annual_text(),m,NOW)
+    assert resolved['transcript_date_source']=='sec_cover' and parsed['has_qa']
+    assert resolved['published_at']=='2026-02-13' and '02 - 13 - 2026' not in text
+    assert policy.parse_candidate(annual_text(),resolved,NOW)==(resolved,text,parsed)
+    dated,_,_=policy.parse_candidate(annual_text(dated=True),m,NOW)
+    assert 'transcript_date_source' not in dated
+    with pytest.raises(DirectSourceError):policy.parse_candidate(annual_text(dated=True),resolved,NOW)
+
+
+@pytest.mark.parametrize('mutation',['company','period','outlook','wrong_date','ending','qa','unknown_basis'])
+def test_cover_date_cannot_bypass_independent_transcript_checks(mutation):
+    m=annual_metadata();raw=annual_text()
+    if mutation=='company':raw=raw.replace(b'Magna International',b'Other company')
+    if mutation=='period':raw=raw.replace(b'FY 2025',b'FY 2024')
+    if mutation=='outlook':raw=raw.replace(b'2026 OUTLOOK',b'2027 OUTLOOK')
+    if mutation=='wrong_date':raw=annual_text(dated=True).replace(b'02 - 13',b'02 - 14')
+    if mutation=='ending':raw=annual_text(closing=False)
+    if mutation=='qa':raw=annual_text(qa=False)
+    if mutation=='unknown_basis':m['transcript_date_source']='trusted'
+    with pytest.raises(DirectSourceError):policy.parse_candidate(raw,m,NOW)
+
+
+def test_complete_cover_date_chain_and_no_duplicate_publication(db):
+    client=Client(db);client.pages[policy.INDEX_URL]=index().replace(b'2026-07-31',b'2026-02-13')
+    client.pages[COVER]=annual_cover();url=annual_metadata()['url'];client.pages[url]=annual_text()
+    for _ in range(2):assert not discovery.collect_discovery(db,client,[company()],limit=2,recheck_hours=24)['errors']
+    source=issuer.prepared_transcript(db,'MGA',observed_by=NOW)
+    assert source['status']=='prepared' and source['transcript_date_source']=='sec_cover'
+    assert source['year']==2025 and source['published_date']=='2026-02-13'
+    sec=Security(symbol='MGA',name='Synthetic',asset_class='stock');db.add(sec);db.commit()
+    assert issuer.prepare_research_document(db,security_id=sec.id,publish_since=date(2026,1,1))['created'];db.commit()
+    before={t.name:[dict(r._mapping) for r in db.execute(select(t))] for t in Base.metadata.sorted_tables}
+    assert not issuer.prepare_research_document(db,security_id=sec.id,publish_since=date(2026,1,1))['created'];db.commit()
+    assert before=={t.name:[dict(r._mapping) for r in db.execute(select(t))] for t in Base.metadata.sorted_tables}
+    assert db.scalar(select(func.count()).select_from(ResearchEvidenceEvent))==0
+
+
+def test_pending_legacy_heading_adopts_reviewed_policy_without_new_identity(db):
+    client=Client(db);client.pages[policy.INDEX_URL]=index().replace(b'2026-07-31',b'2026-05-01')
+    client.pages[COVER]=cover(label='Q1 2026 Results Webcast Transcript (May 1, 2026)',day='May 1, 2026')
+    client.pages[TRANSCRIPT]=('<html><p>Exhibit 99.3 Magna International Inc. Q1 2026 RESULTS WEBCAST TRANSCRIPT</p>'
+        '<p>DISCLAIMER: This transcript is derived from a recording of the webcast. '
+        'The transcription may still contain inaccuracies, errors, or omissions.</p>'
+        '<p>Earnings financial results. '+'Synthetic remarks. '*80+'</p>'
+        "<p>Now operator, let's open it up for questions. Operator^ Your first question comes from Analyst. "+'Synthetic answer. '*30+"</p> <p>Operator^ This concludes today's call.</p></html>").encode()
+    client.pages[TRANSCRIPT]=client.pages[TRANSCRIPT].replace(b'</p>',b'</p> ')
+    assert discovery.collect_discovery(db,client,[company()],limit=2,recheck_hours=24)['processed']==2
+    row=db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed=='issuer_earnings'))
+    original_id=row.id;m=json.loads(row.metadata_json)
+    m.update(period_pattern=policy.period_pattern(2026,1,legacy=True),qa_pattern=policy.qa_pattern(1,legacy=True))
+    row.metadata_json=store.dumps(m);db.commit()
+    assert discovery.verified_metadata(db,company(),m)==m
+    result=discovery.collect_discovery(db,client,[company()],limit=2,recheck_hours=24)
+    assert not result['errors'] and result['processed']==1
+    db.refresh(row);assert row.id==original_id
+    prepared=issuer.prepared_transcript(db,'MGA',observed_by=NOW)
+    assert prepared['status']=='prepared' and prepared['quarter']==1 and prepared['transcript_date_source']=='sec_cover'
+
+
+def test_signing_date_between_call_and_filing_does_not_backdate_source():
+    parent=policy.parse_index(index().replace(b'2026-07-31',b'2026-08-03'),company(),NOW)[0]
+    m=policy.parse_event(cover(day='August 1, 2026'),parent,NOW)[0]
+    assert m['published_at']=='2026-08-03' and m['event_date']=='2026-07-31'
+    policy.parse_candidate(transcript(),m,NOW)
+
+
+@pytest.mark.parametrize('field', ['url','key','published_at','event_date','fiscal_year','source_page_sha256','parent_event','unknown'])
+def test_compatibility_never_allows_source_or_clock_changes(field):
+    expected=annual_metadata();actual=deepcopy(expected)
+    actual['transcript_date_source']='sec_cover'
+    assert policy.compatible_metadata(expected,actual)
+    assert not policy.compatible_metadata(expected,actual,allow_date_source=False)
+    actual[field]='changed'
+    assert not policy.compatible_metadata(expected,actual)
+
+
+def test_existing_legacy_cover_and_transcript_receipts_stay_immutable(db):
+    client=Client(db)
+    client.pages[policy.INDEX_URL]=index().replace(b'2026-07-31',b'2026-05-01')
+    client.pages[COVER]=cover(label='Q1 2026 Results Webcast Transcript (May 1, 2026)',day='May 1, 2026')
+    client.pages[TRANSCRIPT]=transcript().replace(b'SECOND QUARTER',b'FIRST QUARTER').replace(b'26JUL31',b'26MAY01')
+    for _ in range(2):assert not discovery.collect_discovery(db,client,[company()],limit=2,recheck_hours=24)['errors']
+    row=db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed=='issuer_earnings'))
+    old=json.loads(row.metadata_json)
+    old.update(period_pattern=policy.period_pattern(2026,1,legacy=True),qa_pattern=policy.qa_pattern(1,legacy=True))
+    resolved,text,parsed=policy.parse_candidate(client.pages[TRANSCRIPT],old,NOW)
+    assert resolved==old
+    row.metadata_json=store.dumps(old);row.parsed_json=store.dumps(parsed)
+    rev=db.scalar(select(DirectFeedRevision).where(DirectFeedRevision.document_id==row.id))
+    rev.parsed_json=store.dumps(parsed)
+    cover_row=db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed==discovery.EVENT_FEED))
+    cover_rev=db.scalar(select(DirectFeedRevision).where(DirectFeedRevision.document_id==cover_row.id))
+    cover_row.parsed_json=cover_rev.parsed_json=store.dumps({'candidates':[old]})
+    db.commit()
+    before={t.name:[dict(r._mapping) for r in db.execute(select(t))] for t in Base.metadata.sorted_tables}
+    assert discovery.verified_metadata(db,company(),old)==old
+    source=issuer.prepared_transcript(db,'MGA',observed_by=NOW)
+    assert source['status']=='prepared' and source['content']==text and source['quarter']==1
+    assert not discovery.collect_discovery(db,client,[company()],limit=2,recheck_hours=24)['attempted']
+    assert before=={t.name:[dict(r._mapping) for r in db.execute(select(t))] for t in Base.metadata.sorted_tables}
+    forged=deepcopy(old);forged['transcript_date_source']='sec_cover'
+    cover_row.parsed_json=store.dumps({'candidates':[forged]});db.commit()
+    with pytest.raises(DirectSourceError,match='cover parse changed'):
+        issuer.prepared_transcript(db,'MGA',observed_by=NOW)
