@@ -211,7 +211,7 @@ def test_main_collector_cannot_add_static_fetches_after_discovery_budget(db,monk
     monkeypatch.setenv('ISSUER_TRANSCRIPT_DISCOVERY_ENABLED','1')
     client=Client(db)
     result=collect_direct_feeds(db,client,sources=['issuer_earnings'],start=NOW.date(),end=NOW.date(),issuer_registry=[company('META'),company('SOFI')],limit=2)
-    assert len(client.calls)==2 and result['issuer_discovery']['attempted']==2 and result['public_writes']==0
+    assert len(client.calls)==2 and result['issuer_discovery']['attempted']==1 and result['issuer_discovery']['reserved_static_requests']==1 and result['public_writes']==0
 
 
 @pytest.mark.parametrize('intro',['Our first question','Your first question','First question today','And our first question today'])

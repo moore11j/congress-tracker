@@ -1,3 +1,9 @@
+## October15,2026: Issuer collection fairness
+
+**2026-10-15 issuer collection fairness:** [Evidence](docs/issuer-collection-fairness-2026-10-15.md). Local repair reserves a due reviewed-page slot and prioritizes aging indexes within the unchanged two-request allowance.509 Linux checks and seven-day complete-source comparison pass: static first attempts44-48 to0-8hours, index maximum38 to36hours, identical85documents/84revisions and source fingerprint. Exact release/runtime/ordinary recovery pending. Full FMP gates remain; previous status-only turn no progress, current turn concrete progress.
+
+No new product scope or source activation. Next exact release, installed verification and ordinary collection; broader cutover gates remain.
+
 ## October15,2026: Financial version rotation repair
 
 **2026-10-15 financial version rotation repair:** [Evidence](docs/financial-version-rotation-2026-10-15.md). Ordinary batches rotate ten old routine scopes ahead ofUL despite its obsolete adapter version. Added one bounded ordinary slot for waiting version updates, preserving active priorities, size/deadlines/locks/backoff.66 Linux tests and isolated12-scope10/2/0 scheduler replay pass; release pending. Captured Vale interim amendment/original/annual/prior public sources, integration unverified. Previous goal turn and this turn concrete progress; goalactive, full FMP gates remain.
@@ -1053,3 +1059,8 @@ Continued FMP replacement by confirming an optional NVIDIA cash-flow transport f
 ### October15: Unilever historical original retained for source reliability
 
 **2026-10-15 Unilever historical-source reliability:** Locally retain the exact reviewed March12 issuer PDF with original capture time/hash, rejecting missing/tampered/pre-capture use. Fresh SEC directory/current reports and new/amended-filing holds remain.193 Linux checks plus full-original Windows/Linux consumer repeat verify unchanged seven ratios/no false or duplicate alerts/20 controls. See docs/ul-historical-original-2026-10-15.md. Exact release/runtime/ordinary recovery pending; public coreFMP and all broader migration gates remain. Prior Vale deployment and this repair are concrete progress; goalactive. Original data/source dates remain unchanged, no denied-origin retries or forced preparation. No source/spending/schedule/host/email change. Next exact release and ordinary recovery, then broader cutover gates.
+
+
+### October15,21:46UTC: Unilever deployed and ordinary recovery verified
+
+**2026-10-15,21:46UTC: Unilever ordinary recovery verified:** PR688/fbb0220f deployed;193 Linux checks, five runtime source hashes and complete packaged PDF identity/extraction pass. Normal financial batch restores seven exact-source UL ratios with original historical capture clock retained and zero canonical writes. See docs/ul-historical-original-2026-10-15.md. One actual cycle, not future-rollover/sustained-capacity proof. Public coreFMP; all broader coverage/institutional/transcript/consumer/paid-provider/zeroFMP/billing gates remain. Previous Vale release and current UL recovery are concrete progress; goalactive. Pending private exports untouched; unrelated tsbuild changes preserved. Exact merge/PDF parity, guarded deployment and public response checks pass. No production financial/customer payload exported and no forced collection. Next remaining broader source/consumer/reliability verification before paid providers and FMP retirement.

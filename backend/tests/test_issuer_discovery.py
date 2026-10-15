@@ -136,7 +136,8 @@ def test_index_and_document_collection_share_the_existing_two_request_limit(setu
     client = Client(setup)
     result = collect_direct_feeds(setup, client, sources=['issuer_earnings'], start=date(2026,10,10),
         end=date(2026,10,10), issuer_registry=[company()], limit=2, recheck_hours=24)
-    assert len(client.calls) == result['issuer_discovery']['attempted'] == 2
+    assert len(client.calls) == 2
+    assert result['issuer_discovery']['attempted'] == result['issuer_discovery']['reserved_static_requests'] == 1
     assert result['public_writes'] == 0
     assert issuer.prepared_transcript(setup, 'RDDT')['reason'] == 'reviewed_period_not_prepared'
 

@@ -55,16 +55,23 @@ def no_network(monkeypatch):
 def db(monkeypatch):
     monkeypatch.setattr(discovery, 'utcnow', lambda: NOW)
     monkeypatch.setattr(store, 'utcnow', lambda: NOW)
-    monkeypatch.setattr(DirectFeedRevision.__table__.c.fetched_at.default, 'arg', lambda ctx: store.utcnow())
+    # SQLAlchemy can retain an already compiled insert default across tests.
+    # Assign the source observation explicitly for this isolated clock instead.
+    def revision_clock(mapper, connection, target):
+        target.fetched_at = store.utcnow()
+    sql_event.listen(DirectFeedRevision, 'before_insert', revision_clock)
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None): return store.utcnow()
     monkeypatch.setattr(issuer, 'datetime', Clock)
     engine = create_engine('sqlite:///:memory:')
     Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        yield session
-    engine.dispose()
+    try:
+        with Session(engine) as session:
+            yield session
+    finally:
+        sql_event.remove(DirectFeedRevision, 'before_insert', revision_clock)
+        engine.dispose()
 
 
 class Client:
@@ -484,3 +491,19 @@ def test_existing_legacy_cover_and_transcript_receipts_stay_immutable(db):
     cover_row.parsed_json=store.dumps({'candidates':[forged]});db.commit()
     with pytest.raises(DirectSourceError,match='cover parse changed'):
         issuer.prepared_transcript(db,'MGA',observed_by=NOW)
+
+
+@pytest.mark.parametrize('age,recheck,expected_index', [(None,24,True),(12,24,False),(35,24,False),(36,24,True),(40,72,False)])
+def test_index_priority_preserves_freshness_and_recheck_bound(db,age,recheck,expected_index):
+    client=Client(db)
+    metadata=policy.parse_index(client.pages[policy.INDEX_URL],company(),NOW)[0]
+    # An older pending cover is inserted first, as in an existing backlog.
+    store.discover(db,discovery.EVENT_FEED,metadata)
+    row=store.discover(db,discovery.INDEX_FEED,discovery.index_metadata(company(),None))
+    candidates=policy.parse_index(client.pages[policy.INDEX_URL],company(),NOW)
+    store.record_document(db,row,client.pages[policy.INDEX_URL],client.pages[policy.INDEX_URL].decode(),{'candidates':candidates})
+    row.checked_at=None if age is None else NOW-timedelta(hours=age)
+    db.commit()
+    result=discovery.collect_discovery(db,client,[company()],limit=1,recheck_hours=recheck)
+    assert result['attempted']==result['processed']==1 and not result['errors']
+    assert client.calls==[policy.INDEX_URL if expected_index else COVER]

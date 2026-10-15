@@ -177,7 +177,7 @@ def test_full_collector_never_adds_static_fetches_past_shared_budget(db,monkeypa
     monkeypatch.setenv('ISSUER_TRANSCRIPT_DISCOVERY_ENABLED','1')
     client=Client(db)
     result=collect_direct_feeds(db,client,sources=['issuer_earnings'],start=NOW.date(),end=NOW.date(),issuer_registry=[company()],limit=2)
-    assert len(client.calls)==2 and result['issuer_discovery']['attempted']==2
+    assert len(client.calls)==2 and result['issuer_discovery']['attempted']==1 and result['issuer_discovery']['reserved_static_requests']==1
     assert result['public_writes']==0
 
 

@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 
 from app.clients.direct_sources import DirectSourceError, parse_issuer_material
 from app.services.direct_feed_store import (
@@ -321,7 +321,14 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
         rows = list(db.scalars(select(DirectFeedDocument).where(
             DirectFeedDocument.feed.in_([INDEX_FEED, EVENT_FEED, 'issuer_earnings']),
             (DirectFeedDocument.checked_at.is_(None)) | (DirectFeedDocument.checked_at <= now-timedelta(hours=max(24,recheck_hours)))
-        ).order_by(DirectFeedDocument.checked_at.asc().nullsfirst(), DirectFeedDocument.id.asc())))
+        ).order_by(
+            # New indexes establish coverage; aging indexes must detect new
+            # reports before the 48-hour reader hold. Keep a 12-hour margin
+            # while preserving eligibility, daily retry and request bounds.
+            case(((DirectFeedDocument.feed == INDEX_FEED) & (
+                DirectFeedDocument.checked_at.is_(None) |
+                (DirectFeedDocument.checked_at <= now-timedelta(hours=36))), 0), else_=1),
+            DirectFeedDocument.checked_at.asc().nullsfirst(), DirectFeedDocument.id.asc())))
         eligible = [(row, json.loads(row.metadata_json)) for row in rows]
         eligible = [(r,m) for r,m in eligible if m.get('symbol') in companies
                     and m.get('discovery_kind') == companies[m['symbol']]['discovery']['kind']
