@@ -141,6 +141,7 @@
   },
   {
     "symbol": "MRNA",
+    "discovery": {"kind": "moderna_events_v1"},
     "company_website": "https://www.modernatx.com/",
     "investor_website": "https://investors.modernatx.com/",
     "verification": "Original transcript and official linking page reviewed October10,2026. Attribution preserved; selected-company preparation only.",
