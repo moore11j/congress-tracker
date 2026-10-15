@@ -255,3 +255,37 @@ def test_reviewed_legacy_numeric_and_report_date_transforms(value):
 def test_legacy_numeric_transform_rejects_unreviewed_formats(value):
     raw=document(primary=fact(value,attrs='format="ixt:numdotdecimal"')).replace(b'transformation/2020-02-12',b'transformation/2015-02-26')
     with pytest.raises(inline.InlineFactsError): parse(raw)
+
+
+@pytest.mark.parametrize('tag', ['AssetsCurrent', 'NetIncomeLoss'])
+def test_partial_companyfacts_update_does_not_hide_missing_revenue_history(tag):
+    data, company = lagging()
+    # These are current facts from another line, not proof that revenue arrived.
+    current, _ = sources()
+    row = next(r for r in current['facts']['us-gaap'][tag]['units']['USD'] if r['end'] == '2026-06-30')
+    data['facts']['us-gaap'][tag]['units']['USD'].append(row)
+    source = Source()
+    supplement = acquire(data, company, source)
+    assert supplement['evidence']['accession'] == ACC
+    assert source.reads == [URL]
+
+
+def test_complete_revenue_history_keeps_no_request_path_with_partial_other_metrics():
+    data, company = lagging()
+    current, _ = sources()
+    tag = 'RevenueFromContractWithCustomerExcludingAssessedTax'
+    data['facts']['us-gaap'][tag] = current['facts']['us-gaap'][tag]
+    source = Source()
+    assert acquire(data, company, source) is None
+    assert source.reads == []
+
+
+def test_partial_recovery_does_not_fetch_older_report_or_same_day_filing():
+    data, company = lagging()
+    point = sources()[0]['facts']['us-gaap']['AssetsCurrent']['units']['USD'][-1]
+    data['facts']['us-gaap']['AssetsCurrent']['units']['USD'].append(point)
+    source = Source()
+    assert acquire(data, company, source, now=NOW.replace(month=8, day=1)) is None
+    company['filings']['recent']['reportDate'] = ['2026-03-31']
+    assert acquire(data, company, source) is None
+    assert source.reads == []

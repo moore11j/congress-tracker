@@ -544,3 +544,9 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 October15: [Net-debt policy](sec-net-debt-policy-2026-10-15.md) implemented locally with346 selected checks and26-source exact-repeat evidence. Release/runtime/ordinary preparation pending; coreFMP and all broader cutover gates remain.
+
+
+October15,05:48UTC: [Net-debt policy](sec-net-debt-policy-2026-10-15.md#deployed-release-and-live-verification) PR667 deployed8d3b04ed;346 checks,26-original repeat,nine runtime hashes and three complete live source-cache proofs verify. Only3 prepared ratios versus1360 legacy; ordinary propagation, broad coverage and all wider FMP cutover gates remain.
+
+
+October15: [Partial companyfacts recovery](sec-partial-companyfacts-recovery-2026-10-15.md) local/unreleased,367 checks and two complete source/cache replays pass. Ordinary net-debt policy propagation verified33 scopes/four completed batches. Full coverage and all wider FMP gates remain.
