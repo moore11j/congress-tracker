@@ -267,6 +267,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         from app.services.sec_asml_financials import project
         return project(facts_raw, company_raw, symbol=symbol, cik=cik,
                        observed_at=observed_at, supplement=filing_supplement)
+    if symbol == 'MGA':
+        from app.services.sec_mga_financials import project
+        return project(facts_raw, company_raw, symbol=symbol, cik=cik,
+                       observed_at=observed_at, supplement=filing_supplement)
     if symbol == 'TSM':
         from app.services.sec_tsm_financials import project
         return project(facts_raw, company_raw, symbol=symbol, cik=cik,
