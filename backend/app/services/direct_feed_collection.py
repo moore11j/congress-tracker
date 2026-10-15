@@ -220,6 +220,30 @@ def parse_document(feed, raw, metadata):
     raise DirectSourceError(f"Unsupported direct source: {feed}")
 
 
+def _issuer_static_keys(registry):
+    return [f"{company['symbol']}:{item['document_type']}:{item['fiscal_year']}:Q{item['fiscal_quarter']}"
+            for company in registry for item in company.get("documents", [])]
+
+
+def _issuer_static_due(db, registry, *, recheck_hours):
+    """Reserve existing reviewed coverage a turn even during discovery backlog."""
+    keys = _issuer_static_keys(registry)
+    if not keys:
+        return False
+    checked = dict(db.execute(select(DirectFeedDocument.source_key, DirectFeedDocument.checked_at).where(
+        DirectFeedDocument.feed == 'issuer_earnings', DirectFeedDocument.source_key.in_(keys))).all())
+    cutoff = utcnow() - timedelta(hours=max(24, recheck_hours))
+    for key in keys:
+        stamp = checked.get(key)
+        if stamp is None:
+            return True
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=cutoff.tzinfo)
+        if stamp <= cutoff:
+            return True
+    return False
+
+
 def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(), issuer_registry=(), senate_reports=(), senate_client=None, limit=25, recheck_hours=24, retry_failed=False, recover_senate_window=False):
     if not 1 <= limit <= 200 or not 1 <= recheck_hours <= 720 or end < start or (end - start).days > 93:
         raise ValueError("Invalid direct feed collection bounds")
@@ -236,7 +260,14 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
     discovery_receipt = {'attempted': 0, 'processed': 0, 'errors': []}
     if 'issuer_earnings' in sources and os.getenv('ISSUER_TRANSCRIPT_DISCOVERY_ENABLED', '0') == '1':
         from app.services.issuer_discovery import collect_discovery
-        discovery_receipt = collect_discovery(db, client, issuer_registry, limit=limit, recheck_hours=recheck_hours)
+        # Discovery and reviewed pages share the same request allowance. Keep
+        # one due reviewed page eligible while a large discovery queue drains;
+        # failure/cooldown still stops the remaining work and daily retry bounds
+        # remain unchanged. Unused discovery capacity is available below.
+        reserved = int(_issuer_static_due(db, issuer_registry, recheck_hours=recheck_hours))
+        discovery_receipt = collect_discovery(db, client, issuer_registry,
+            limit=limit-reserved, recheck_hours=recheck_hours)
+        discovery_receipt['reserved_static_requests'] = reserved
     discovered, errors = discover_sources(db, client, sources=sources, start=start, end=end, symbols=symbols,
                                           issuer_registry=issuer_registry, senate_reports=senate_reports, senate_client=senate_client, senate_window=senate_window)
     errors.extend(discovery_receipt['errors'])
@@ -263,8 +294,7 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
             feed_limit = 0 if discovery_receipt.get('stop_reason') else max(0, limit-discovery_receipt['attempted'])
             # The approved issuer bound includes failed pages and explicit retries.
             # Removed registry entries must not remain fetchable from old staging.
-            reviewed_keys = [f"{company['symbol']}:{item['document_type']}:{item['fiscal_year']}:Q{item['fiscal_quarter']}"
-                             for company in issuer_registry for item in company.get("documents", [])]
+            reviewed_keys = _issuer_static_keys(issuer_registry)
             scope = scope & DirectFeedDocument.source_key.in_(reviewed_keys)
             issuer_cutoff = utcnow() - timedelta(hours=max(24, recheck_hours))
             eligible = or_(DirectFeedDocument.checked_at.is_(None), DirectFeedDocument.checked_at <= issuer_cutoff)
