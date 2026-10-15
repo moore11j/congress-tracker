@@ -486,7 +486,10 @@ def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
                 permitted = int(reader.trailer['/Encrypt']['/P']) & int(UserAccessPermissions.EXTRACT)
                 if not reader.decrypt('') or not permitted:
                     raise DirectSourceError("Issuer PDF requires a password or prohibits extraction")
-            if not 1 <= len(reader.pages) <= 40:
+            # Reviewed Unilever originals contain 44-45 pages; byte and decoded
+            # limits still apply. Other issuer policies retain their existing cap.
+            max_pages = 60 if (metadata.get('symbol') == 'UL' and metadata.get('discovery_kind') == 'unilever_results_v1') else 40
+            if not 1 <= len(reader.pages) <= max_pages:
                 raise DirectSourceError("Issuer PDF exceeds page limit")
             pieces, stream_bytes, text_chars = [], 0, 0
             for page in reader.pages:

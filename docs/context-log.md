@@ -1,3 +1,9 @@
+## October 15, 2026: Unilever transcript preparation
+
+**2026-10-15 Unilever transcript preparation:** [Evidence](docs/unilever-transcript-discovery-2026-10-15.md). Official current index plus three complete public PDFs verified; bounded rollover collector and current-index hold added locally.434 Linux checks and full current-source collector/research/database repeat pass on Windows/Linux;44-45-page originals required a reviewed60-page ceiling, with byte/decoded guards unchanged. Exact release/runtime and ordinary collection pending. Prior percentage-only turn was no progress; current source, implementation and consumer evidence advances the active migration. All broader FMP gates remain; no selector/subscription/schedule/host change.
+
+Files: new Unilever policy and regression suite, shared discovery routing, reviewed registry and issuer-specific PDF allowance. Existing immutable provenance and bounded collection decisions preserved; no new product decision. Local implementation only in this checkpoint.
+
 ## October 15, 2026: Scheduled digest source integrity
 
 - **2026-10-15 scheduled digest integrity repair:** [Evidence](docs/digest-source-integrity-2026-10-15.md). Reproduced and repaired daily activity sections bypassing current subscription preferences, matrix-Off falling through to legacy chips, and distinct same-ticker news/press being collapsed. Actual prepared Finnhub publication through two watchlists/daily digest repeats with canonical identities intact.215 distinct Windows checks and56 final Linux checks pass; no network/mail in new fixtures. Local/unreleased, exact review/release/runtime and ordinary operation pending. Prior percentage-only turn was no progress; current reproduction/code/consumer checks advance the full migration. All broader gates remain; pending exports untouched.

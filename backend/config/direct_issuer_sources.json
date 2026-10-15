@@ -1,5 +1,15 @@
 [
   {
+    "symbol": "UL",
+    "discovery": {
+      "kind": "unilever_results_v1"
+    },
+    "company_website": "https://www.unilever.com/",
+    "investor_website": "https://www.unilever.com/investors/",
+    "verification": "Official latest-results page and complete Q2 2026, Q1 2026 and Q4 2025 PDFs reviewed October15,2026. Selected-company source preparation; publication separately gated.",
+    "documents": []
+  },
+  {
     "symbol": "MGA",
     "discovery": {"kind": "magna_sec_transcripts_v1", "cik": "0000749098"},
     "company_website": "https://www.magna.com/",
