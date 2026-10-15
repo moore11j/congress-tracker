@@ -53,7 +53,10 @@ def _project_new_form4(db, document, *, publish_since: date):
     if filing is not None:
         return held('Existing filing without complete canonical rows')
     # Legacy rows/events can exist without normalized records. Conservatively
-    # hold their same-symbol/date candidates instead of guessing that SEC is new.
+    # hold them; only complete SEC original/receipt evidence can distinguish a
+    # different reporting owner's transaction on the same ticker and date.
+    from app.services.sec_form4_candidate_evidence import OtherOwnerEvidence
+    other_owners = OtherOwnerEvidence(db)
     for row in rows:
         if db.scalar(select(InsiderTransactionNormalized.id).where(
                 InsiderTransactionNormalized.ticker_normalized == row['ticker_normalized'],
@@ -70,6 +73,8 @@ def _project_new_form4(db, document, *, publish_since: date):
             provider = payload.get('raw') or {}
             if (payload.get('accession_number') == metadata['key'] or
                     str(payload.get('transaction_date') or provider.get('transactionDate') or '')[:10] == str(row['transaction_date'])):
+                if other_owners.is_distinct(event, payload, row):
+                    continue
                 return held('Unmapped existing event requires reconciliation')
     filing_data = parsed['filing']
     with db.begin_nested():
