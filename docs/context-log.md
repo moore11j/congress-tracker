@@ -1,3 +1,7 @@
+## October15,22:32UTC: FMP shutdown repair released
+
+**2026-10-15,22:32UTC FMP shutdown repair deployed:** [PR690/24bce638](docs/fmp-shutdown-transport-2026-10-15.md) workflow38817525515 succeeds;76 affected Linux checks,three installed normalized hashes and exact direct/threaded/cache/budget proof pass. Previous-close global-off bypass was real despite older primary-only repair claim; now fixed in deployed source. Public Feed/Insights/AAPL/NVDA200/noRSCerrors0.248-0.797s are spot checks only. FMP staysenabled; full financial/institution/transcript/consumer/capacity/finalMassive/zero-FMP/billing gates remain. No source/schedule/host/purchase/customeremail/landing/video change. All handles terminal; prior source evidence/current deployed repair are progress, goalactive.
+
 ## October15: FMP shutdown transport repair
 
 **2026-10-15 FMP shutdown repair prepared:** [Evidence](docs/fmp-shutdown-transport-2026-10-15.md). Current209c22bb market previous-close helper bypasses global shutdown/budget guard despite historical primary-only repair claim. Eight offline red checks reproduced; four-line repair plus76 affected Linux3.12.3 passes and local installed-helper rehearsal verify. Exact release/runtime pending; FMP staysenabled, no selector/schedule/host/customeremail/purchase change. All source/financial/institution/transcript/consumer/capacity/finalMassive/zero-FMP/billing gates remain. Prior source evaluation and current concrete defect repair are progress; goalactive.

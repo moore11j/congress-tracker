@@ -605,3 +605,5 @@ October15: [Parent-equity reconciliation](sec-parent-equity-2026-10-15.md) local
 October15,22:19UTC: [Alternative source evaluation](alternative-source-evaluation-2026-10-15.md) records two actual OpenFilings public responses without numeric KPIs and EarningsCalls.dev provenance limitations. Neither is a selected replacement; sampled findings do not establish provider-wide absence. No new subscription or activation; full FMP retirement gates remain.
 
 October15: [FMP shutdown transport repair](fmp-shutdown-transport-2026-10-15.md) locally closes a verified market previous-close bypass,76 affected checks pass. Release/runtime pending; no source activation and full retirement gates remain.
+
+October15,22:32UTC: [Shutdown repair](fmp-shutdown-transport-2026-10-15.md#deployed-and-installed-runtime-verified-october15-2232utc) PR690/24bce638 deployed;76checks/three installed hashes and isolated off-switch/cache/budget proof pass. FMP remainsenabled; actual whole-product zero-egress and other source/consumer/Massive/billing gates remain.
