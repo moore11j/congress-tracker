@@ -1202,9 +1202,18 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     from app.services import sec_financial_statements
     if sec_financial_statements.selected():
         try:
-            return sec_financial_statements.prepared(normalized_symbol)
+            payload = sec_financial_statements.prepared(normalized_symbol)
         except Exception:
             return _unavailable(normalized_symbol, message='SEC financial coverage is temporarily unavailable.', reason='sec_source_unavailable')
+        from app.services import finnhub_paid_readers
+        if finnhub_paid_readers.enabled():
+            try:
+                with SessionLocal() as db:
+                    return finnhub_paid_readers.attach_financials(db, normalized_symbol, payload)
+            except Exception:
+                # An optional forecast cache must not erase valid SEC statements.
+                return payload
+        return payload
     active_panel_request = _is_active_ticker_financials_panel_request()
     cache_key = f"financials:{normalized_symbol}"
     cached = _cache_get(cache_key)

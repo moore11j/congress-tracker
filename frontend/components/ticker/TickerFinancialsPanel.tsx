@@ -141,7 +141,7 @@ function seriesWithForecast(points: TickerFinancialsPoint[], metric: ChartMetric
   const comparableIndex = actual.length - lag;
   const prior = comparableIndex >= 0 ? actual[comparableIndex]?.value : actual[actual.length - 1]?.value;
   const yoyGrowth =
-    isFiniteNumber(forecastValue) && isFiniteNumber(prior) && prior !== 0 ? ((forecastValue - prior) / Math.abs(prior)) * 100 : null;
+    forecast?.source !== "finnhub" && isFiniteNumber(forecastValue) && isFiniteNumber(prior) && prior !== 0 ? ((forecastValue - prior) / Math.abs(prior)) * 100 : null;
   return [...actual, { ...forecastPoint, value: forecastValue, yoyGrowth, isForecast: true }];
 }
 
@@ -729,6 +729,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
     <div className="space-y-4">
       {data.revenueBasis && <p className="text-sm text-slate-400">Revenue basis: {data.revenueBasis}.</p>}
       {data.reportingBasis && <p className="text-sm text-slate-400">{data.reportingBasis}</p>}
+      {data.forecastBasis && <p className="text-sm text-slate-400">{data.forecastBasis}</p>}
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
         <SummaryTile label="Revenue TTM" value={formatCompactCurrency(summary?.revenueTtm, currency)} />
         <SummaryTile label="Net Income TTM" value={formatCompactCurrency(summary?.netIncomeTtm, currency)} tone={isFiniteNumber(summary?.netIncomeTtm) && summary.netIncomeTtm < 0 ? "neg" : "pos"} />

@@ -4273,6 +4273,8 @@ export type TickerEarningsPoint = {
 };
 
 export type TickerFinancialForecast = {
+  source?: string | null;
+  estimateBasis?: string | null;
   period?: string | null;
   date?: string | null;
   revenueEstimate?: number | null;
@@ -4375,6 +4377,9 @@ export type TickerAnalystConsensusAccess = {
 };
 
 export type TickerAnalystConsensusSnapshot = {
+  targetSourceUpdatedAt?: string | null;
+  targetObservedAt?: string | null;
+  targetHorizon?: string | null;
   source?: string | null;
   symbol?: string | null;
   snapshotDate?: string | null;
@@ -4604,6 +4609,7 @@ export type TickerFinancialsResponse = {
   quarterly: TickerFinancialsPoint[];
   earnings: TickerEarningsPoint[];
   forecasts?: TickerFinancialForecasts | null;
+  forecastBasis?: string | null;
   valuation_metrics?: TickerValuationMetrics | null;
   health?: Record<string, unknown>;
   section_statuses?: {

@@ -1,6 +1,6 @@
 """Staged Finnhub estimates/targets, never canonical financials or analyst events.
 
-One explicitly enabled scope per call. Public readers cannot select these caches.
+One explicitly enabled scope per call. Separate readers require reviewed basis evidence.
 Currency, accounting basis and share basis require live source review before use.
 Schemas: Finnhub-Stock-API/finnhub-go@8071bcd46ca5101adcef7a844c96b81a3eceb76e.
 """
@@ -193,12 +193,15 @@ def prepare(db, symbol, kind, *, frequency=None, observed_at=None):
         if timedelta(0) <= now - fetched < TTL:
             try:
                 saved = json.loads(row.payload_json)
-                old = normalize(saved['raw'], symbol, kind, frequency=frequency, observed_at=fetched)
+                original_symbol = saved['normalized']['symbol']
+                if scope(original_symbol, kind, frequency)[1] != provider_symbol:
+                    raise ValueError('invalid_saved_identity')
+                old = normalize(saved['raw'], original_symbol, kind, frequency=frequency, observed_at=fetched)
                 if old != saved['normalized']:
                     raise ValueError('invalid_saved_projection')
                 # Re-evaluate period and target age at read time. The observation
                 # time remains when data was obtained, not when the cache was read.
-                current = normalize(saved['raw'], symbol, kind, frequency=frequency, observed_at=now)
+                current = normalize(saved['raw'], original_symbol, kind, frequency=frequency, observed_at=now)
                 return {'status': 'cached', 'scope': key, 'sourceStatus': current['status'],
                         'publicationEligible': False}
             except (KeyError, ValueError, TypeError, transport.FinnhubUnavailable):

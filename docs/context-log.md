@@ -1,3 +1,9 @@
+## October 15, 2026: Finnhub source-to-consumer readers
+
+- **2026-10-15 Finnhub consumer integration:** [Reader report](docs/finnhub-paid-readers-2026-10-15.md). Cache-only annual/quarterly forecast and Premium target projections now connect ticker/research/comparison consumers locally. Explicit reviewed-basis gate is empty/default-off; source clocks, fiscal identity, raw hashes, Free access and canonical isolation preserved.215 distinct Linux checks pass across runs, one legacy forward-P/E failure independently reproduces on main; nine frontend checks pass. Final type-check/review/release/runtime and live paid basis/coverage/schedules remain. Previous percentage-only turn was no progress; current implementation and consumer evidence are concrete progress. All broader FMP gates and pending export approvals remain; no source/spend/schedule/host/email change.
+
+No new product decision. Files: new reader/test suite; staging alias reuse; ticker, analyst and research integration; frontend types/labels/render tests. Local implementation only; exact release and live coverage remain. Original full migration objective stays active.
+
 ## October 15, 2026: CNQ free statements and comparative-amendment repair
 
 - **2026-10-15 CNQ and comparative amendment preparation:** [Evidence](docs/cnq-interim-financials-2026-10-15.md). Four CAD ratios from complete SEC originals;33 fixture/original and13 annual/companyfacts matches, exact cache/alert repeat and20 unchanged controls pass. Only two scored inputs, so classification remains unavailable. Actual interest breakdown captured but cash/lease/EBITDA definitions remain open. SAP/MGA earlier-comparative amendment guards repaired with selective versions. Final348 Linux checks and all three full-original companion consumer replays pass. Local/unreleased; no public selection/spend, pending exports unrun. Previous SAP release and current source/code/tests are progress; goal active.
