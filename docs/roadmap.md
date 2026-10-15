@@ -1,4 +1,4 @@
-October15: [Microsoft transcript rollover](microsoft-transcript-rollover-2026-10-15.md) implemented locally, original-source full-text and repeat parity pass. Exact release/runtime and ordinary discovery remain pending; six other issuer rollovers and all broader FMP cutover gates remain.
+October15: [Microsoft transcript rollover](microsoft-transcript-rollover-2026-10-15.md) PR661 deployed4432fe8a;278 checks, actual-original full-text/repeat parity and seven runtime hashes/synthetic rollover verify. Ordinary discovery, six remaining issuer rollover policies and full FMP cutover gates remain.
 
 October15: [Sector ETF replacement](sector-etf-replacement-2026-10-15.md) implemented locally with explicit completed-session price-return basis, eleven-sector coverage, bounded preparation and isolated rollback cache. Off by default; final sector acquisition explicitly uses Massive only. Legacy canonical-price helpers still prefer FMP and require separate final-price repair. Exact release/runtime and live price coverage/capacity remain. Broader67pass/4baseline failures independently confirmed. All FMP cutover gates remain.
 
