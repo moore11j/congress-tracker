@@ -17,6 +17,7 @@ MSFT_KIND = 'microsoft_events_v1'
 MRNA_KIND = 'moderna_events_v1'
 IBM_KIND = 'ibm_events_v1'
 SEC_KIND = 'magna_sec_transcripts_v1'
+UL_KIND = 'unilever_results_v1'
 EVENT_FEED = 'issuer_earnings_event'
 PDF_KINDS = {'META': 'meta_q4_pdf_v1', 'SOFI': 'sofi_q4_pdf_v1'}
 INDEX_FEED = 'issuer_earnings_index'
@@ -51,10 +52,15 @@ def format_policy(year, quarter, policy):
 
 def enabled_company(company):
     return (company.get('symbol'), company.get('discovery', {}).get('kind')) in {
-        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), ('MGA', SEC_KIND), *PDF_KINDS.items()}
+        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), ('MGA', SEC_KIND), ('UL', UL_KIND), *PDF_KINDS.items()}
 
 
 def index_url(company, year):
+    if enabled_company(company) and company['symbol'] == 'UL':
+        from app.services.issuer_unilever_discovery import INDEX_URL
+        if year is not None:
+            raise DirectSourceError('Unilever index does not use calendar years')
+        return INDEX_URL
     if enabled_company(company) and company['symbol'] == 'MGA':
         from app.services.issuer_sec_discovery import INDEX_URL, check_company
         check_company(company)
@@ -92,7 +98,7 @@ def index_url(company, year):
 
 
 def index_metadata(company, year):
-    if enabled_company(company) and company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA'}:
+    if enabled_company(company) and company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA', 'UL'}:
         symbol = company['symbol']
         return {'key': symbol+':reports:latest', 'url': index_url(company, year),
                 'symbol': symbol, 'discovery_kind': company['discovery']['kind']}
@@ -101,6 +107,11 @@ def index_metadata(company, year):
 
 
 def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
+    if enabled_company(company) and company['symbol'] == 'UL':
+        from app.services.issuer_unilever_discovery import parse_index as parse_ul_index
+        if year is not None:
+            raise DirectSourceError('Unilever index does not use calendar years')
+        return parse_ul_index(raw, company, observed)
     if enabled_company(company) and company['symbol'] == 'MGA':
         from app.services.issuer_sec_discovery import parse_index as parse_sec_index
         if year is not None:
@@ -172,6 +183,9 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
 
 
 def parse_candidate(raw, metadata, observed):
+    if metadata.get('discovery_kind') == UL_KIND:
+        from app.services.issuer_unilever_discovery import parse_candidate as parse_ul_candidate
+        return parse_ul_candidate(raw, metadata, observed)
     if metadata.get('discovery_kind') == SEC_KIND:
         from app.services.issuer_sec_discovery import parse_candidate as parse_sec_candidate
         return parse_sec_candidate(raw, metadata, observed)
@@ -240,6 +254,11 @@ def verified_metadata(db, company, metadata):
         if base.get('discovery_kind') in PDF_KINDS.values():
             from app.services.issuer_q4_pdf_discovery import publication_pattern
             pattern = publication_pattern(base['symbol'], d)
+        elif base.get('discovery_kind') == UL_KIND:
+            if metadata['published_at'] != base['published_at']:
+                raise DirectSourceError('Unilever publication date changed from original index')
+            from app.services.issuer_unilever_discovery import publication_pattern
+            pattern = publication_pattern(d)
         elif base.get('discovery_kind') == MRNA_KIND:
             if metadata['published_at'] != base['published_at']:
                 raise DirectSourceError('Moderna publication date changed from original index')
@@ -260,6 +279,9 @@ def latest_metadata(db, registry, symbol, static, *, observed_by=None):
     company = next((c for c in registry if c['symbol'] == symbol and enabled_company(c)), None)
     if company is None:
         return static
+    if symbol == 'UL':
+        from app.services.issuer_unilever_discovery import latest_metadata as latest_ul_metadata
+        return latest_ul_metadata(db, company, observed_by or utcnow())
     if symbol == 'MGA':
         from app.services.issuer_sec_discovery import latest_metadata as latest_sec_metadata
         return latest_sec_metadata(db, company, observed=observed_by or utcnow())
@@ -289,7 +311,7 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
     companies = {c['symbol']: c for c in registry if enabled_company(c)}
     now = utcnow()
     for company in companies.values():
-        for year in ((None,) if company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA'} else (now.year, now.year-1)):
+        for year in ((None,) if company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA', 'UL'} else (now.year, now.year-1)):
             discover(db, INDEX_FEED, index_metadata(company, year))
     db.commit()
     spent, processed, errors, stop_reason = 0, 0, [], None
