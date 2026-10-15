@@ -318,15 +318,31 @@ const loadTickerPageContext = cache(async (
           throw error;
         }));
 
-const loadPublicTickerSnapshot = cache(async (symbol: string) =>
-  getSeoSnapshot("ticker", symbol, { source: "TickerMetadataSnapshot", stalePageCache: true })
-    .then((response) => response.snapshot)
-    .catch((error) => {
-      if (error instanceof ApiError && error.status === 404) return null;
-      // A slow API is not evidence that a listed ticker should be de-indexed.
-      throw error;
-    }),
-);
+const loadPublicTickerSnapshot = cache(async (symbol: string) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TICKER_CONTEXT_SSR_TIMEOUT_MS);
+  try {
+    const response = await getSeoSnapshot("ticker", symbol, {
+      source: "TickerMetadataSnapshot",
+      stalePageCache: true,
+      signal: controller.signal,
+    });
+    return response.snapshot;
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) {
+      console.error("[ticker-metadata-snapshot] unavailable", {
+        symbol,
+        status: error instanceof ApiError ? error.status : null,
+        name: error instanceof Error ? error.name : "unknown",
+      });
+    }
+    // The snapshot is optional. Preserve the ticker shell and canonical/index
+    // policy when this cache read fails; never turn an outage into missing facts.
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+});
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { symbol } = await params;

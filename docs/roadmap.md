@@ -559,3 +559,6 @@ October15,14:32UTC: [Portfolio release guard](portfolio-release-guard-2026-10-15
 
 
 October15: [Runtime dependency repair](runtime-security-refresh-2026-10-15.md) locally verified with clean production audits and unchanged frontend baseline failures; release pending. Backend-unavailable fault injection identifies ticker metadata rethrow as an additional reliability repair. Full FMP retirement gates remain.
+
+
+October15: [Security release](runtime-security-refresh-2026-10-15.md) deployed bbbc72c3, clean production audits and runtime verified. [Ticker snapshot fault repair](ticker-snapshot-failure-2026-10-15.md) locally verifies bounded optional reads and intact streamed fallback during failure; release pending. No FMP selectors changed.
