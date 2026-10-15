@@ -1,3 +1,9 @@
+## October 15, 2026: Unilever restated financials
+
+**2026-10-15 UL restated financial preparation:** [Evidence](docs/ul-restated-financials-2026-10-15.md). Complete SEC/issuer originals reconcile seven EUR ratios; Windows/Linux isolated cache, confirmation and watchlist replays pass with exact repeat, zero false/duplicate alerts and 20 unchanged issuer controls. Mixed-source/disposal qualifications now reach the existing summary. Local/unreleased; final regressions, exact release, ordinary propagation and all wider FMP gates remain. Previous percentage-only turn was no progress; this implementation and consumer evidence advance the active goal.
+
+No new product decision or source activation. Adapter, preparation routing, summary provenance and regression fixtures changed. Full-source consumer checks pass; release and scheduled operation remain. Pending production-payload approvals untouched.
+
 ## October 15, 2026: SEC transcript cover compatibility
 
 **2026-10-15 SEC cover compatibility repair:** [Evidence](docs/sec-transcript-cover-compatibility-2026-10-15.md). All31 captured covers/seven complete transcripts now pass isolated collector/reader/research replay on Windows/Linux;39 bounded requests, six reader queries, one document/zero events and exact database repeat.445 Linux tests pass, including legacy immutable receipts and explicit cover-date evidence. Local/unreleased; ordinary recovery and broad FMP gates remain. Previous status-only turn was no progress; this source/code/consumer evidence advances the active migration.

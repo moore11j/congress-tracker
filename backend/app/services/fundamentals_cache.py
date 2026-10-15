@@ -913,6 +913,19 @@ def fundamentals_summary_from_cache_row(
         except (TypeError, ValueError, KeyError):
             source_label = 'Free sources'
             source_note = 'Detailed source evidence unavailable.'
+    if row.provider in {'sec_edgar', 'free_direct'}:
+        try:
+            evidence = json.loads(row.source_evidence_json or '{}')
+            display = evidence.get('display_context', {})
+            label, note = display.get('source_label'), display.get('source_note')
+            if isinstance(label, str) and 0 < len(label) <= 120:
+                source_label = label
+                if row.provider == 'free_direct' and evidence.get('supplement', {}).get('used_fields'):
+                    source_label += ' + Finnhub'
+            if isinstance(note, str) and 0 < len(note) <= 1000:
+                source_note = ' '.join(value for value in (note, source_note) if value)
+        except (TypeError, ValueError, AttributeError):
+            pass
     if row.provider in {'sec_edgar', 'free_direct'} and net_debt_to_ebitda is not None:
         try:
             policy = json.loads(row.source_evidence_json or '{}').get('net_debt_policy', {})
