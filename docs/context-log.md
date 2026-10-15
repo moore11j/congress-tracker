@@ -1,3 +1,9 @@
+## October 15, 2026: CNQ free statements and comparative-amendment repair
+
+- **2026-10-15 CNQ and comparative amendment preparation:** [Evidence](docs/cnq-interim-financials-2026-10-15.md). Four CAD ratios from complete SEC originals;33 fixture/original and13 annual/companyfacts matches, exact cache/alert repeat and20 unchanged controls pass. Only two scored inputs, so classification remains unavailable. Actual interest breakdown captured but cash/lease/EBITDA definitions remain open. SAP/MGA earlier-comparative amendment guards repaired with selective versions. Final348 Linux checks and all three full-original companion consumer replays pass. Local/unreleased; no public selection/spend, pending exports unrun. Previous SAP release and current source/code/tests are progress; goal active.
+
+Files: CNQ reader/fixtures/tests, three integration hooks and SAP/MGA amendment guards/tests, source report. No new product decision. Next complete final source/release/runtime acceptance; ordinary coverage and complete FMP exit remain open.
+
 ## October 15, 2026: SAP final validation and release preparation
 
 - **2026-10-15 SAP release preparation:** Final 304 selected Linux3.12.3 tests and full-original Linux cache/confirmation/watchlist/20-control replay pass. Seven EUR ratios,18 annual/companyfacts matches and46 fixture/original facts verified; no false source-transition or duplicate alerts. Prior percentage-only turn was no progress; current final review and release preparation advance the goal. Exact release/runtime and ordinary preparation/rollover remain pending; all broad FMP gates and pending export approvals remain. No public selector/subscription/schedule/host change.

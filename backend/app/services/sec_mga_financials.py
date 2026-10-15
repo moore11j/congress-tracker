@@ -7,7 +7,7 @@ import re
 from zoneinfo import ZoneInfo
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
 
-VERSION = 'sec_mga_usd_statements_v1'
+VERSION = 'sec_mga_usd_statements_v2'
 CIK = '0000749098'
 END = date(2026, 6, 30)
 MAX_BYTES = 4_000_000
@@ -71,7 +71,7 @@ def validate_company(company, *, symbol, cik, observed_at):
     latest = SOURCES['current']['filed']
     for acc, form, filed, end, name in filings:
         if (form in ('6-K','6-K/A','40-F','40-F/A') and filed <= str(available)
-                and (filed > latest or (form.endswith('/A') and filed >= SOURCES['annual']['filed'])
+                and (filed > latest or (form.endswith('/A') and filed >= min(s['filed'] for s in SOURCES.values()))
                      or (filed == latest and acc != SOURCES['current']['accession']
                          and (acc, form, filed, end, name) != COMPANION))):
             raise MgaFinancialError('mga_newer_or_amended_report_requires_review')

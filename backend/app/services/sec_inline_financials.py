@@ -298,6 +298,12 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
             return asml.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
         except asml.AsmlFinancialError as exc:
             return {'asml_documents': {}, 'asml_error': str(exc)}
+    if symbol == 'CNQ':
+        from app.services import sec_cnq_financials as cnq
+        try:
+            return cnq.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
+        except cnq.CnqFinancialError as exc:
+            return {'cnq_error': str(exc)}
     if symbol == 'SAP':
         from app.services import sec_sap_financials as sap
         try:
