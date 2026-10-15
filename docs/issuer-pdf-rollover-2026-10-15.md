@@ -1,6 +1,6 @@
 # Meta and SoFi transcript rollover
 
-October 15, 2026 UTC. Implemented and validated locally; release/runtime and ordinary collection are pending.
+October 15, 2026 UTC. PR662 is deployed and runtime verified; ordinary scheduled collection and broader publication readiness remain pending.
 
 ## Official sources and semantic checks
 
@@ -24,4 +24,12 @@ All twelve checksum-verified public PDFs reproduce their complete original text 
 
 ## Remaining work
 
-Exact release/runtime verification and ordinary scheduled source collection remain pending. Broader transcript coverage/publication, four remaining issuer rollovers, full financial and institutional coverage, all consumers/rankings/alerts, sustained capacity, final Massive price routing/entitlements, global zero-FMP traffic and billing remain gates. Production remains PR661/4432fe8a with core/prices/transcripts FMP and institutions publication off. Pending CAT/institutional production-payload permissions and valuation-model choice remain pending; no rejected read was retried or bypassed. No customer email, video, landing or cancellation action.
+Ordinary scheduled source collection remains pending; exact release/runtime verification is recorded below. Broader transcript coverage/publication, four remaining issuer rollovers, full financial and institutional coverage, all consumers/rankings/alerts, sustained capacity, final Massive price routing/entitlements, global zero-FMP traffic and billing remain gates. Production is now PR662/ce2ad71a with core/prices/transcripts FMP and institutions publication off. Pending CAT/institutional production-payload permissions and valuation-model choice remain pending; no rejected read was retried or bypassed. No customer email, video, landing or cancellation action.
+
+## Deployed release verification, October15 04:10UTC
+
+[PR662](https://github.com/moore11j/congress-tracker/pull/662), source8a3ff7eff0842cc6cc3f746982498cb977c868df, merged asce2ad71a29054af0ea8f4da8495f3053fd160086. Backend workflow38679843774/job116241648808 completed successfully, including readiness and Premium privacy checks; production Vercel status also succeeds. Exact-head secret scan and preview pass. Dependency audits still fail on unchanged dependencies:33 Pillow advisory rows and five frontend production groups (four high/one critical). No dependency, host or schedule configuration changed. PR attachment exceeds the chat's100-item limit; the ordinary PR link remains usable.
+
+Deployed Python3.12.15 matches all eight expected source hashes. Synthetic current-period indexes/PDFs process in three two-request batches, retain company/fiscal/publication identity and unknown publisher attribution, exclude Meta follow-up calls, and create two canonical documents/zero research events. Whole-database repeat is identical, no extra fetch occurs, and altered index evidence is rejected. The test uses only in-memory SQLite, blocked network and synthetic inputs: zero production records read, production writes or provider calls. Receipt: artifacts/issuer-pdf-runtime-1792037384.json. This does not verify ordinary collection or live publication coverage.
+
+Anonymous readiness/Feed/Insights return200, with database ready and no server-error-page marker. Feed0.357seconds and Insights0.753seconds are immediate HTTP samples, not sustained capacity or browser completeness proof. Receipt: artifacts/issuer-pdf-public-1792037389.json. Core/prices/transcripts remain FMP; institutions publication remains off. Remaining issuer policies, financial/model coverage, all scheduled consumers, capacity, final Massive/globalFMP/billing and separate pending approvals remain open. No rejected production-payload read was retried.

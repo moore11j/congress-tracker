@@ -14,6 +14,7 @@ from app.services.direct_feed_store import (
 
 KIND = 'reddit_q4_v1'
 MSFT_KIND = 'microsoft_events_v1'
+MRNA_KIND = 'moderna_events_v1'
 PDF_KINDS = {'META': 'meta_q4_pdf_v1', 'SOFI': 'sofi_q4_pdf_v1'}
 INDEX_FEED = 'issuer_earnings_index'
 QUARTERS = {'First Quarter': 1, 'Second Quarter': 2, 'Third Quarter': 3, 'Fourth Quarter': 4}
@@ -47,10 +48,15 @@ def format_policy(year, quarter, policy):
 
 def enabled_company(company):
     return (company.get('symbol'), company.get('discovery', {}).get('kind')) in {
-        ('RDDT', KIND), ('MSFT', MSFT_KIND), *PDF_KINDS.items()}
+        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), *PDF_KINDS.items()}
 
 
 def index_url(company, year):
+    if enabled_company(company) and company['symbol'] == 'MRNA':
+        from app.services.issuer_moderna_discovery import INDEX_URL
+        if year is not None:
+            raise DirectSourceError('Moderna index does not use calendar years')
+        return INDEX_URL
     if enabled_company(company) and company['symbol'] in PDF_KINDS:
         from app.services.issuer_q4_pdf_discovery import index_url as pdf_index_url
         return pdf_index_url(company, year)
@@ -72,14 +78,20 @@ def index_url(company, year):
 
 
 def index_metadata(company, year):
-    if enabled_company(company) and company['symbol'] == 'MSFT':
-        return {'key': 'MSFT:reports:latest', 'url': index_url(company, year),
-                'symbol': 'MSFT', 'discovery_kind': MSFT_KIND}
+    if enabled_company(company) and company['symbol'] in {'MSFT', 'MRNA'}:
+        symbol = company['symbol']
+        return {'key': symbol+':reports:latest', 'url': index_url(company, year),
+                'symbol': symbol, 'discovery_kind': company['discovery']['kind']}
     return {'key': f"{company['symbol']}:reports:{year}", 'url': index_url(company, year),
             'symbol': company['symbol'], 'year': year, 'discovery_kind': company['discovery']['kind']}
 
 
 def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
+    if enabled_company(company) and company['symbol'] == 'MRNA':
+        from app.services.issuer_moderna_discovery import parse_index as parse_moderna_index
+        if year is not None:
+            raise DirectSourceError('Moderna index does not use calendar years')
+        return parse_moderna_index(raw, company, observed)
     if enabled_company(company) and company['symbol'] in PDF_KINDS:
         from app.services.issuer_q4_pdf_discovery import parse_index as parse_pdf_index
         return parse_pdf_index(raw, company, year, observed)
@@ -136,6 +148,9 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
 
 
 def parse_candidate(raw, metadata, observed):
+    if metadata.get('discovery_kind') == MRNA_KIND:
+        from app.services.issuer_moderna_discovery import parse_candidate as parse_moderna_candidate
+        return parse_moderna_candidate(raw, metadata, observed)
     if metadata.get('discovery_kind') in PDF_KINDS.values():
         from app.services.issuer_q4_pdf_discovery import parse_candidate as parse_pdf_candidate
         return parse_pdf_candidate(raw, metadata, observed)
@@ -189,6 +204,11 @@ def verified_metadata(db, company, metadata):
         if base.get('discovery_kind') in PDF_KINDS.values():
             from app.services.issuer_q4_pdf_discovery import publication_pattern
             pattern = publication_pattern(base['symbol'], d)
+        elif base.get('discovery_kind') == MRNA_KIND:
+            if metadata['published_at'] != base['published_at']:
+                raise DirectSourceError('Moderna publication date changed from original index')
+            from app.services.issuer_moderna_discovery import publication_pattern
+            pattern = publication_pattern(d)
         elif base.get('discovery_kind') == MSFT_KIND:
             from app.services.issuer_microsoft_discovery import publication_pattern
             pattern = publication_pattern(d)
@@ -224,7 +244,7 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
     companies = {c['symbol']: c for c in registry if enabled_company(c)}
     now = utcnow()
     for company in companies.values():
-        for year in ((None,) if company['symbol'] == 'MSFT' else (now.year, now.year-1)):
+        for year in ((None,) if company['symbol'] in {'MSFT', 'MRNA'} else (now.year, now.year-1)):
             discover(db, INDEX_FEED, index_metadata(company, year))
     db.commit()
     spent, processed, errors, stop_reason = 0, 0, [], None

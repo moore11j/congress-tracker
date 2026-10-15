@@ -1,4 +1,6 @@
-October15: [Meta/SoFi transcript rollover](issuer-pdf-rollover-2026-10-15.md) implemented locally;355 checks and full twelve-original text/date/repeat parity pass. Exact release/runtime, ordinary collection, four other issuer policies and all broader FMP cutover gates remain.
+October15: [Moderna transcript rollover](moderna-transcript-rollover-2026-10-15.md) local implementation passes397 focused checks and full six-original canonical/repeat replay. Release/runtime, ordinary collection, three other issuer policies and full FMP cutover gates remain.
+
+October15: [Meta/SoFi transcript rollover](issuer-pdf-rollover-2026-10-15.md) PR662 deployedce2ad71a;355 focused checks, full twelve-original parity, eight runtime hashes and synthetic bounded/repeat/tamper checks pass. Ordinary collection, four other issuer policies, publication and all broader FMP cutover gates remain.
 
 October15: [Microsoft transcript rollover](microsoft-transcript-rollover-2026-10-15.md) PR661 deployed4432fe8a;278 checks, actual-original full-text/repeat parity and seven runtime hashes/synthetic rollover verify. Ordinary discovery, six remaining issuer rollover policies and full FMP cutover gates remain.
 
