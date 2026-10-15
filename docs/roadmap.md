@@ -541,3 +541,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,16:13UTC:** [Issuer financial collection](issuer-financial-staging-2026-10-12.md) PR608/ea6d7874 deployed and normal demand queue verified: six AZO annual metrics persisted, public core unchanged. [Current coverage](free-fundamentals-paired-coverage-2026-10-11.md)1081usableSEC/916combined; remaining cache/period/coverage and all-consumer gates prevent full activation. Massive stays final; no new subscription.
+
+
+October15: [Net-debt policy](sec-net-debt-policy-2026-10-15.md) implemented locally with346 selected checks and26-source exact-repeat evidence. Release/runtime/ordinary preparation pending; coreFMP and all broader cutover gates remain.

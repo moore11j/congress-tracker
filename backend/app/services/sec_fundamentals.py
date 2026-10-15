@@ -418,5 +418,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         evidence['leverage_preparation']['statement_income_reconciliation'] = statement_income_evidence
     if depreciation_evidence is not None:
         evidence['leverage_preparation']['depreciation_reconciliation'] = depreciation_evidence
+    from app.services.sec_net_debt_policy import select as select_net_debt
+    policy = select_net_debt(evidence['leverage_preparation'], company)
+    evidence['net_debt_policy'] = policy
+    if policy['status'] == 'available':
+        save('net_debt_to_ebitda', policy['value'], policy['formula'])
     values["source_evidence_json"] = json.dumps(evidence, sort_keys=True)
     return values

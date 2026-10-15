@@ -913,6 +913,15 @@ def fundamentals_summary_from_cache_row(
         except (TypeError, ValueError, KeyError):
             source_label = 'Free sources'
             source_note = 'Detailed source evidence unavailable.'
+    if row.provider in {'sec_edgar', 'free_direct'} and net_debt_to_ebitda is not None:
+        try:
+            policy = json.loads(row.source_evidence_json or '{}').get('net_debt_policy', {})
+            if policy.get('status') == 'available' and policy.get('value') == net_debt_to_ebitda:
+                metrics['net_debt_to_ebitda']['provenance'] = {key: policy.get(key) for key in
+                    ('source', 'version', 'basis', 'formula', 'unit', 'period_date', 'lease_policy')}
+                source_note = ' '.join(note for note in (source_note, policy.get('basis')) if note)
+        except (TypeError, ValueError, AttributeError):
+            pass
     return {
         "symbol": row.symbol,
         "status": status,

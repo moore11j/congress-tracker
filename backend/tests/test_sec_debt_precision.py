@@ -187,7 +187,8 @@ def test_actual_comcast_original_cache_repeat_and_no_canonical_writes(fixture,mo
     assert [point['value'] for point in proof['inputs']]==[90400e6,6117e6,84264e6]
     assert [point['reported_precision']['decimals'] for point in proof['inputs']]==['-8','-6','-6']
     assert panel['ebitda']['value']==34131e6
-    assert 'net_debt_to_ebitda' not in result['values']
+    assert result['values']['net_debt_to_ebitda'] == pytest.approx((90381e6 - 7661e6) / 34131e6)
+    assert result['calculation_evidence']['net_debt_policy']['rounding_reconciliation']['canonical_selection'] is True
     with factory() as db:
         payload=db.get(InsightsSnapshot,'sec-current-fundamentals:CMCSA:v1').payload_json
         assert db.scalar(select(func.count()).select_from(FundamentalsCache))==0
