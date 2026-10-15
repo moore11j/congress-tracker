@@ -13,7 +13,7 @@ from lxml import html
 from app.services import sec_inline_financials as inline
 from app.clients.direct_sources import DirectSourceError
 
-VERSION = 'sec_cat_interest_v1'
+VERSION = 'sec_cat_interest_v2'
 SYMBOL = 'CAT'
 CIK = '0000018230'
 
@@ -97,7 +97,7 @@ def acquire(values, company_raw, *, symbol, cik, observed_at, client):
         return None
     proof = {'methodology':VERSION, 'cik':CIK, 'status':'unavailable',
              'documents':[], 'reason':None}
-    result = {'evidence':proof, 'records':{}, 'points':{}}
+    result = {'evidence':proof, 'records':{}, 'points':{}, 'debt':None}
     try:
         if str(cik).zfill(10) != CIK or observed_at.tzinfo is None:
             raise CatInterestError('issuer_or_observation')
@@ -147,6 +147,15 @@ def acquire(values, company_raw, *, symbol, cik, observed_at, client):
             source['sha256'] = hashlib.sha256(raw).hexdigest()
             records, standard = parse(raw, source)
             proof['documents'].append(dict(source))
+            if source['period'] == str(end):
+                from app.services import sec_cat_debt
+                try:
+                    result['debt'] = sec_cat_debt.parse(raw, source)
+                except (sec_cat_debt.CatDebtError, inline.InlineFactsError,
+                        KeyError, TypeError, ValueError, StopIteration) as exc:
+                    # Debt is optional independently of the interest proof.
+                    result['debt'] = {'methodology':sec_cat_debt.VERSION,
+                        'status':'unavailable', 'reason':str(exc) if isinstance(exc,sec_cat_debt.CatDebtError) else type(exc).__name__}
             for key, fact in records.items():
                 previous = result['records'].get(key)
                 if previous is None or previous['filed'] < fact['filed']:
@@ -163,10 +172,10 @@ def acquire(values, company_raw, *, symbol, cik, observed_at, client):
         proof.update(status='originals_verified',reason=None)
     except (CatInterestError, inline.InlineFactsError, KeyError, TypeError, ValueError, StopIteration) as exc:
         proof['reason'] = str(exc) if isinstance(exc,CatInterestError) else type(exc).__name__
-        result['records'],result['points'] = {},{}
+        result['records'],result['points'],result['debt'] = {},{},None
     except DirectSourceError:
         proof['reason'] = 'source_unavailable'
-        result['records'],result['points'] = {},{}
+        result['records'],result['points'],result['debt'] = {},{},None
     return result
 
 
@@ -217,6 +226,11 @@ def apply(records, supplement, *, symbol, cik, available_by):
         proof['accepted_periods'].append({'start':fact['start'],'end':fact['end'],
             'accession':fact['accession'],'value':fact['value']})
     proof['status'] = 'prepared' if proof['accepted_periods'] else 'held'
+    from app.services import sec_cat_debt
+    result, debt_evidence = sec_cat_debt.apply(result, supplement.get('debt'),
+        available_by=available_by, allowed=allowed)
+    if debt_evidence is not None:
+        proof['debt_reconciliation'] = debt_evidence
     return result, proof
 
 

@@ -51,14 +51,17 @@ def test_complete_originals_preserve_canonical_and_nonleverage_values(originals,
     assert len(calls) == len(set(calls)) == 2
     after = project(originals,interest_supplement=acquired)
     assert after == project(originals,interest_supplement=acquired)
-    assert {k:v for k,v in before.items() if k != 'source_evidence_json'} == {k:v for k,v in after.items() if k != 'source_evidence_json'}
+    assert {k:v for k,v in before.items() if k not in {'source_evidence_json','net_debt_to_ebitda'}} == {k:v for k,v in after.items() if k not in {'source_evidence_json','net_debt_to_ebitda'}}
     a,b = [json.loads(v['source_evidence_json']) for v in (before,after)]
     old,new = a.pop('leverage_preparation'),b.pop('leverage_preparation')
     old_policy,new_policy = a.pop('net_debt_policy'),b.pop('net_debt_policy')
     assert old_policy.pop('reason') == 'incomplete_or_nonpositive_ebitda'
-    assert new_policy.pop('reason') == 'no_verified_finance_inclusive_debt'
-    assert old_policy == new_policy
-    assert new_policy['status'] == 'unavailable'
+    assert old_policy['status'] == 'unavailable'
+    assert new_policy['status'] == 'available'
+    assert new_policy['candidate']['debt'] == 45_146_000_000
+    assert new_policy['candidate']['cash'] == 6_713_000_000
+    assert new_policy['value'] == (45_146_000_000-6_713_000_000)/18_426_000_000
+    assert b['calculations'].pop('net_debt_to_ebitda') == new_policy['formula']
     assert a == b
     assert old['ebitda']['missing_components'] == ['leverage_interest']
     assert new['ebitda']['status'] == 'components_complete'
@@ -68,7 +71,7 @@ def test_complete_originals_preserve_canonical_and_nonleverage_values(originals,
         ('2023-01-01','2023-12-31'),('2024-01-01','2024-12-31'),('2025-01-01','2025-12-31'),
         ('2025-04-01','2025-06-30'),('2026-04-01','2026-06-30'),
         ('2025-01-01','2025-06-30'),('2026-01-01','2026-06-30')}
-    assert 'net_debt_to_ebitda' not in after
+    assert after['net_debt_to_ebitda'] == new_policy['value']
     for point in new['ebitda']['components'].values():
         assert all(p['source_cik'] == cat.CIK and p['source_sha256'] for p in point['inputs'])
 

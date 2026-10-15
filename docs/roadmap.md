@@ -569,3 +569,6 @@ October15,14:32UTC: [Portfolio release guard](portfolio-release-guard-2026-10-15
 October15,14:37UTC: [Portfolio release coordination](portfolio-release-guard-2026-10-15.md) deployed through PR670/2543d410 with verified live reservation/rollout/cleanup and five runtime hashes. Full durable portfolio1135/1135 succeeds; repeated operation, source/price quality, other consumers and sustained capacity remain open. FMP retirement remains incomplete; no provider activation or subscription.
 
 October15,06:10UTC: [Partial SEC response recovery](sec-partial-companyfacts-recovery-2026-10-15.md#deployed-release-and-live-verification-0610-utc) PR668 deployed af59d62b;367 checks, four runtime hashes and two live complete policy/source-cache proofs verify. Observed ordinary debt-policy rotation is33 scopes/four completed batches; broad coverage, consumer/capacity and all wider FMP cutover gates remain.
+
+
+October15: [CAT complete balance debt](cat-interest-evidence-2026-10-15.md#complete-balance-sheet-debt-prepared-october15) is locally prepared,350 distinct checks and full original/repeat/alert parity pass. Net debt/EBITDA2.0858026701400196 recovered with existing fields preserved. PR656 remains unreleased; minimized production verification approval and ordinary operation remain pending. Broader source/consumer/capacity/finalMassive/zero-FMP/billing gates unchanged.
