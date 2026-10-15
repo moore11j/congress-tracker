@@ -53,11 +53,13 @@ def prepared_transcript(db, symbol, *, observed_by=None):
     """Read only; never fetch, substitute another quarter or fall back to FMP."""
     metadata = _reviewed_latest(symbol)
     from app.services.issuer_discovery import latest_metadata
-    metadata = latest_metadata(db, json.loads(REGISTRY.read_bytes()), symbol, metadata)
+    metadata = latest_metadata(db, json.loads(REGISTRY.read_bytes()), symbol, metadata, observed_by=observed_by)
     unavailable = lambda reason: {'status': 'unavailable', 'reason': reason, 'provider': 'issuer',
                                   'coverage': 'reviewed_companies_and_periods_only'}
     if metadata is None:
         return unavailable('issuer_not_configured')
+    if metadata.get('preparation_hold'):
+        return unavailable(metadata['preparation_hold'])
     row = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed == 'issuer_earnings',
                                                     DirectFeedDocument.source_key == metadata['key']))
     if row is None or row.status != 'parsed':

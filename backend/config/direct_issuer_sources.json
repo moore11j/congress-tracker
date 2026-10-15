@@ -1,5 +1,13 @@
 [
   {
+    "symbol": "MGA",
+    "discovery": {"kind": "magna_sec_transcripts_v1", "cik": "0000749098"},
+    "company_website": "https://www.magna.com/",
+    "investor_website": "https://www.magna.com/company/investors",
+    "verification": "SEC submissions and issuer-filed 6-K webcast transcripts reviewed October15,2026. Fiscal period and call date come from cover and transcript evidence, not filing date. Selected issuer only; preparation remains separately gated from publication.",
+    "documents": []
+  },
+  {
     "symbol": "MSFT",
     "discovery": {"kind": "microsoft_events_v1"},
     "company_website": "https://www.microsoft.com/",
