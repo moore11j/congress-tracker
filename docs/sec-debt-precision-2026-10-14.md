@@ -1,6 +1,6 @@
 # Original debt precision evidence
 
-October 14, 2026. Implemented locally; release/runtime/ordinary verification pending. Core fundamentals and prices remain FMP, institutional publication remains disabled.
+October 14, 2026; release verified October 15 below. Exact runtime and initial ordinary preparation are verified; positive issuer propagation and wider cutover gates remain. Core fundamentals and prices remain FMP, institutional publication remains disabled.
 
 ## Source and behavior
 
@@ -27,3 +27,21 @@ One initial test expected malformed directory arrays to be ignored; the existing
 Deploy and verify this exact package and ordinary propagation. Individual CPB/COO/VRSK corrected-cache rotation and CMCSA precision persistence remain unobserved. Original rounding evidence supports the later policy decision but does not finish canonical net-debt/EBITDA selection, missing interest/D&A coverage or whole-universe financial continuity. All score/ranking/monitoring/watchlist/daily/weekly consumers, institutions/transcripts, sustained capacity, final Massive, zero global FMP requests and billing remain gates. No provider selection, schedule/host/subscription, email, video, landing or cancellation change.
 
 The initial baseline harness needed the workspace import path and repository-owner read permission; those setup failures did not execute the assertion. The corrected baseline reproduction confirms the exact same None-versus25.0 failure at test_ticker_financials.py:281. Baseline module hashes are retained in artifacts/debt-precision-baseline-oct14/manifest.json.
+
+## Deployed and ordinary preparation verified, October 15
+
+PR651 was updated against deployed reliability fixes without changing its financial application code. The only merge conflict was in project notes; both histories were retained. New source21458c954a332e5835a58e84c1957eab1e3a24d5 passes123 integrated LinuxPython3.12.3 tests across precision, leverage, SEC preparation, ticker matching and portfolio continuation. Earlier312passing/one reproduced baseline forward-P/E failure and45final precision checks remain the separate historical evidence above.
+
+Merge/release544b893b12d66205737260e84ba003860de1c9dd deployed through workflow38662222678/job116185935377, terminal success with readiness and Premium privacy verification. The first deployment action was rejected before execution by automatic approval review because a data job had just started and another was pending. No workaround was used. A fresh read-only receipt at00:49:26 confirmed the process finished and zero active/pending/continuing jobs; the same deployment retry was then approved. No portfolio cycle was active or continuing.
+
+Fourteen deployed source/schedule hashes match the reviewed implementation. On Python3.12.15, the complete checksum-verified Comcast original and facts reproduce the exact full projection SHA2560c0a894f5cf5f4a1682728351e60cc917a511a1e5d80da174ca4552c7ff7a04b and identical repeat. The fixture blocks network and performs zero production writes or emails. Runtime receipt: artifacts/debt-precision-runtime-1792025491.json.
+
+The actual00:51 scheduled financial batch finishes10 SEC scopes and5 free-metric scopes. Read-only verification confirms eight stored v8 leverage panels for GPK/GPN/GPRO/GPUS/GRMN/GROV/GROW/GSHD and explicit unavailable preparations for GRAB/GRAG. These eight panels retain incomplete/incompatible precision labels, not fabricated positive proof. Comcast still has its October14,20:51 v6 cache, CPB/COO their v6 caches and VRSK its v4 cache. Positive Comcast precision persistence and those issuer-specific rotations therefore remain pending. Source: artifacts/debt-precision-receipt-1792025587.json.
+
+A pre-release00:46 read-only v7 audit covers1746 fresh preparation rows:1674 lack that evidence version,62 have incomplete EBITDA,10 have complete EBITDA, and none has an accepted ratio candidate. This narrow version-specific count is not a global disappearance of older financial values. Version rotation, missing accounting components and canonical ratio policy remain unfinished; no public metric/source was activated. Receipt: artifacts/leverage-policy-cohort-1792025185.json.
+
+Post-verifier public reads succeed: Feed0.355seconds, Insights0.531 with research and no error fallback, news0.247/12items, research0.445/44briefs, AAPL2.269 and NVDA2.449. Ordinary00:52 news23/23 and earnings5/5 verify; institutional reference remains partial/truncated with439pending/343deferred. Same two machines/sizes, API image544b893b, core/prices/transcriptsFMP and institution publicationfalse. Immediate response times are not sustained recovery. Receipts: artifacts/direct-feeds/free-replacements-2026-10-09/insights-incident-1792025507.json and artifacts/preload-receipts-1792025558.json.
+
+The expected00:45 GitHub portfolio trigger had not dispatched by00:52; production queue/external receipts confirm no new portfolio cycle. The latest completed GitHub ingest38660184488 was recent-congress, with a successful same-ID external receipt, not portfolio. Existing older portfolio failure receipts remain intact. No manual full replay was started. An attempted diagnostic against a different PR revision correctly returned409; the same run was then read against its actual PR653 revision.
+
+Exact revised-head CI38661641293 passes secret scan; unchanged dependency audits report Pillow33 advisory rows and frontend five production vulnerability groups (four high, one critical). No full-suite or all-CI pass is claimed. PR attachment again reaches the app100-item limit. Remaining gates are full ordinary portfolio/external completion, sustained capacity, financial source/definition/coverage and consumer rebaseline, institutions/transcripts, all monitoring/watchlist/daily/weekly/ranking checks, finalMassive subscription/validation, zeroFMP traffic and billing/access dates.
