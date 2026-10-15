@@ -111,12 +111,14 @@ def test_partial_daily_repair_payload_exits_successfully() -> None:
     assert _payload_exit_code({"job": "daily-repair", "status": "failed"}) == 1
 
 
-def test_scheduled_ingest_workflow_calls_ingest_module_directly() -> None:
+def test_scheduled_ingest_workflow_uses_serialized_idempotent_dispatch() -> None:
     workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "daily_ingest.yml"
     contents = workflow.read_text()
 
     assert "scripts/run_ingest_job.sh" not in contents
-    assert "REMOTE_COMMAND=\"cd /app && python -m app.ingest_run --job $JOB_MODE\"" in contents
+    assert "python /app/scripts/scheduled_jobs.py dispatch-ingest $JOB_MODE" in contents
+    assert "--request-id ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" in contents
+    assert "REMOTE_COMMAND=\"cd /app && python -m app.ingest_run --job" not in contents
     assert "Remote command: $REMOTE_COMMAND" in contents
 
 

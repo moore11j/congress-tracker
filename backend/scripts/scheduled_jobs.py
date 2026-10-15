@@ -22,6 +22,9 @@ import time
 import uuid
 
 
+PORTFOLIO_COMMAND = 'cd /app && python -m app.ingest_run --job portfolio-simulation-refresh'
+
+
 DELIVERY_COMMANDS = (
     'run_email_digest_schedule.sh', 'run_email_intraday_alert_sweep.sh',
     'run_watchlist_price_alerts.sh', 'app.jobs.queue_strategy_event_deliveries',
@@ -105,6 +108,17 @@ def database(path):
     db.execute('''CREATE TABLE IF NOT EXISTS external_requests (
         request_id TEXT PRIMARY KEY, job_key TEXT NOT NULL, target_run INTEGER NOT NULL,
         created_at REAL NOT NULL, finished_at REAL, exit_code INTEGER)''')
+    # Serialize additive migration with enqueuers starting at the same time.
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        columns = {row[1] for row in db.execute('PRAGMA table_info(jobs)')}
+        for name, kind in [('cycle_id', 'TEXT'), ('continuation_at', 'REAL'), ('checkpoint_json', 'TEXT')]:
+            if name not in columns:
+                db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {kind}')
+        db.commit()
+    except BaseException:
+        db.rollback(); db.close()
+        raise
     try:
         yield db
     finally:
@@ -126,17 +140,36 @@ def claim(db, lane, manifest, now=None):
         if db.execute('SELECT 1 FROM jobs WHERE lane=? AND started_at IS NOT NULL LIMIT 1', (lane,)).fetchone():
             db.commit()
             return None
-        rows = db.execute('''SELECT * FROM jobs WHERE lane=? AND pending_at IS NOT NULL
-            AND started_at IS NULL ORDER BY pending_at,key''', (lane,)).fetchall()
+        # A second refresh (or the legacy all-job) must not overwrite a newer
+        # as-of window while an earlier portfolio cycle yields to unrelated jobs.
+        portfolio_owners = [row for row in db.execute(
+            'SELECT key,cycle_id FROM jobs WHERE continuation_at IS NOT NULL')
+            if manifest.get(row['key'], {}).get('command') == PORTFOLIO_COMMAND]
+        portfolio_owner = min(portfolio_owners, key=lambda row: (row['cycle_id'] or '', row['key']))['key'] if portfolio_owners else None
+        rows = db.execute('''SELECT * FROM jobs WHERE lane=? AND started_at IS NULL
+            AND ((continuation_at IS NOT NULL AND continuation_at<=?)
+                 OR (continuation_at IS NULL AND pending_at IS NOT NULL))
+            ORDER BY COALESCE(continuation_at,pending_at),key''', (lane, now)).fetchall()
         for row in rows:
             if row['key'] not in manifest:
-                db.execute('UPDATE jobs SET pending_at=NULL WHERE key=?', (row['key'],))
+                db.execute('UPDATE jobs SET pending_at=NULL,continuation_at=NULL WHERE key=?', (row['key'],))
+                continue
+            command = manifest[row['key']].get('command')
+            if (portfolio_owner and portfolio_owner != row['key'] and command in {
+                    PORTFOLIO_COMMAND, 'cd /app && python -m app.ingest_run --job all'}):
                 continue
             token = uuid.uuid4().hex
-            db.execute('UPDATE jobs SET started_at=?,pending_at=NULL,token=?,pid=NULL WHERE key=?',
-                       (now, token, row['key']))
+            continuing = row['continuation_at'] is not None
+            cycle_id = row['cycle_id'] if continuing else uuid.uuid4().hex
+            if continuing and not cycle_id:
+                raise RuntimeError('Continuation has no logical cycle identity')
+            db.execute('''UPDATE jobs SET started_at=?,token=?,pid=NULL,cycle_id=?,continuation_at=NULL,
+                pending_at=CASE WHEN ? THEN pending_at ELSE NULL END,
+                checkpoint_json=CASE WHEN ? THEN checkpoint_json ELSE NULL END WHERE key=?''',
+                (now, token, cycle_id, continuing, continuing, row['key']))
             db.commit()
-            return {**dict(row), 'token': token, 'started_at': now}
+            return {**dict(row), 'token': token, 'cycle_id': cycle_id, 'started_at': now,
+                    'pending_at': row['continuation_at'] if continuing else row['pending_at']}
         db.commit()
         return None
     except BaseException:
@@ -151,11 +184,38 @@ def finish(db, job, code, now=None):
         row = db.execute('SELECT runs FROM jobs WHERE key=? AND token=?',
                          (job['key'], job['token'])).fetchone()
         if row is not None:
-            db.execute('UPDATE jobs SET started_at=NULL,token=NULL,pid=NULL,finished_at=?,exit_code=?,runs=runs+1 WHERE key=? AND token=?',
+            db.execute('UPDATE jobs SET started_at=NULL,token=NULL,pid=NULL,continuation_at=NULL,finished_at=?,exit_code=?,runs=runs+1 WHERE key=? AND token=?',
                        (now, code, job['key'], job['token']))
             db.execute('UPDATE external_requests SET finished_at=?,exit_code=? WHERE job_key=? AND target_run=? AND finished_at IS NULL',
                        (now, code, job['key'], row['runs'] + 1))
         db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def continue_portfolio(db, job, definition, code, now=None):
+    """Only a completed, checkpointed portfolio batch may yield the data lane."""
+    if code != 75 or definition.get('command') != PORTFOLIO_COMMAND or definition.get('lane') != 'data':
+        return False
+    now = time.time() if now is None else now
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        row = db.execute('SELECT checkpoint_json,cycle_id FROM jobs WHERE key=? AND token=?',
+                         (job['key'], job['token'])).fetchone()
+        state = json.loads(row['checkpoint_json'] or '{}') if row else {}
+        if (not row or state.get('kind') != 'portfolio_refresh_v1' or not state.get('continuation')
+                or state.get('cycle_id') != row['cycle_id'] or state.get('deadline', 0) <= now):
+            db.commit()
+            return False
+        delay = min(60, max(1, float(state.get('retry_after_seconds', 1))))
+        db.execute('UPDATE jobs SET started_at=NULL,token=NULL,pid=NULL,continuation_at=? '
+                   'WHERE key=? AND token=?', (now + delay, job['key'], job['token']))
+        db.commit()
+        return True
+    except (ValueError, TypeError):
+        db.rollback()
+        return False
     except BaseException:
         db.rollback()
         raise
@@ -177,10 +237,10 @@ def dispatch_ingest(db, job, request_id, manifest, now=None):
             if existing['job_key'] != key:
                 raise ValueError('External request identity already belongs to another job')
         else:
-            current = db.execute('SELECT runs,started_at FROM jobs WHERE key=?', (key,)).fetchone()
+            current = db.execute('SELECT runs,started_at,continuation_at FROM jobs WHERE key=?', (key,)).fetchone()
             # A request arriving during execution asks for the next run, just
             # like cron. Several requests for that next run can coalesce.
-            target = (current['runs'] if current else 0) + (2 if current and current['started_at'] is not None else 1)
+            target = (current['runs'] if current else 0) + (2 if current and (current['started_at'] is not None or current['continuation_at'] is not None) else 1)
             enqueue(db, key, definition, now=now)
             db.execute('INSERT INTO external_requests(request_id,job_key,target_run,created_at) VALUES (?,?,?,?)',
                        (request_id, key, target, now))
@@ -283,7 +343,10 @@ def worker(queue, manifest, lane, *, idle=.5):
                 continue
             definition = manifest[job['key']]
             env = {**os.environ, **definition['environment'], 'FLY_PROCESS_GROUP': 'cron',
-                   'WALNUT_JOB_TOKEN': job['token'], 'PYTHONUNBUFFERED': '1'}
+                   'WALNUT_JOB_TOKEN': job['token'], 'WALNUT_JOB_CYCLE': job['cycle_id'],
+                   'WALNUT_JOB_KEY': job['key'], 'WALNUT_JOB_QUEUE': str(queue),
+                   'WALNUT_PORTFOLIO_CONTINUATION': '1' if definition['command'] == PORTFOLIO_COMMAND else '0',
+                   'PYTHONUNBUFFERED': '1'}
             process = None
             usage_before = resource.getrusage(resource.RUSAGE_CHILDREN)
             try:
@@ -295,7 +358,7 @@ def worker(queue, manifest, lane, *, idle=.5):
                                                env=env, start_new_session=True)
                 db.execute('UPDATE jobs SET pid=? WHERE key=? AND token=?',
                            (process.pid, job['key'], job['token']))
-                print(json.dumps({'event': 'scheduled_job_started', 'key': job['key'], 'lane': lane,
+                print(json.dumps({'event': 'scheduled_job_started', 'key': job['key'], 'lane': lane, 'cycle_id': job['cycle_id'],
                                   'wait_seconds': round(job['started_at'] - job['pending_at'], 2)}), flush=True)
                 deadline = time.monotonic() + int(os.getenv('SCHEDULED_JOB_MAX_SECONDS', '1200'))
                 while process.poll() is None and not stopped and time.monotonic() < deadline:
@@ -308,11 +371,13 @@ def worker(queue, manifest, lane, *, idle=.5):
                 usage_after = resource.getrusage(resource.RUSAGE_CHILDREN)
                 cpu_seconds = ((usage_after.ru_utime - usage_before.ru_utime) +
                                (usage_after.ru_stime - usage_before.ru_stime))
-                finish(db, job, code)
+                yielded = continue_portfolio(db, job, definition, code)
+                if not yielded:
+                    finish(db, job, code)
                 from preloaded_jobs import forget_identity
                 forget_identity(job['token'])
-                print(json.dumps({'event': 'scheduled_job_finished', 'key': job['key'], 'lane': lane,
-                                  'exit_code': code, 'seconds': round(time.time()-job['started_at'], 2),
+                print(json.dumps({'event': 'scheduled_job_yielded' if yielded else 'scheduled_job_finished', 'key': job['key'], 'lane': lane,
+                                  'cycle_id': job['cycle_id'], 'exit_code': code, 'seconds': round(time.time()-job['started_at'], 2),
                                   'cpu_seconds': round(cpu_seconds, 4),
                                   'preloaded': bool(getattr(process, 'preloaded', False))}), flush=True)
             finally:
