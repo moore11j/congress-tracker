@@ -1,3 +1,9 @@
+## October15,2026,22:13UTC: Issuer fairness release and source hold
+
+**2026-10-15,22:13UTC issuer fairness deployed:** PR689/209c22bb,509 Linux checks/seven-day source parity/five installed hashes verified. Ordinary run615 uses the new reservation but UL latest-results returns403; transport stops with zero processed/public writes. Scheduling installed, successful collection recovery and broad coverage still unverified. See docs/issuer-collection-fairness-2026-10-15.md. Full FMP gates remain; current repair/verified new source refusal is progress, goalactive.
+
+No FMP cutover or new spending. Next successful ordinary mixed operation and permitted transcript-source coverage, then remaining full-product gates. Previous status-only goal turn no progress; this deployed repair and new operational evidence are progress.
+
 ## October15,2026: Issuer collection fairness
 
 **2026-10-15 issuer collection fairness:** [Evidence](docs/issuer-collection-fairness-2026-10-15.md). Local repair reserves a due reviewed-page slot and prioritizes aging indexes within the unchanged two-request allowance.509 Linux checks and seven-day complete-source comparison pass: static first attempts44-48 to0-8hours, index maximum38 to36hours, identical85documents/84revisions and source fingerprint. Exact release/runtime/ordinary recovery pending. Full FMP gates remain; previous status-only turn no progress, current turn concrete progress.

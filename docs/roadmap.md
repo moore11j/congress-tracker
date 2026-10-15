@@ -1,3 +1,5 @@
+October15,22:13UTC: [Issuer fairness](issuer-collection-fairness-2026-10-15.md#deployed-and-ordinary-source-hold-observed-october15-2213utc) deployed209c22bb,509 checks/five runtime hashes. Actual run615 uses reservation but UL index403 prevents collection; successful mixed operation and broader source/FMP gates remain.
+
 October15: [Issuer collection fairness](issuer-collection-fairness-2026-10-15.md) implemented locally,509 Linux checks/seven-day source parity verified. Exact release and ordinary recovery pending; broader FMP retirement gates remain.
 
 October15,21:46UTC: [UL PR688 recovery](ul-historical-original-2026-10-15.md#deployed-and-ordinary-recovery-verified-october-15-2146-utc) deployedfbb0220f;193 checks and ordinary seven-ratio exact-source preparation pass with historical source clock intact. Public coreFMP; broader cutover gates remain.
