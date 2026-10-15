@@ -14,6 +14,7 @@ from app.services.direct_feed_store import (
 
 KIND = 'reddit_q4_v1'
 MSFT_KIND = 'microsoft_events_v1'
+PDF_KINDS = {'META': 'meta_q4_pdf_v1', 'SOFI': 'sofi_q4_pdf_v1'}
 INDEX_FEED = 'issuer_earnings_index'
 QUARTERS = {'First Quarter': 1, 'Second Quarter': 2, 'Third Quarter': 3, 'Fourth Quarter': 4}
 DATE_PATTERN = r'\b\d{2}\s*-\s*\d{2}\s*-\s*\d{4}\b'
@@ -46,10 +47,13 @@ def format_policy(year, quarter, policy):
 
 def enabled_company(company):
     return (company.get('symbol'), company.get('discovery', {}).get('kind')) in {
-        ('RDDT', KIND), ('MSFT', MSFT_KIND)}
+        ('RDDT', KIND), ('MSFT', MSFT_KIND), *PDF_KINDS.items()}
 
 
 def index_url(company, year):
+    if enabled_company(company) and company['symbol'] in PDF_KINDS:
+        from app.services.issuer_q4_pdf_discovery import index_url as pdf_index_url
+        return pdf_index_url(company, year)
     if enabled_company(company) and company['symbol'] == 'MSFT':
         from app.services.issuer_microsoft_discovery import INDEX_URL
         if year is not None:
@@ -72,10 +76,13 @@ def index_metadata(company, year):
         return {'key': 'MSFT:reports:latest', 'url': index_url(company, year),
                 'symbol': 'MSFT', 'discovery_kind': MSFT_KIND}
     return {'key': f"{company['symbol']}:reports:{year}", 'url': index_url(company, year),
-            'symbol': company['symbol'], 'year': year, 'discovery_kind': KIND}
+            'symbol': company['symbol'], 'year': year, 'discovery_kind': company['discovery']['kind']}
 
 
 def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
+    if enabled_company(company) and company['symbol'] in PDF_KINDS:
+        from app.services.issuer_q4_pdf_discovery import parse_index as parse_pdf_index
+        return parse_pdf_index(raw, company, year, observed)
     if enabled_company(company) and company['symbol'] == 'MSFT':
         from app.services.issuer_microsoft_discovery import parse_index as parse_msft_index
         if year is not None:
@@ -129,6 +136,9 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
 
 
 def parse_candidate(raw, metadata, observed):
+    if metadata.get('discovery_kind') in PDF_KINDS.values():
+        from app.services.issuer_q4_pdf_discovery import parse_candidate as parse_pdf_candidate
+        return parse_pdf_candidate(raw, metadata, observed)
     if metadata.get('discovery_kind') == MSFT_KIND:
         from app.services.issuer_microsoft_discovery import parse_candidate as parse_msft_candidate
         return parse_msft_candidate(raw, metadata, observed)
@@ -176,7 +186,10 @@ def verified_metadata(db, company, metadata):
     expected = dict(base)
     if metadata.get('published_at'):
         d = date.fromisoformat(metadata['published_at'])
-        if base.get('discovery_kind') == MSFT_KIND:
+        if base.get('discovery_kind') in PDF_KINDS.values():
+            from app.services.issuer_q4_pdf_discovery import publication_pattern
+            pattern = publication_pattern(base['symbol'], d)
+        elif base.get('discovery_kind') == MSFT_KIND:
             from app.services.issuer_microsoft_discovery import publication_pattern
             pattern = publication_pattern(d)
         else:
