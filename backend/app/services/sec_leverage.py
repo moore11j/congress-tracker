@@ -6,7 +6,7 @@ until coverage and the score/alert transition have been validated.
 from datetime import date
 import math
 
-VERSION = 'sec_leverage_evidence_v7'
+VERSION = 'sec_leverage_evidence_v8'
 DURATION = {
     'leverage_net_income': ('ProfitLoss',),
     'leverage_tax': ('IncomeTaxExpenseBenefit',),
@@ -274,6 +274,8 @@ def project(records, *, end, start):
         raise ValueError('invalid_leverage_period')
     ebitda = _ebitda(records, end, start)
     instant = {name: records.get(name, {}).get((None, end)) for name in INSTANT}
+    from app.services.sec_debt_precision import reconcile as precision_reconciliation
+    debt_precision = precision_reconciliation(instant)
     reconciliations = _lease_totals(instant)
     debt_reconciliations = _debt_bounds(instant)
     addition_checks = _debt_addition_checks(instant)
@@ -353,7 +355,7 @@ def project(records, *, end, start):
         'Reported borrowings plus finance and operating leases less cash; requires overlap review before selection.')
     return {'version': VERSION, 'status': 'preparation_only', 'period_date': str(end),
         'ebitda': ebitda, 'candidates': candidates, 'holds': holds, 'lease_reconciliations': reconciliations, 'debt_reconciliations': debt_reconciliations,
-        'debt_addition_reconciliations': addition_checks,
+        'debt_addition_reconciliations': addition_checks, 'debt_precision_reconciliation': debt_precision,
         'limitations': ['No candidate is selected as the canonical net-debt/EBITDA field.',
             'Missing debt, lease, interest or D&A components are not assumed zero.',
             'Issuer-adjusted EBITDA and D&A including other items are not substituted.',

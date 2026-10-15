@@ -1,3 +1,5 @@
+October15,00:40UTC: [PR654 ticker query repair](historical-similarity-query-batching-2026-10-15.md#deployed-release-and-current-observation) deployed68c28d9a;78checks, exact deployed source/result parity and ordinary news/earnings verify. Immediate Feed0.394s/Insights0.748s; ticker2.270-2.396s and sustained capacity/full portfolio remain open. Full FMP cutover gates unchanged.
+
 October15: [Historical similarity query repair](historical-similarity-query-batching-2026-10-15.md) implemented locally/unreleased,78 checks and exact actual AAPL/NVDA result parity pass;214/101 queries become3. Exact release/public speed/sustained capacity remain unverified. Full portfolio and FMP cutover gates unchanged.
 
 October15,00:19UTC: [Portfolio continuation](portfolio-refresh-continuation-2026-10-15.md) PR653/c4eaa0f0 deployed and nine hashes/isolated five-scope continuation verified.216 affected checks and28 finalchecks pass. Ordinary news23/23 and emptyqueue verify; full ordinary portfolio/external receipt, ticker latency and sustained capacity remain gates. PR651 held; all FMP cutover gates unchanged.
@@ -9,6 +11,10 @@ October14,23:54UTC: [Portfolio PR652](portfolio-refresh-load-2026-10-14.md) depl
 October14,23:50UTC: [Portfolio timeout repair](portfolio-refresh-load-2026-10-14.md) local/unreleased,135 focused checks and ten exact complete simulation comparisons pass. Production capacity regressed with23:23 exhausted credits and23:38 portfolio timeout; precision PR651 held. Sustained performance/full scheduled completion and all FMP exit gates remain open.
 
 October14: [ENB CAD PR648](enb-cad-financials-2026-10-14.md) deployed b2c3dd5b;363 checks,14 runtime hashes,34 original input matches and exact eight-ratio reproduction pass. Ordinary ENB propagation pending; public coreFMP and all wider cutover gates remain. SPCX annual/current originals captured, continuity review not complete.
+
+October14,23:31UTC: [Original debt precision](sec-debt-precision-2026-10-14.md) implemented with complete CMCSA source/cache replay,25 controls and45 finalfocusedtests; expanded312pass/one reproduced baselinefailure. Not deployed, no source/canonicalselection. Remaining full migration gates unchanged.
+
+October14,23:16UTC: [Debt maturity PR650](sec-debt-maturity-reconciliation-2026-10-14.md) deployedae4931ff with217 tests/12runtimehashes/three exact original fixtures and ordinaryfive-v7-panel propagation. Three issuer cache rotations and precision-aware canonicalpolicy remain; no publicsourcechange. Full financialcoverage/consumer/capacity/institution/transcript/Massive/globalFMP/billing gates stayopen.
 
 October14,23:08UTC: [Debt maturity reconciliation](sec-debt-maturity-reconciliation-2026-10-14.md) implemented,217 tests/three original filings/71 retained-panel/25 source-pair repeats pass. Five contradictory alternatives held; no canonical ratio or source selection. Release/runtime/ordinary propagation pending; broader migration gates unchanged.
 

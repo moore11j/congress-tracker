@@ -1,6 +1,6 @@
 # Debt maturity and lease reconciliation
 
-October 14, 2026. Implemented and source-replayed; release and ordinary operation pending. Public core fundamentals remains FMP.
+October 14, 2026. Deployed through PR650 (`ae4931ff`); exact runtime verified. Ordinary v7 propagation verified at23:16UTC; three issuer-specific cache refreshes remain pending. Public core fundamentals remains FMP.
 
 ## Confirmed source issue
 
@@ -37,3 +37,20 @@ Local evidence: `artifacts/cpb-debt-oct14/`, `artifacts/maturity-debt-oct14/`, `
 Fresh 22:58 UTC audit has 1,746 fresh cache rows, 1,587 old/missing-version leverage panels, and only 32 complete EBITDA panels under current v6, with 126 incomplete and one negative-expense hold. Only four current v6 scopes have ratio candidates (CMCSA, CPB, CRH, CXW). These counts reflect version rotation, not a loss of all retained financial data. Comcast's two totals still differ and require source review; do not call them equivalent without evidence.
 
 Broader financial definitions and coverage, full score/ranking/monitoring/watchlist/daily/weekly consumers, institutions, transcripts, sustained capacity, final Massive activation, zero global FMP requests and billing cancellation remain open. The remote Codex 429 is currently recovered with normal usage allowed; its historical cause/permanent repair is unverified. No model/retry/account configuration was changed.
+
+## Release receipt and further source review
+
+PR650 source `ad3595d3473de06af1777c379abe5089c47aad85` merged as `ae4931ff4b316b9eb6aa14a148b31840f13f024e`. Workflow38652456260/job116154270977 completed successfully at23:11:59UTC. At23:12:18 all12 runtime hashes match; the deployed Python3.12.15 processor reproduces all three fixtures exactly, including EBITDA935.6m COO,1271m CPB and1616m VRSK, with three candidates each and identical full repeats. These are isolated retained-input replays with no network, database writes or emails. Receipt: `artifacts/debt-maturity-runtime-1792019539.json`.
+
+Exact image and the unchanged API shared2CPU/2GB and database performance1CPU/2GB hosts verify in `preload-receipts-1792019555.json`. Public samples all200: Feed0.388s, Insights0.412s with research, news0.274s, research0.498s, AAPL0.462s andNVDA0.376s. These immediate cached samples do not prove sustained reliability or full data completeness. The23:11 financial job completed10 SEC/eight metric scopes before the new image, so its v6 results do not demonstrate v7 scheduled propagation. Ordinary23:12 press preparation completed5/5. News23/23 and42fresh company caches are verified in the captured scope; institutions950scopes remain partial/truncated and publicationfalse.
+
+At23:11 the sampled two-hour throttling is zero; CPU credits decline13018.7 to9870.0 over the interval, with intervening deployments. Sustained heavy-workload capacity remains open. Receipt: `cpu-quota-1792019480.json`. No hardware or schedule change.
+
+CI secret scanning passes. Frontend production dependency audit still reports5 groups(4high/1critical); backend Pillow10.4.0 still reports33 advisory rows. Dependency manifests are unchanged. No all-CI/full-suite claim. The app PR attachment failed because this thread has100 attachment identities; the PR remains available at https://github.com/moore11j/congress-tracker/pull/650. One CI-log read returned502; the same job subsequently returned terminal success without redispatch.
+
+A separate three-request capture of [Comcast's June30 original](https://www.sec.gov/Archives/edgar/data/1166691/000162828026049360/cmcsa-20260630.htm), SHA256 `4ed89cc5104d722b9f3a3c112995b4ae1589704d99a91e759f7b49bf54277a69`, resolves the previously uncertain19m difference: the90.4b tagged total is explicitly rounded to100m (`decimals=-8`), whereas6117m current and84264m noncurrent are each rounded to1m (`decimals=-6`). They share the same context `c-22`. The maturity sum90.381b is compatible with that coarser narrative total. This is source evidence only: no generalized rounding tolerance, selection policy or canonical value change was introduced. A future policy must preserve original precision rather than infer equivalence from a small numeric difference. Complete capture/hash/precision evidence is in `artifacts/cmcsa-debt-oct14/`.
+
+
+## First ordinary v7 preparation
+
+At23:16:26UTC the ordinary23:16:03 batch has completed10 SEC scopes and8 metric scopes, with no canonical writes or emails. Five stored panels (FDS, FCX, FCNCA, FCN, FCFS) use v7 and retain their explicit partial coverage. This confirms scheduler/worker propagation, not individual CPB/COO/VRSK cache rotation or whole-universe readiness. Receipt: `artifacts/debt-maturity-ordinary-1792019786.json`. No forced preparation or changed schedule. All local handles are terminal; global FMP cutover goal remains active.
