@@ -16,6 +16,7 @@ KIND = 'reddit_q4_v1'
 MSFT_KIND = 'microsoft_events_v1'
 MRNA_KIND = 'moderna_events_v1'
 IBM_KIND = 'ibm_events_v1'
+SEC_KIND = 'magna_sec_transcripts_v1'
 EVENT_FEED = 'issuer_earnings_event'
 PDF_KINDS = {'META': 'meta_q4_pdf_v1', 'SOFI': 'sofi_q4_pdf_v1'}
 INDEX_FEED = 'issuer_earnings_index'
@@ -50,10 +51,16 @@ def format_policy(year, quarter, policy):
 
 def enabled_company(company):
     return (company.get('symbol'), company.get('discovery', {}).get('kind')) in {
-        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), *PDF_KINDS.items()}
+        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), ('MGA', SEC_KIND), *PDF_KINDS.items()}
 
 
 def index_url(company, year):
+    if enabled_company(company) and company['symbol'] == 'MGA':
+        from app.services.issuer_sec_discovery import INDEX_URL, check_company
+        check_company(company)
+        if year is not None:
+            raise DirectSourceError('SEC submissions index does not use calendar years')
+        return INDEX_URL
     if enabled_company(company) and company['symbol'] == 'IBM':
         from app.services.issuer_ibm_discovery import INDEX_URL
         if year is not None:
@@ -85,7 +92,7 @@ def index_url(company, year):
 
 
 def index_metadata(company, year):
-    if enabled_company(company) and company['symbol'] in {'MSFT', 'MRNA', 'IBM'}:
+    if enabled_company(company) and company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA'}:
         symbol = company['symbol']
         return {'key': symbol+':reports:latest', 'url': index_url(company, year),
                 'symbol': symbol, 'discovery_kind': company['discovery']['kind']}
@@ -94,6 +101,11 @@ def index_metadata(company, year):
 
 
 def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
+    if enabled_company(company) and company['symbol'] == 'MGA':
+        from app.services.issuer_sec_discovery import parse_index as parse_sec_index
+        if year is not None:
+            raise DirectSourceError('SEC submissions index does not use calendar years')
+        return parse_sec_index(raw, company, observed)
     if enabled_company(company) and company['symbol'] == 'IBM':
         from app.services.issuer_ibm_discovery import parse_index as parse_ibm_index
         if year is not None:
@@ -160,6 +172,9 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
 
 
 def parse_candidate(raw, metadata, observed):
+    if metadata.get('discovery_kind') == SEC_KIND:
+        from app.services.issuer_sec_discovery import parse_candidate as parse_sec_candidate
+        return parse_sec_candidate(raw, metadata, observed)
     if metadata.get('discovery_kind') == IBM_KIND:
         from app.services.issuer_ibm_discovery import parse_candidate as parse_ibm_candidate
         return parse_ibm_candidate(raw, metadata, observed)
@@ -197,6 +212,9 @@ def verified_metadata(db, company, metadata):
     if metadata.get('discovery_kind') == IBM_KIND and metadata.get('discovery_stage') == 'pdf':
         from app.services.issuer_ibm_discovery import verified_pdf_metadata
         return verified_pdf_metadata(db, company, metadata, verified_metadata)
+    if metadata.get('discovery_kind') == SEC_KIND and metadata.get('discovery_stage') == 'transcript':
+        from app.services.issuer_sec_discovery import verified_transcript_metadata
+        return verified_transcript_metadata(db, company, metadata, verified_metadata)
     year = metadata.get('discovery_year')
     expected_index = index_metadata(company, year)
     index = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed == INDEX_FEED,
@@ -238,10 +256,13 @@ def verified_metadata(db, company, metadata):
     return base
 
 
-def latest_metadata(db, registry, symbol, static):
+def latest_metadata(db, registry, symbol, static, *, observed_by=None):
     company = next((c for c in registry if c['symbol'] == symbol and enabled_company(c)), None)
     if company is None:
         return static
+    if symbol == 'MGA':
+        from app.services.issuer_sec_discovery import latest_metadata as latest_sec_metadata
+        return latest_sec_metadata(db, company, observed=observed_by or utcnow())
     # At most two years/four periods each. Pending newest periods deliberately
     # block falling back to an older prepared quarter.
     feeds = ['issuer_earnings', EVENT_FEED] if symbol == 'IBM' else ['issuer_earnings']
@@ -268,7 +289,7 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
     companies = {c['symbol']: c for c in registry if enabled_company(c)}
     now = utcnow()
     for company in companies.values():
-        for year in ((None,) if company['symbol'] in {'MSFT', 'MRNA', 'IBM'} else (now.year, now.year-1)):
+        for year in ((None,) if company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA'} else (now.year, now.year-1)):
             discover(db, INDEX_FEED, index_metadata(company, year))
     db.commit()
     spent, processed, errors, stop_reason = 0, 0, [], None
@@ -282,11 +303,25 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
         eligible = [(row, json.loads(row.metadata_json)) for row in rows]
         eligible = [(r,m) for r,m in eligible if m.get('symbol') in companies
                     and m.get('discovery_kind') == companies[m['symbol']]['discovery']['kind']
-                    and r.error != 'Issuer period changed source URL; review required']
+                    and r.error != 'Issuer period changed source URL; review required'
+                    # Filed SEC originals are immutable evidence. Refresh the
+                    # directory for new/amended filings, not every old exhibit.
+                    # Failed/pending originals retain the daily retry; clearing
+                    # checked_at still permits an explicit reviewed recheck.
+                    and not (m.get('discovery_kind') == SEC_KIND and r.feed != INDEX_FEED
+                             and r.status == 'parsed' and r.checked_at is not None)]
         if not eligible:
             db.commit()
             break
         row, metadata = eligible[0]
+        # An identified SEC transcript should not sit behind older covers.
+        # Preserve other issuers' positions and the shared two-request budget.
+        if metadata.get('discovery_kind') == SEC_KIND and row.feed == EVENT_FEED:
+            ready = [(r,m) for r,m in eligible if r.feed == 'issuer_earnings'
+                     and m.get('discovery_kind') == SEC_KIND and r.checked_at is None
+                     and m.get('filing_date','') >= metadata.get('filing_date','')]
+            if ready:
+                row, metadata = max(ready, key=lambda item: (item[1]['fiscal_year'], item[1]['fiscal_quarter']))
         row_id, feed, url = row.id, row.feed, row.source_url
         company = companies[metadata['symbol']]
         spent += 1
@@ -317,8 +352,12 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
                 if feed == INDEX_FEED:
                     candidates = parse_index(raw, company, metadata.get('year'), now)
                 else:
-                    from app.services.issuer_ibm_discovery import parse_event
-                    candidates = [parse_event(raw, base, now)]
+                    if base.get('discovery_kind') == SEC_KIND:
+                        from app.services.issuer_sec_discovery import parse_event
+                        candidates = parse_event(raw, base, now)
+                    else:
+                        from app.services.issuer_ibm_discovery import parse_event
+                        candidates = [parse_event(raw, base, now)]
                 row = db.get(DirectFeedDocument, row_id)
                 record_document(db, row, raw, raw.decode('utf-8'), {'candidates': candidates})
                 for candidate in candidates:

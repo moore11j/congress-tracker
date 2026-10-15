@@ -1,3 +1,5 @@
+October15: [Magna SEC transcript discovery](sec-transcript-discovery-2026-10-15.md) implemented locally,368 Linux checks and full-original/research repeat verified; release/runtime/ordinary operation pending. Broad transcript coverage and all FMP cutover gates remain.
+
 October15: [Magna SEC financials](mga-sec-financials-2026-10-15.md) implemented locally: seven metrics,298 distinct checks and complete originals/cache/alerts/control replay pass. Two scored inputs still fail the classification gate. Release/runtime, ordinary rotation/rollover and all broad FMP gates remain.
 
 October15: [Optional cash-flow reliability](sec-cash-flow-isolation-2026-10-15.md) implemented locally,268 distinct selected checks pass. Preserves verified NVIDIA metrics on optional-source failure and retains batch stop/backoff. Release/runtime/ordinary verification pending; no financial definition/source change or new coverage claim. Full FMP gates remain.
