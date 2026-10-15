@@ -553,3 +553,6 @@ October15: [Partial companyfacts recovery](sec-partial-companyfacts-recovery-202
 
 
 October15: [Portfolio release coordination](portfolio-release-guard-2026-10-15.md) diagnosed a deployment-interrupted full refresh. Fresh38693528033 remains LIVE; no backend deployments until terminal verification. Atomic scheduler reservations are tested locally, not yet deployed or wired into the release workflow. Full migration gates unchanged.
+
+
+October15,14:32UTC: [Portfolio release guard](portfolio-release-guard-2026-10-15.md) primitive deployed885e896f and runtime verified after successful1135-scope/five-window portfolio cycle. Workflow caller timeout is separate from successful durable completion. Guarded workflow wiring locally passes19 checks; release/live guarded cycle still pending. Broader FMP gates remain.
