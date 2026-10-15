@@ -1,3 +1,5 @@
+October15,01:27UTC: [Current institutional cohort](institutional-current-cohort-2026-10-15.md) capture prepared/11 integrity checks pass; automatic approval review requires explicit owner approval for Fly-to-local institutional payload. No export executed. Current cohort/writer/consumer and all FMP exit gates remain; independent aggregate audit confirms remaining price/transcript/core dependencies.
+
 October15,01:16UTC: [SEC scanner PR655](sec-submission-scan-2026-10-15.md#release-and-current-production-preparation) deployed12fd3668; nine runtime hashes and complete20-target/688-peer read-only preparation verify. Current1321parsed/63quarantined cohort requires refreshed writer/consumer proof; publication cost, sustained capacity and all FMP cutover gates remain.
 
 October15: [SEC submission scanning](sec-submission-scan-2026-10-15.md) implemented locally/unreleased;170 checks and four complete718-original/402-peer parity passes. Candidate CPU lower with large variation; exact release/runtime and writer/sustained capacity remain unverified. All FMP cutover gates remain.
