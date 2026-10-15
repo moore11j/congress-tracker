@@ -1,3 +1,17 @@
+## October15: FMP shutdown transport repair
+
+**2026-10-15 FMP shutdown repair prepared:** [Evidence](docs/fmp-shutdown-transport-2026-10-15.md). Current209c22bb market previous-close helper bypasses global shutdown/budget guard despite historical primary-only repair claim. Eight offline red checks reproduced; four-line repair plus76 affected Linux3.12.3 passes and local installed-helper rehearsal verify. Exact release/runtime pending; FMP staysenabled, no selector/schedule/host/customeremail/purchase change. All source/financial/institution/transcript/consumer/capacity/finalMassive/zero-FMP/billing gates remain. Prior source evaluation and current concrete defect repair are progress; goalactive.
+
+## October 15, 2026: Alternative source evidence
+
+**2026-10-15,22:19UTC alternative source evaluation:** [Public evidence](docs/alternative-source-evaluation-2026-10-15.md). Two OpenFilings public feeds return200 but complete samples provide no numerical KPIs: JSON10/10pending/suppressed; Atom50entries including17Form4 despite periodic/limit10. This is sampled absence, not provider-wide absence. EarningsCalls.dev terms disclose nonverbatim/reconstructed passages and no recording/method provenance; unselected as issuer evidence. No account, purchase, adapter, deployment, source activation or production-data access. Latest release remains209c22bb; full financial/institution/transcript/consumer/capacity/finalMassive/zero-FMP/billing gates remain. Prior status-only turn no progress; current verified candidate evidence changes next selection action, goalactive. Continue official/free acceptance; authenticated candidates only if gaps justify them.
+
+## October15,2026,22:13UTC: Issuer fairness release and source hold
+
+**2026-10-15,22:13UTC issuer fairness deployed:** PR689/209c22bb,509 Linux checks/seven-day source parity/five installed hashes verified. Ordinary run615 uses the new reservation but UL latest-results returns403; transport stops with zero processed/public writes. Scheduling installed, successful collection recovery and broad coverage still unverified. See docs/issuer-collection-fairness-2026-10-15.md. Full FMP gates remain; current repair/verified new source refusal is progress, goalactive.
+
+No FMP cutover or new spending. Next successful ordinary mixed operation and permitted transcript-source coverage, then remaining full-product gates. Previous status-only goal turn no progress; this deployed repair and new operational evidence are progress.
+
 ## October15,2026: Issuer collection fairness
 
 **2026-10-15 issuer collection fairness:** [Evidence](docs/issuer-collection-fairness-2026-10-15.md). Local repair reserves a due reviewed-page slot and prioritizes aging indexes within the unchanged two-request allowance.509 Linux checks and seven-day complete-source comparison pass: static first attempts44-48 to0-8hours, index maximum38 to36hours, identical85documents/84revisions and source fingerprint. Exact release/runtime/ordinary recovery pending. Full FMP gates remain; previous status-only turn no progress, current turn concrete progress.

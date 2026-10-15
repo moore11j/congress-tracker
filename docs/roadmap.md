@@ -1,3 +1,5 @@
+October15,22:13UTC: [Issuer fairness](issuer-collection-fairness-2026-10-15.md#deployed-and-ordinary-source-hold-observed-october15-2213utc) deployed209c22bb,509 checks/five runtime hashes. Actual run615 uses reservation but UL index403 prevents collection; successful mixed operation and broader source/FMP gates remain.
+
 October15: [Issuer collection fairness](issuer-collection-fairness-2026-10-15.md) implemented locally,509 Linux checks/seven-day source parity verified. Exact release and ordinary recovery pending; broader FMP retirement gates remain.
 
 October15,21:46UTC: [UL PR688 recovery](ul-historical-original-2026-10-15.md#deployed-and-ordinary-recovery-verified-october-15-2146-utc) deployedfbb0220f;193 checks and ordinary seven-ratio exact-source preparation pass with historical source clock intact. Public coreFMP; broader cutover gates remain.
@@ -599,3 +601,7 @@ October15: [Security release](runtime-security-refresh-2026-10-15.md) deployed b
 
 
 October15: [Parent-equity reconciliation](sec-parent-equity-2026-10-15.md) locally restores source-verified ROE for AMAL/FRST/FUSB and repairs complete-bank acquisition.295 affected checks, six originals and isolated cache/alert repeats pass; release and ordinary propagation pending. No provider activation or full financial coverage claim.
+
+October15,22:19UTC: [Alternative source evaluation](alternative-source-evaluation-2026-10-15.md) records two actual OpenFilings public responses without numeric KPIs and EarningsCalls.dev provenance limitations. Neither is a selected replacement; sampled findings do not establish provider-wide absence. No new subscription or activation; full FMP retirement gates remain.
+
+October15: [FMP shutdown transport repair](fmp-shutdown-transport-2026-10-15.md) locally closes a verified market previous-close bypass,76 affected checks pass. Release/runtime pending; no source activation and full retirement gates remain.
