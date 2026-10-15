@@ -62,6 +62,7 @@ def test_similar_setups_uses_only_live_point_in_time_source_snapshots():
                     direction="bullish",
                     strength="strong",
                     reference_price=100.0,
+                    reference_price_source="test",
                     reference_price_at=datetime.combine(market_day, datetime.min.time(), tzinfo=timezone.utc),
                     active_source_count=2,
                     active_sources_json=json.dumps(["fundamentals", "price_volume"]),

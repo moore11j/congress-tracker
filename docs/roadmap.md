@@ -1,3 +1,7 @@
+October15: [Historical similarity query repair](historical-similarity-query-batching-2026-10-15.md) implemented locally/unreleased,78 checks and exact actual AAPL/NVDA result parity pass;214/101 queries become3. Exact release/public speed/sustained capacity remain unverified. Full portfolio and FMP cutover gates unchanged.
+
+October15,00:19UTC: [Portfolio continuation](portfolio-refresh-continuation-2026-10-15.md) PR653/c4eaa0f0 deployed and nine hashes/isolated five-scope continuation verified.216 affected checks and28 finalchecks pass. Ordinary news23/23 and emptyqueue verify; full ordinary portfolio/external receipt, ticker latency and sustained capacity remain gates. PR651 held; all FMP cutover gates unchanged.
+
 October15: [Portfolio continuation](portfolio-refresh-continuation-2026-10-15.md) implemented locally/unreleased;216 affected checks plus28 finalfocused checks and exact actual-capture persisted parity pass. Fair queue progress is tested, ordinary full-cycle duration, external completion and sustained capacity remain unverified. All FMP cutover gates remain; PR651 held.
 
 October14,23:54UTC: [Portfolio PR652](portfolio-refresh-load-2026-10-14.md) deployed8241a907;135 focused checks/ten exact simulation comparisons/six runtime hashes pass. Ordinary strategy/news/metadata jobs resume and immediate Feed/Insights recover, but ticker latency, full portfolio completion, sustained capacity and all FMP cutover gates remain open. Precision PR651 held.

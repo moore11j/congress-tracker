@@ -20,6 +20,8 @@ from app.services.confirmation_score import SOURCE_LABELS, SOURCE_ORDER
 from app.services.cross_source_divergence import CROSS_SOURCE_DIVERGENCE_METHODOLOGY_VERSION, build_cross_source_divergence
 from app.services.outcome_ledger import (
     _directional_side,
+    _legacy_outcomes_allowed,
+    _prefetch_canonical_outcome_rows,
     _prefetch_outcome_price_rows,
     _snapshot_outcomes,
     current_confirmation_methodology,
@@ -344,9 +346,15 @@ def build_similar_historical_setups(
         )
     candidates.sort(key=lambda item: (-item["similarity"], item["snapshot"].market_date, item["snapshot"].id))
     matches = candidates[:MAX_MATCHES]
-    price_rows = _prefetch_outcome_price_rows(db, [item["snapshot"] for item in matches])
+    snapshots = [item["snapshot"] for item in matches]
+    entries, observations = _prefetch_canonical_outcome_rows(db, snapshots)
+    legacy_rows = [row for row in snapshots if int(row.id) not in entries and _legacy_outcomes_allowed(row)]
+    price_rows = _prefetch_outcome_price_rows(db, legacy_rows)
     for match in matches:
-        match["outcomes"] = _snapshot_outcomes(db, match["snapshot"], price_rows_by_symbol=price_rows)
+        match["outcomes"] = _snapshot_outcomes(
+            db, match["snapshot"], price_rows_by_symbol=price_rows,
+            entry_by_snapshot=entries, observations_by_entry=observations,
+        )
     horizons = {horizon: _horizon_metrics(matches, horizon) for horizon in DEFAULT_HORIZONS}
     thirty_day_state = horizons["30D"]["status"]
     top_matches = []
