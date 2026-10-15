@@ -88,6 +88,11 @@ def publish_document(db, document_id):
         receipt = db.scalar(select(DirectFeedPublication).where(DirectFeedPublication.document_id == document.id))
         if receipt and (receipt.source_hash != document.content_hash or receipt.metadata_hash != metadata_hash
                         or receipt.publish_since != control.publish_since.isoformat()):
+            # Rotate a held retry without replacing its immutable evidence.
+            # Other attempts update their receipt only after projection, which
+            # requires a clean session even when autoflush is disabled.
+            if receipt.status == 'held':
+                receipt.updated_at = datetime.now(timezone.utc)
             return {'status': 'held', 'reason': 'Source changed after a publication attempt; reconcile explicitly',
                     'inserted_events': 0, 'inserted_transactions': 0}
         revision = db.scalar(select(DirectFeedRevision).where(
@@ -163,7 +168,12 @@ def publish_batch(db, *, limit=100, retry_held=False):
         query = query.where(DirectFeedPublication.id.is_(None))
     else:
         query = query.where((DirectFeedPublication.id.is_(None)) | (DirectFeedPublication.status == 'held'))
-    ids = list(db.scalars(query.order_by(DirectFeedDocument.id).limit(limit)))
+    # Treat discovery as the first pending attempt and retry the least recently
+    # attempted source first. Fixed ID ordering lets one full batch of holds
+    # permanently prevent newer filings from reaching reconciliation.
+    ordering = ([func.coalesce(DirectFeedPublication.updated_at, DirectFeedDocument.first_seen_at),
+                 DirectFeedDocument.id] if retry_held else [DirectFeedDocument.id])
+    ids = list(db.scalars(query.order_by(*ordering).limit(limit)))
     db.rollback()  # Each filing has its own atomic transaction/ownership check.
     results = []
     for document_id in ids:
