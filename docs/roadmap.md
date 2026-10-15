@@ -601,3 +601,5 @@ October15: [Security release](runtime-security-refresh-2026-10-15.md) deployed b
 
 
 October15: [Parent-equity reconciliation](sec-parent-equity-2026-10-15.md) locally restores source-verified ROE for AMAL/FRST/FUSB and repairs complete-bank acquisition.295 affected checks, six originals and isolated cache/alert repeats pass; release and ordinary propagation pending. No provider activation or full financial coverage claim.
+
+October15,22:19UTC: [Alternative source evaluation](alternative-source-evaluation-2026-10-15.md) records two actual OpenFilings public responses without numeric KPIs and EarningsCalls.dev provenance limitations. Neither is a selected replacement; sampled findings do not establish provider-wide absence. No new subscription or activation; full FMP retirement gates remain.
