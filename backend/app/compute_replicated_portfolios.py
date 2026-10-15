@@ -1524,6 +1524,7 @@ def run_compute(
     min_avg_priced_invested_value_pct: float = DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT,
     max_pct_invested_value_with_price_gaps: float = DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS,
     _schema_ready: bool = False,
+    _as_of_date: date | None = None,
 ) -> dict:
     if not _schema_ready:
         Base.metadata.create_all(bind=engine)
@@ -1539,7 +1540,7 @@ def run_compute(
     lookback_values = _resolve_lookback_days(lookback_days=lookback_days, lookback_set=lookback_set)
     debug_range = _parse_debug_date_range(debug_date_range)
 
-    end_date = datetime.now(timezone.utc).date()
+    end_date = _as_of_date or datetime.now(timezone.utc).date()
     benchmark_symbol = normalize_symbol(benchmark) or "SPY"
 
     with SessionLocal() as db:
@@ -1631,6 +1632,7 @@ def run_compute(
                         benchmark=benchmark_symbol,
                         issuer=issuer_filter,
                         end_date=end_date,
+                        _loaded_events=(loaded_events, loader_skips),
                     )
                     preflight_result: dict | None = None
                     if price_preflight:
@@ -1645,6 +1647,7 @@ def run_compute(
                                 benchmark=benchmark_symbol,
                                 issuer=issuer_filter,
                                 end_date=end_date,
+                                _loaded_events=(loaded_events, loader_skips),
                             )
 
                         simulation, preflight_result = _run_price_preflight(
@@ -1915,8 +1918,12 @@ def run_all_congress_portfolio_batch(
     min_avg_priced_invested_value_pct: float = DEFAULT_MIN_AVG_PRICED_INVESTED_VALUE_PCT,
     max_pct_invested_value_with_price_gaps: float = DEFAULT_MAX_PCT_INVESTED_VALUE_WITH_PRICE_GAPS,
     verbose: bool = False,
+    _planned_entities: list[dict] | None = None,
+    _as_of_date: date | None = None,
+    _schema_ready: bool = False,
 ) -> dict:
-    Base.metadata.create_all(bind=engine)
+    if not _schema_ready:
+        Base.metadata.create_all(bind=engine)
     normalized_quality_target = (quality_target or "warning").strip().lower()
     if normalized_quality_target not in {"good", "warning", "poor"}:
         raise ValueError("--quality-target must be good, warning, or poor")
@@ -1937,7 +1944,7 @@ def run_all_congress_portfolio_batch(
     benchmark_symbol = normalize_symbol(benchmark) or "SPY"
 
     with SessionLocal() as db:
-        all_candidates = _all_congress_member_candidates(db)
+        all_candidates = _all_congress_member_candidates(db) if _planned_entities is None else _planned_entities
         planned_entities = all_candidates[offset : offset + planned_limit]
 
     results: list[dict] = []
@@ -1976,6 +1983,7 @@ def run_all_congress_portfolio_batch(
             report = run_compute(
                 # The batch checked this same engine before selecting candidates.
                 _schema_ready=True,
+                _as_of_date=_as_of_date,
                 entity_type="congress",
                 entity_ids=[entity_id],
                 lookback_days=normalized_lookback_days,

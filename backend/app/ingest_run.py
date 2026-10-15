@@ -992,6 +992,15 @@ def _run_portfolio_methodology_guard_job() -> dict[str, object]:
 
 
 def _run_portfolio_simulation_refresh_job() -> dict[str, object]:
+    if os.getenv('WALNUT_PORTFOLIO_CONTINUATION') == '1':
+        from app.jobs.refresh_portfolio_batch import run
+        result = run()
+        if result['status'] == 'yielded':
+            print(json.dumps(result, sort_keys=True), flush=True)
+            raise SystemExit(75)
+        if result['status'] == 'failed':
+            raise RuntimeError('Portfolio refresh did not complete every planned scope')
+        return result
     guard = check_background_job_guard("portfolio-simulation-refresh")
     if not guard.proceed:
         logger.info("portfolio_simulation_refresh_skipped reason=%s guard=%s", guard.reason, guard.to_dict())

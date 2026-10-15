@@ -1,7 +1,8 @@
 """Fork isolated data jobs from a read-only, single-threaded import template.
 
-Only fixed, argument-free warmers use this path. No task executes in the parent;
-unsupported commands retain the original subprocess launcher.
+Only fixed warmers and the exact portfolio-refresh alias use this path.
+No task executes in the parent; unsupported commands retain the original
+subprocess launcher.
 """
 from __future__ import annotations
 
@@ -28,6 +29,8 @@ _preload_failed = False
 
 
 def selected_module(command):
+    if command == 'cd /app && python -m app.ingest_run --job portfolio-simulation-refresh':
+        return 'app.jobs.refresh_portfolio_batch'
     prefix = 'cd /app && python -m '
     module = command[len(prefix):] if command.startswith(prefix) else ''
     return module if module in MODULES else None
@@ -76,7 +79,7 @@ def _record_identity(pid, token):
 def preload(environment):
     """Import definitions only. Never share task state or an open DB connection."""
     global _template_environment, _preload_failed
-    fingerprint = {k: v for k, v in environment.items() if k != 'WALNUT_JOB_TOKEN'}
+    fingerprint = {k: v for k, v in environment.items() if k not in {'WALNUT_JOB_TOKEN', 'WALNUT_JOB_KEY', 'WALNUT_JOB_CYCLE', 'WALNUT_PORTFOLIO_CONTINUATION'}}
     if _preload_failed:
         return False
     if _template_environment is not None:
@@ -93,6 +96,7 @@ def preload(environment):
         importlib.import_module('app.models')
         importlib.import_module('app.services.direct_feed_store')
         importlib.import_module('requests')
+        importlib.import_module('app.compute_replicated_portfolios')
         from sqlalchemy.orm import configure_mappers
         from app.db import engine
         configure_mappers()
