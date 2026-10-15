@@ -15,6 +15,9 @@ from app.services import sec_directory, sec_fundamentals
 
 VERSION = 'sec_ratio_preparation_v5'
 TTL = timedelta(hours=24)
+# Match the existing broad-source failure backoff; do not shorten cooldowns.
+CASH_FLOW_RETRY_TTL = timedelta(hours=20)
+CASH_FLOW_RECOVERY_VERSION = 'issuer_cash_flow_transport_isolation_v1'
 METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
     'operating_margin_expansion', 'eps_growth', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth', 'net_debt_to_ebitda')
 
@@ -22,6 +25,8 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 def version_for_symbol(symbol):
     from app.services.sec_parent_equity import PROFILES, VERSION as equity_version
     base = _base_version_for_symbol(symbol)
+    if symbol == 'NVDA':
+        base += '_'+CASH_FLOW_RECOVERY_VERSION
     return base+"_"+equity_version if symbol in PROFILES else base
 
 
@@ -83,7 +88,11 @@ def _cached(symbol, now, max_cache_age=TTL):
         try:
             payload = json.loads(row.payload_json)
             observed = datetime.fromisoformat(payload['observed_at'])
-        except (ValueError, TypeError, KeyError):
+            cash_flow = payload.get('calculation_evidence', {}).get('issuer_cash_flow', {})
+            if (symbol == 'NVDA' and cash_flow.get('reason') == 'cash_flow_source_unavailable'
+                    and cash_flow.get('retryable') is True and now-stamp >= CASH_FLOW_RETRY_TTL):
+                return None
+        except (ValueError, TypeError, KeyError, AttributeError):
             return None
         if symbol in ISSUER_PROFILES and payload.get('issuer_dependency') != _issuer_dependency(db, symbol):
             return None

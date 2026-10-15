@@ -120,8 +120,10 @@ def test_source_budget_and_transport_error_preserve_other_financials():
     values=sec.project_fundamentals(raw,meta,symbol='NVDA',cik=issuer.CIK,observed_at=NOW)
     class Client:
         def get(self,url):raise issuer.DirectSourceError('source_unavailable')
-    with pytest.raises(issuer.DirectSourceError,match='source_unavailable'):
-        issuer.supplement(values,raw,meta,client=Client())
+    result=issuer.supplement(values,raw,meta,client=Client())
+    assert {k:v for k,v in result.items() if k != 'source_evidence_json'} == {k:v for k,v in values.items() if k != 'source_evidence_json'}
+    proof=json.loads(result['source_evidence_json'])['issuer_cash_flow']
+    assert proof['reason']=='cash_flow_source_unavailable' and proof['retryable'] is True
     assert 'free_cash_flow' not in values
     evidence=json.loads(values['source_evidence_json'])
     for i,r in enumerate(evidence['current']['operating_cash_flow']['inputs']):r['accession']=f'0001045810-26-00010{i}'
