@@ -565,4 +565,7 @@ October15: [Portfolio release coordination](portfolio-release-guard-2026-10-15.m
 
 October15,14:32UTC: [Portfolio release guard](portfolio-release-guard-2026-10-15.md) primitive deployed885e896f and runtime verified after successful1135-scope/five-window portfolio cycle. Workflow caller timeout is separate from successful durable completion. Guarded workflow wiring locally passes19 checks; release/live guarded cycle still pending. Broader FMP gates remain.
 
+
+October15,14:37UTC: [Portfolio release coordination](portfolio-release-guard-2026-10-15.md) deployed through PR670/2543d410 with verified live reservation/rollout/cleanup and five runtime hashes. Full durable portfolio1135/1135 succeeds; repeated operation, source/price quality, other consumers and sustained capacity remain open. FMP retirement remains incomplete; no provider activation or subscription.
+
 October15,06:10UTC: [Partial SEC response recovery](sec-partial-companyfacts-recovery-2026-10-15.md#deployed-release-and-live-verification-0610-utc) PR668 deployed af59d62b;367 checks, four runtime hashes and two live complete policy/source-cache proofs verify. Observed ordinary debt-policy rotation is33 scopes/four completed batches; broad coverage, consumer/capacity and all wider FMP cutover gates remain.
