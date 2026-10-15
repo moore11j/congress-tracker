@@ -562,3 +562,6 @@ October15: [Runtime dependency repair](runtime-security-refresh-2026-10-15.md) l
 
 
 October15: [Security release](runtime-security-refresh-2026-10-15.md) deployed bbbc72c3, clean production audits and runtime verified. [Ticker snapshot fault repair](ticker-snapshot-failure-2026-10-15.md) locally verifies bounded optional reads and intact streamed fallback during failure; release pending. No FMP selectors changed.
+
+
+October15: [Parent-equity reconciliation](sec-parent-equity-2026-10-15.md) locally restores source-verified ROE for AMAL/FRST/FUSB and repairs complete-bank acquisition.295 affected checks, six originals and isolated cache/alert repeats pass; release and ordinary propagation pending. No provider activation or full financial coverage claim.

@@ -289,3 +289,24 @@ def test_partial_recovery_does_not_fetch_older_report_or_same_day_filing():
     company['filings']['recent']['reportDate'] = ['2026-03-31']
     assert acquire(data, company, source) is None
     assert source.reads == []
+
+
+@pytest.mark.parametrize('complete', [True, False])
+def test_bank_revenue_completeness_uses_same_basis_as_financial_projector(complete):
+    from copy import deepcopy
+    data, company = sources()
+    company['sic'] = '6022'
+    company['filings'] = lagging()[1]['filings']
+    gaap = data['facts']['us-gaap']
+    revenue = gaap.pop('RevenueFromContractWithCustomerExcludingAssessedTax')
+    gaap['InterestIncomeExpenseNet'] = deepcopy(revenue)
+    gaap['NoninterestIncome'] = deepcopy(revenue)
+    for row in gaap['NoninterestIncome']['units']['USD']: row['val'] = 0
+    if not complete:
+        gaap['NoninterestIncome']['units']['USD'] = [r for r in gaap['NoninterestIncome']['units']['USD'] if r['end'] != '2026-06-30']
+    source = Source()
+    result = acquire(data, company, source)
+    if complete:
+        assert result is None and source.reads == []
+    else:
+        assert result['evidence']['accession'] == ACC and source.reads == [URL]

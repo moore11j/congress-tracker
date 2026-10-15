@@ -206,6 +206,10 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None):
         from app.services.sec_operating_components import CIK as operating_cik, TAGS as operating_tags
         if cik == operating_cik:
             auxiliary |= {tag for concepts in operating_tags.values() for tag in concepts} - wanted
+        from app.services.sec_parent_equity import PROFILES, tags_for
+        for equity_symbol, profile in PROFILES.items():
+            if cik == profile[0]:
+                auxiliary |= {t for ts in tags_for(equity_symbol, cik).values() for t in ts} - wanted
         wanted |= auxiliary
     records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}
     for n in nodes(tree, 'nonfraction'):
@@ -316,6 +320,10 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
     # incomplete, while retaining the no-request path for complete histories.
     revenue_records = sec._records(payload, 'revenue', available, forms=forms,
         concepts=tags['revenue'], unit=currency)
+    if native_basis is None:
+        from app.services.sec_bank_revenue import apply as bank_revenue
+        revenue_records = bank_revenue({'revenue': revenue_records}, payload, company,
+            available_by=available)['revenue']
     recent = company.get('filings',{}).get('recent',{})
     keys = ['accessionNumber','form','filingDate','reportDate','primaryDocument']
     arrays = [recent.get(k,[]) for k in keys]

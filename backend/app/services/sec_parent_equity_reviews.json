@@ -1,0 +1,56 @@
+{
+  "AMAL": [
+    {
+      "cik": "0001823608",
+      "period": "2026-06-30",
+      "filed": "2026-08-04",
+      "accession": "0001823608-26-000182",
+      "url": "https://www.sec.gov/Archives/edgar/data/1823608/000182360826000182/amal-20260630.htm",
+      "sha256": "b5971cd7d6e5d1e26080298d1c2d8d05d2129c240b18a63561307cddf6020a77"
+    },
+    {
+      "cik": "0001823608",
+      "period": "2025-06-30",
+      "filed": "2025-08-05",
+      "accession": "0001823608-25-000076",
+      "url": "https://www.sec.gov/Archives/edgar/data/1823608/000182360825000076/amal-20250630.htm",
+      "sha256": "53b782a9f3984296200cd47ce44111063a77d77c34f1b56f414594a21fea8712"
+    }
+  ],
+  "FRST": [
+    {
+      "cik": "0001325670",
+      "period": "2026-06-30",
+      "filed": "2026-08-07",
+      "accession": "0001104659-26-092672",
+      "url": "https://www.sec.gov/Archives/edgar/data/1325670/000110465926092672/frst-20260630x10q.htm",
+      "sha256": "cf00d85ac7b6e0b350a11f419b9974e2ab8d1641044e273cf90418152d1a602d"
+    },
+    {
+      "cik": "0001325670",
+      "period": "2025-06-30",
+      "filed": "2025-08-11",
+      "accession": "0001558370-25-011083",
+      "url": "https://www.sec.gov/Archives/edgar/data/1325670/000155837025011083/frst-20250630x10q.htm",
+      "sha256": "b69cf65bf3c45ad3298ad3134ad396e9ecd16df8ca485ae8d5cc0ed624120341"
+    }
+  ],
+  "FUSB": [
+    {
+      "cik": "0000717806",
+      "period": "2026-06-30",
+      "filed": "2026-08-06",
+      "accession": "0001193125-26-337583",
+      "url": "https://www.sec.gov/Archives/edgar/data/717806/000119312526337583/fusb-20260630.htm",
+      "sha256": "89ec0af760fa23e70097fb0188ec205ad49bae5cd75a8e0122c903f0cb22d0d8"
+    },
+    {
+      "cik": "0000717806",
+      "period": "2025-06-30",
+      "filed": "2025-08-07",
+      "accession": "0000950170-25-104822",
+      "url": "https://www.sec.gov/Archives/edgar/data/717806/000095017025104822/fusb-20250630.htm",
+      "sha256": "5c45be682ec466a8dafea11e40633c8de24515d9fee73dc4909891921b5eb8e7"
+    }
+  ]
+}

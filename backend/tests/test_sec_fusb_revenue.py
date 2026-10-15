@@ -94,7 +94,8 @@ def test_review_does_not_apply_to_unreviewed_identity(change):
 
 
 def test_fusb_requires_new_ratio_and_statement_caches():
-    assert prep.version_for_symbol('FUSB').endswith('_' + bank.REVIEWED_VERSION)
+    from app.services.sec_parent_equity import VERSION as equity_version
+    assert prep.version_for_symbol('FUSB') == prep.VERSION+'_'+bank.REVIEWED_VERSION+'_'+equity_version
     payload = {'source': 'sec_edgar', 'symbol': 'FUSB'}
     row = SimpleNamespace(source='sec_edgar', fetched_at=NOW, payload_json=json.dumps(payload))
     assert statements.cached_row_payload(row, 'FUSB', now=NOW) is None

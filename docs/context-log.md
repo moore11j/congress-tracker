@@ -956,3 +956,8 @@ PR620/99c2bf49 deployed workflow38296671226SUCCESS, including readiness/Premium 
 ## October15 security release and ticker fault repair
 
 October15: Runtime security PR671 deployed bbbc72c3 with exact-head clean audits, successful Vercel and guarded backend38763224424, runtime package/hash/image verification and public Feed0.409s/Insights0.290s spot checks. Separately, optional ticker snapshot failures now abort within2500ms and preserve indexable truthful fallback locally:9 focused tests, 31/32 related checks with one known baseline failure, successful build and three actual streamed fault cases pass. Ticker repair release pending; full FMP goal remains active. No provider/hardware/subscription change; pending exports remain unrun.
+
+
+### October 15, 2026: Reviewed parent-equity replacement prepared
+
+Continue the full FMP migration. Implemented AMAL/FRST/FUSB component equity with independent balance reconciliation, same-filing/restatement guards, cache versions and ROE alert basis. The full preparation replay also exposed and repaired bank history recognition in original acquisition.295 affected tests, six source originals, 24 unchanged controls, three cached repeats and 21 no-send alert evaluations pass. No deployment or public activation yet; no production data export, customer message or spending. See [report](sec-parent-equity-2026-10-15.md). Previous status-only turn no progress; current code and evidence advance the goal. Next guarded release/runtime and ordinary preparation, then remaining full cutover gates. Pending verification approvals unchanged.
