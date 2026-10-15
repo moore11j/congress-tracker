@@ -25,6 +25,7 @@ def db(monkeypatch):
     engine=create_engine('sqlite:///:memory:')
     Base.metadata.create_all(engine)
     monkeypatch.setenv('INSIGHTS_SECTOR_PROVIDER','etf_proxy')
+    monkeypatch.setenv('STOCK_PRICE_PROVIDER','massive')
     monkeypatch.setenv('FMP_PROVIDER_DISABLED','true')
     monkeypatch.setenv('FMP_PERSIST_USAGE_EVENTS','false')
     monkeypatch.delenv('INSIGHTS_SECTOR_WARMING_ENABLED',raising=False)
@@ -123,7 +124,7 @@ def test_non_builder_path_uses_same_selected_sector_contract(db,monkeypatch):
 
 
 def test_warming_disabled_and_public_context_never_hydrate(db,monkeypatch):
-    monkeypatch.setattr(price_lookup,'hydrate_split_adjusted_ohlc',lambda *a:pytest.fail('Unexpected price fetch'))
+    monkeypatch.setattr(sectors,'_hydrate',lambda *a:pytest.fail('Unexpected price fetch'))
     assert sectors.warm(db)['attempted']==0
     monkeypatch.setenv('INSIGHTS_SECTOR_WARMING_ENABLED','true')
     token=set_request_context({'path':'/api/insights/refresh'})
@@ -137,7 +138,7 @@ def test_bounded_background_rotation_does_not_starve_after_failures(db,monkeypat
     def fail(db,symbol,start,end):
         calls.append((symbol,start,end))
         raise RuntimeError('provider unavailable')
-    monkeypatch.setattr(price_lookup,'hydrate_split_adjusted_ohlc',fail)
+    monkeypatch.setattr(sectors,'_hydrate',fail)
     for _ in range(6):
         result=sectors.warm(db,now=NOW)
         assert result['attempted']==2 and result['failed']==2
@@ -149,7 +150,7 @@ def test_bounded_background_rotation_does_not_starve_after_failures(db,monkeypat
 def test_complete_cache_requires_no_warming_calls(db,monkeypatch):
     for _,symbol in sectors.TARGETS:seed(db,symbol)
     monkeypatch.setenv('INSIGHTS_SECTOR_WARMING_ENABLED','true')
-    monkeypatch.setattr(price_lookup,'hydrate_split_adjusted_ohlc',lambda *a:pytest.fail('Fresh prices fetched again'))
+    monkeypatch.setattr(sectors,'_hydrate',lambda *a:pytest.fail('Fresh prices fetched again'))
     assert sectors.warm(db,now=NOW)['attempted']==0
 
 
@@ -161,7 +162,7 @@ def test_bounded_warming_completes_all_sectors_then_stops_and_persists_repeat(db
         assert (start,end)==DATES
         seed(db,symbol)
         return 2
-    monkeypatch.setattr(price_lookup,'hydrate_split_adjusted_ohlc',hydrate)
+    monkeypatch.setattr(sectors,'_hydrate',hydrate)
     results=[sectors.warm(db,now=NOW) for _ in range(6)]
     assert [r['attempted'] for r in results]==[2,2,2,2,2,1]
     assert len(calls)==len(set(calls))==11
@@ -172,3 +173,73 @@ def test_bounded_warming_completes_all_sectors_then_stops_and_persists_repeat(db
     assert snapshots.get_insights_snapshot(db)['sector_performance']==payload['sector_performance']
     assert db.query(PriceCache).count()==22
     assert len(calls)==11
+
+
+def bars():
+    from zoneinfo import ZoneInfo
+    return {'ticker':'XLK','adjusted':True,'status':'OK','results':[
+        {'t':int(datetime.fromisoformat(day).replace(tzinfo=ZoneInfo('America/New_York')).timestamp()*1000),
+         'o':value,'h':value+1,'l':value-1,'c':value,'v':100}
+        for day,value in zip(DATES,(100,102))]}
+
+
+def test_actual_massive_adapter_validates_writes_and_repeats_without_fmp(db,monkeypatch):
+    from app.clients.massive_stocks import MassiveStocksClient
+    calls=[]
+    def fetch(self,path,params):
+        calls.append((path,params));return bars()
+    monkeypatch.setattr(MassiveStocksClient,'get',fetch)
+    seed(db,'XLK',source='fmp:historical-price-eod/full')
+    db.get(PriceCache,('XLK',DATES[0])).raw_close=200
+    db.commit()
+    assert sectors.build(db)[0][0]['change_pct'] is None
+    for _ in range(2):assert sectors._hydrate(db,'XLK',*DATES)==2
+    assert db.query(PriceCache).count()==2
+    assert db.get(PriceCache,('XLK',DATES[0])).raw_close is None
+    assert sectors.build(db)[0][0]['change_pct']==pytest.approx(2)
+    assert len(calls)==2 and all(call[1]['adjusted']=='true' for call in calls)
+
+
+@pytest.mark.parametrize('change',['wrong_ticker','raw','partial','duplicate','extra_page','future','intraday','negative','invalid_ohlc','dollar_volume_overflow'])
+def test_massive_adapter_holds_entire_invalid_pair_without_writes(db,monkeypatch,change):
+    from app.clients.massive_stocks import MassiveStocksClient
+    payload=bars()
+    if change=='wrong_ticker':payload['ticker']='XLF'
+    elif change=='raw':payload['adjusted']=False
+    elif change=='partial':payload['results'].pop()
+    elif change=='duplicate':payload['results'][1]=payload['results'][0].copy()
+    elif change=='extra_page':payload['next_url']='https://api.massive.com/page2'
+    elif change=='future':payload['results'][1]['t']+=86400000
+    elif change=='intraday':payload['results'][1]['t']+=60000
+    elif change=='negative':payload['results'][1]['c']=-1
+    elif change=='invalid_ohlc':payload['results'][1]['l']=200
+    elif change=='dollar_volume_overflow':payload['results'][1]['v']=1e308
+    monkeypatch.setattr(MassiveStocksClient,'get',lambda *a:payload)
+    with pytest.raises(ValueError):sectors._hydrate(db,'XLK',*DATES)
+    assert db.query(PriceCache).count()==0
+
+
+def test_warming_waits_for_explicit_massive_selection(db,monkeypatch):
+    monkeypatch.setenv('INSIGHTS_SECTOR_WARMING_ENABLED','true')
+    monkeypatch.setenv('STOCK_PRICE_PROVIDER','fmp')
+    monkeypatch.setattr(sectors,'_hydrate',lambda *a:pytest.fail('FMP selection must not warm sectors'))
+    assert sectors.warm(db)=={'status':'awaiting_massive_selection','attempted':0}
+
+
+def test_warmer_transport_is_massive_only_even_when_fmp_is_enabled(db,monkeypatch):
+    from types import SimpleNamespace
+    import requests
+    monkeypatch.setenv('FMP_PROVIDER_DISABLED','false')
+    monkeypatch.setenv('FMP_API_KEY','dummy-fmp')
+    monkeypatch.setenv('MASSIVE_API_KEY','dummy-massive')
+    calls=[]
+    def get(url,**kwargs):
+        calls.append((url,kwargs))
+        return SimpleNamespace(status_code=200,json=bars)
+    monkeypatch.setattr(requests,'get',get)
+    assert sectors._hydrate(db,'XLK',*DATES)==2
+    assert len(calls)==1
+    assert calls[0][0]=='https://api.massive.com/v2/aggs/ticker/XLK/range/1/day/2026-10-13/2026-10-14'
+    assert calls[0][1]['params']['adjusted']=='true'
+    assert calls[0][1]['allow_redirects'] is False
+    assert calls[0][1]['timeout']==15
