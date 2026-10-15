@@ -108,6 +108,7 @@ def database(path):
     db.execute('''CREATE TABLE IF NOT EXISTS external_requests (
         request_id TEXT PRIMARY KEY, job_key TEXT NOT NULL, target_run INTEGER NOT NULL,
         created_at REAL NOT NULL, finished_at REAL, exit_code INTEGER)''')
+    db.execute('CREATE TABLE IF NOT EXISTS release_hold (id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT NOT NULL, expires_at REAL NOT NULL)')
     # Serialize additive migration with enqueuers starting at the same time.
     db.execute('BEGIN IMMEDIATE')
     try:
@@ -123,6 +124,49 @@ def database(path):
         yield db
     finally:
         db.close()
+
+
+RELEASE_PROTECTED_COMMANDS = {
+    PORTFOLIO_COMMAND, 'cd /app && python -m app.ingest_run --job all',
+}
+
+
+def reserve_release(db, owner, manifest, *, seconds=600, now=None):
+    """Serialize a bounded release reservation against portfolio claims."""
+    if not re.fullmatch(r'[0-9]{1,20}-[0-9]{1,6}', owner) or not 60 <= seconds <= 900:
+        raise ValueError('Invalid release reservation identity or duration')
+    now = time.time() if now is None else now
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        held = db.execute('SELECT owner,expires_at FROM release_hold WHERE id=1').fetchone()
+        if held and held['expires_at'] > now:
+            if held['owner'] != owner:
+                db.commit()
+                return {'status': 'blocked', 'reason': 'another_release_reserved'}
+            # An idempotent transport retry cannot extend a hold indefinitely.
+            db.commit()
+            return {'status': 'ready', 'existing': True}
+        busy = any(manifest.get(row['key'], {}).get('command') in RELEASE_PROTECTED_COMMANDS
+                   or row['portfolio_checkpoint']
+                   for row in db.execute("SELECT key,coalesce(json_extract(checkpoint_json,'$.kind')='portfolio_refresh_v1',0) AS portfolio_checkpoint FROM jobs WHERE started_at IS NOT NULL OR continuation_at IS NOT NULL"))
+        if busy:
+            db.commit()
+            return {'status': 'blocked', 'reason': 'portfolio_cycle_unfinished'}
+        db.execute('INSERT INTO release_hold(id,owner,expires_at) VALUES(1,?,?) '
+                   'ON CONFLICT(id) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at',
+                   (owner, now + seconds))
+        db.commit()
+        return {'status': 'ready', 'existing': False}
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def release_reservation(db, owner):
+    if not re.fullmatch(r'[0-9]{1,20}-[0-9]{1,6}', owner):
+        raise ValueError('Invalid release reservation identity')
+    released = db.execute('DELETE FROM release_hold WHERE id=1 AND owner=?', (owner,)).rowcount
+    return {'status': 'released' if released else 'not_owned'}
 
 
 def enqueue(db, key, definition, now=None):
@@ -142,6 +186,7 @@ def claim(db, lane, manifest, now=None):
             return None
         # A second refresh (or the legacy all-job) must not overwrite a newer
         # as-of window while an earlier portfolio cycle yields to unrelated jobs.
+        release_reserved = db.execute('SELECT 1 FROM release_hold WHERE id=1 AND expires_at>?', (now,)).fetchone() is not None
         portfolio_owners = [row for row in db.execute(
             'SELECT key,cycle_id FROM jobs WHERE continuation_at IS NOT NULL')
             if manifest.get(row['key'], {}).get('command') == PORTFOLIO_COMMAND]
@@ -155,6 +200,8 @@ def claim(db, lane, manifest, now=None):
                 db.execute('UPDATE jobs SET pending_at=NULL,continuation_at=NULL WHERE key=?', (row['key'],))
                 continue
             command = manifest[row['key']].get('command')
+            if release_reserved and command in RELEASE_PROTECTED_COMMANDS:
+                continue
             if (portfolio_owner and portfolio_owner != row['key'] and command in {
                     PORTFOLIO_COMMAND, 'cd /app && python -m app.ingest_run --job all'}):
                 continue
@@ -398,14 +445,19 @@ def main():
     dispatch.add_argument('job', choices=EXTERNAL_INGEST_JOBS)
     dispatch.add_argument('--request-id', required=True)
     dispatch.add_argument('--wait-seconds', type=int, default=1800)
+    reserve = sub.add_parser('reserve-release')
+    reserve.add_argument('--owner', required=True)
+    reserve.add_argument('--seconds', type=int, default=600)
+    release = sub.add_parser('release-reservation')
+    release.add_argument('--owner', required=True)
     args = parser.parse_args()
-    if args.action == 'dispatch-ingest':
+    if args.action in {'dispatch-ingest', 'reserve-release', 'release-reservation'}:
         if (os.getenv('COMBINED_SCHEDULER_ENABLED', '').lower() != 'true'
                 or not os.getenv('COMBINED_SCHEDULER_MACHINE_ID')
                 or os.getenv('COMBINED_SCHEDULER_MACHINE_ID') != os.getenv('FLY_MACHINE_ID')
                 or not Path(args.queue).is_file()
-                or not 0 <= args.wait_seconds <= 3600):
-            raise SystemExit('External ingestion requires the active scheduler owner and existing queue')
+                or (args.action == 'dispatch-ingest' and not 0 <= args.wait_seconds <= 3600)):
+            raise SystemExit('Queue operations require the active scheduler owner and existing queue')
     manifest = load_manifest(args.manifest)
     if args.action == 'worker':
         worker(args.queue, manifest, args.lane)
@@ -416,6 +468,12 @@ def main():
                 result = wait_external_request(db, args.request_id, wait_seconds=args.wait_seconds)
                 print(json.dumps(result), flush=True)
                 raise SystemExit(0 if result['status'] == 'succeeded' else 75 if result['status'] == 'pending' else 1)
+            elif args.action == 'reserve-release':
+                result = reserve_release(db, args.owner, manifest, seconds=args.seconds)
+                print(json.dumps(result), flush=True)
+                raise SystemExit(0 if result['status'] == 'ready' else 75)
+            elif args.action == 'release-reservation':
+                print(json.dumps(release_reservation(db, args.owner)), flush=True)
             elif args.action == 'enqueue':
                 enqueue(db, args.key, manifest[args.key])
             else:

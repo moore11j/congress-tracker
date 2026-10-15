@@ -550,3 +550,6 @@ October15,05:48UTC: [Net-debt policy](sec-net-debt-policy-2026-10-15.md#deployed
 
 
 October15: [Partial companyfacts recovery](sec-partial-companyfacts-recovery-2026-10-15.md) local/unreleased,367 checks and two complete source/cache replays pass. Ordinary net-debt policy propagation verified33 scopes/four completed batches. Full coverage and all wider FMP gates remain.
+
+
+October15: [Portfolio release coordination](portfolio-release-guard-2026-10-15.md) diagnosed a deployment-interrupted full refresh. Fresh38693528033 remains LIVE; no backend deployments until terminal verification. Atomic scheduler reservations are tested locally, not yet deployed or wired into the release workflow. Full migration gates unchanged.

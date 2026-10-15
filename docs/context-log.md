@@ -936,3 +936,8 @@ PR620/99c2bf49 deployed workflow38296671226SUCCESS, including readiness/Premium 
 
 
 - **2026-10-15: Partial SEC response recovery prepared:** [Report](docs/sec-partial-companyfacts-recovery-2026-10-15.md) reproduces a same-period balance-sheet update suppressing needed original recovery.367 selected checks and complete VRSK/SON original/source-cache repeats pass; local/unreleased. Separate aggregate verifies33 new debt-policy caches and four ordinary10/10 batches, including partial coverage. Previous turn deployed net-debt and current turn repairs acquisition: concrete progress. All wider FMP gates and pending permissions unchanged.
+
+
+## October15 portfolio release coordination
+
+- **2026-10-15,06:45UTC: Portfolio interruption diagnosed and release guard prepared:** [Report](docs/portfolio-release-guard-2026-10-15.md) confirms the ordinary refresh was terminated during FUSB deployment after38/1135 scopes, zero recorded scope failures. Fresh workflow38693528033 is currently LIVE (341/1135 at06:43); do not redeploy or restart for silence. Local atomic release-reservation primitives pass54 scheduler checks/one Supercronic skip plus12 final guard checks including CLI ownership (55 distinct passes). Not deployed or workflow-wired. CAT PR656 updateda31dbb1d is mergeable,275 checks and complete original replay pass; remains unmerged/unreleased with original payload approval pending. Prior status-only turn was no progress; current diagnosis, tested code and live validation advance the goal. Full FMP gates remain; no activation, spending or customer email.
