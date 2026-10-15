@@ -144,7 +144,7 @@ def test_bounded_background_rotation_does_not_starve_after_failures(db,monkeypat
         assert result['attempted']==2 and result['failed']==2
     assert len(calls)==12 and len({value[0] for value in calls[:11]})==11
     assert all(value[1:]==DATES for value in calls)
-    assert db.query(AppSetting).filter_by(key=sectors.CURSOR_KEY).count()==1
+    assert db.query(AppSetting).filter_by(key=sectors.CURSOR_SETTING).count()==1
 
 
 def test_complete_cache_requires_no_warming_calls(db,monkeypatch):

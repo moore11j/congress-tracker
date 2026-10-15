@@ -12,7 +12,7 @@ TARGETS = (('Technology','XLK'),('Financials','XLF'),('Energy','XLE'),
     ('Health Care','XLV'),('Consumer Discretionary','XLY'),('Consumer Staples','XLP'),
     ('Industrials','XLI'),('Utilities','XLU'),('Materials','XLB'),
     ('Real Estate','XLRE'),('Communication Services','XLC'))
-CURSOR_KEY = 'sector_etf_warming_cursor_v1'
+CURSOR_SETTING = 'sector_etf_warming_cursor_v1'
 
 
 def selected():
@@ -121,7 +121,7 @@ def warm(db, *, now=None):
         return {'status':'awaiting_massive_selection','attempted':0}
     items,_=build(db,now=now)
     missing={item['symbol']:item for item in items if item['status']!='ok'}
-    cursor=db.get(AppSetting,CURSOR_KEY)
+    cursor=db.get(AppSetting,CURSOR_SETTING)
     symbols=[symbol for _,symbol in TARGETS]
     offset=(symbols.index(cursor.value)+1)%len(symbols) if cursor and cursor.value in symbols else 0
     ordered=symbols[offset:]+symbols[:offset]
@@ -133,9 +133,9 @@ def warm(db, *, now=None):
         except Exception:
             db.rollback()
             result['failed']+=1
-        cursor=db.get(AppSetting,CURSOR_KEY)
+        cursor=db.get(AppSetting,CURSOR_SETTING)
         if cursor is None:
-            cursor=AppSetting(key=CURSOR_KEY)
+            cursor=AppSetting(key=CURSOR_SETTING)
             db.add(cursor)
         cursor.value=symbol
         db.commit()
