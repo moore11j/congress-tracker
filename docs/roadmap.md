@@ -558,3 +558,6 @@ October15,05:48UTC: [Net-debt policy](sec-net-debt-policy-2026-10-15.md#deployed
 
 
 October15: [Partial companyfacts recovery](sec-partial-companyfacts-recovery-2026-10-15.md) local/unreleased,367 checks and two complete source/cache replays pass. Ordinary net-debt policy propagation verified33 scopes/four completed batches. Full coverage and all wider FMP gates remain.
+
+
+October15,06:10UTC: [Partial SEC response recovery](sec-partial-companyfacts-recovery-2026-10-15.md#deployed-release-and-live-verification-0610-utc) PR668 deployed af59d62b;367 checks, four runtime hashes and two live complete policy/source-cache proofs verify. Observed ordinary debt-policy rotation is33 scopes/four completed batches; broad coverage, consumer/capacity and all wider FMP cutover gates remain.
