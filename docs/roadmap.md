@@ -1,5 +1,8 @@
 October15: [IBM transcript chain](ibm-transcript-rollover-2026-10-15.md) PR664/665 deployed3e3f219c; four complete public transcripts/nine source originals, focused suites and seven runtime hashes/synthetic repeat/tamper/partial-status checks verify. Six reviewed issuer discovery policies deployed. Ordinary collection, NVIDIA/Alphabet403-held discovery, broad publication and all wider FMP gates remain open.
 
+October15,05:12UTC: [FUSB correction](fusb-bank-revenue-2026-10-15.md) PR666/c6c7f91d deployed:160 checks, seven runtime hashes, five original/source cache ratios and two public statement repeats verify. Ordinary refresh, sustained capacity and all wider FMP cutover gates remain.
+
+
 October15: [FUSB bank revenue](fusb-bank-revenue-2026-10-15.md) implemented locally and original/cache/alert replay verified. Release, ordinary refresh and all broader FMP cutover gates remain pending.
 
 
@@ -538,3 +541,6 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,16:13UTC:** [Issuer financial collection](issuer-financial-staging-2026-10-12.md) PR608/ea6d7874 deployed and normal demand queue verified: six AZO annual metrics persisted, public core unchanged. [Current coverage](free-fundamentals-paired-coverage-2026-10-11.md)1081usableSEC/916combined; remaining cache/period/coverage and all-consumer gates prevent full activation. Massive stays final; no new subscription.
+
+
+October15: [Net-debt policy](sec-net-debt-policy-2026-10-15.md) implemented locally with346 selected checks and26-source exact-repeat evidence. Release/runtime/ordinary preparation pending; coreFMP and all broader cutover gates remain.

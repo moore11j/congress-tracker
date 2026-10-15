@@ -63,6 +63,9 @@ if selected_fundamentals_provider() == "sec_edgar":
     CURRENT_CONFIRMATION_METHODOLOGY_VERSION += "_sec_fundamentals_v1"
 elif selected_fundamentals_provider() == "free_direct":
     CURRENT_CONFIRMATION_METHODOLOGY_VERSION += "_free_fundamentals_v1"
+if selected_fundamentals_provider() in {"sec_edgar", "free_direct"}:
+    from app.services.sec_net_debt_policy import VERSION as _NET_DEBT_POLICY_VERSION
+    CURRENT_CONFIRMATION_METHODOLOGY_VERSION += "_" + _NET_DEBT_POLICY_VERSION
 from app.services.replacement_analysts import selected as replacement_analysts_selected
 from app.services.provider_usage import fmp_provider_disabled
 if replacement_analysts_selected():

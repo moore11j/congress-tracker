@@ -16,7 +16,7 @@ from app.services import sec_directory, sec_fundamentals
 VERSION = 'sec_ratio_preparation_v5'
 TTL = timedelta(hours=24)
 METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
-    'operating_margin_expansion', 'eps_growth', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth')
+    'operating_margin_expansion', 'eps_growth', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth', 'net_debt_to_ebitda')
 
 
 def version_for_symbol(symbol):

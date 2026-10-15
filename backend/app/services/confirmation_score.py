@@ -92,6 +92,10 @@ elif selected_fundamentals_provider() == "free_direct":
     CONFIRMATION_CLASSIFICATION_VERSION += "_free_fundamentals_v1"
     CONFIRMATION_SCORING_VERSION += "_free_fundamentals_v1"
 # Provider selection requires all-worker restart and monitoring rebaseline.
+if selected_fundamentals_provider() in {"sec_edgar", "free_direct"}:
+    from app.services.sec_net_debt_policy import VERSION as _NET_DEBT_POLICY_VERSION
+    CONFIRMATION_CLASSIFICATION_VERSION += "_" + _NET_DEBT_POLICY_VERSION
+    CONFIRMATION_SCORING_VERSION += "_" + _NET_DEBT_POLICY_VERSION
 from app.services.replacement_analysts import selected as replacement_analysts_selected
 from app.services.provider_usage import fmp_provider_disabled
 if replacement_analysts_selected():
