@@ -1,6 +1,6 @@
 # Moderna transcript rollover
 
-October15,2026. Local implementation and source replay; exact release and ordinary collection pending.
+October15,2026. PR663 deployed and runtime verified; ordinary collection and broad publication readiness remain pending.
 
 ## Source and parser contract
 
@@ -20,4 +20,13 @@ Final397 affected Linux3.12.3 source/research/monitoring/digest checks pass in82
 
 ## Remaining gates
 
-Exact release/runtime and ordinary scheduled discovery remain pending. Three other reviewed issuers need rollover; broad market coverage and transcript publication remain incomplete. Core financial/model coverage, institutional activation/current-cohort consumers, scheduled alerts/rankings, sustained capacity, final Massive/global zero-FMP/billing remain gates. Core/prices/transcripts remain FMP and institutional publication remains disabled. Separate CAT/institutional payload permissions and valuation-model choice remain pending; no rejected action is retried.
+Ordinary scheduled discovery remains pending; exact release/runtime verification is recorded below. Three other reviewed issuers need rollover; broad market coverage and transcript publication remain incomplete. Core financial/model coverage, institutional activation/current-cohort consumers, scheduled alerts/rankings, sustained capacity, final Massive/global zero-FMP/billing remain gates. Core/prices/transcripts remain FMP and institutional publication remains disabled. Separate CAT/institutional payload permissions and valuation-model choice remain pending; no rejected action is retried.
+
+
+## Exact release and runtime verification, October15 04:25UTC
+
+[PR663](https://github.com/moore11j/congress-tracker/pull/663) source386a364a56cf7d1616478fe54989b5c675466542 merged as1dcccc30494de05fec114ff2716fb4485434ebd9. Backend workflow38681165876/job116245829454 succeeded with readiness and Premium privacy checks; production Vercel succeeds. Exact-head preview and secret scan pass. CI dependency audits still fail on unchanged dependencies (33 Pillow advisory rows; five frontend production groups, four high/one critical). Dependency and host/schedule configuration have no changes. PR attachment reached the chat100-item limit; use the ordinary link.
+
+Deployed Python3.12.15 matches seven expected source hashes. A synthetic index and PDF prepare a new fiscal quarter in two simulated requests, preserve date/publisher/Q&A, create one canonical document/zero events, and repeat with identical whole-database state/no further fetch. Both altered index bytes and an altered stored date are held. Network is blocked and SQLite is in-memory; zero production reads/writes/provider requests. Receipt: artifacts/moderna-runtime-1792038312.json. This is runtime compatibility evidence, not ordinary scheduled collection proof.
+
+Readiness/Feed/Insights return200; database ready/no server-error marker. Feed0.375seconds and Insights0.426seconds are immediate HTTP samples only. Receipt: artifacts/moderna-public-1792038307.json. Five reviewed issuer discovery policies are deployed; IBM, Alphabet and NVIDIA remain fixed-period. All remaining coverage/publication/consumer/capacity/Massive/globalFMP/billing gates and pending owner decisions remain; no source activation, purchase, schedule/host change, email, video, landing change or cancellation.
