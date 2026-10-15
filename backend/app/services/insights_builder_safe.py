@@ -172,10 +172,16 @@ def build_builder_safe_insights_snapshot(db: Session) -> dict[str, Any]:
     commodities = _proxy_instruments(db, COMMODITY_ETF_PROXIES)
     currencies = _disabled_instruments(CURRENCY_DISABLED, source="disabled_for_launch")
     crypto = _disabled_instruments(CRYPTO_DISABLED, source="disabled_for_launch")
-    sector_performance = get_sector_performance_snapshot()
-    sector_source = "sector_performance_snapshot" if sector_performance else "eod_etf_proxy"
-    if not sector_performance:
-        sector_performance = _sector_performance(db)
+    from app.services import sector_etf_snapshot as sectors
+    if sectors.selected():
+        sector_performance, sector_coverage = sectors.build(db)
+        sector_source = sectors.SOURCE
+    else:
+        sector_performance = get_sector_performance_snapshot()
+        sector_source = "sector_performance_snapshot" if sector_performance else "eod_etf_proxy"
+        if not sector_performance:
+            sector_performance = _sector_performance(db)
+        sector_coverage = _block_status(items=sector_performance, source=sector_source)
     economics = fred_sections["economics"]
     treasury = fred_sections["treasury"]
     treasury_source = "fred_cache"
@@ -185,7 +191,7 @@ def build_builder_safe_insights_snapshot(db: Session) -> dict[str, Any]:
             _has_values(indexes),
             _has_values(world_indexes),
             _has_values(commodities),
-            bool(sector_performance),
+            _has_values(sector_performance),
             _has_macro_values(economics),
             _has_macro_values(treasury),
         ]
@@ -214,6 +220,6 @@ def build_builder_safe_insights_snapshot(db: Session) -> dict[str, Any]:
             "us_macro": _block_status(items=economics, source="fred_cache"),
             "us_treasury": _block_status(items=treasury, source=treasury_source),
             "us_indexes": _block_status(items=indexes, source="eod_etf_proxy"),
-            "us_sectors": _block_status(items=sector_performance, source=sector_source),
+            "us_sectors": sector_coverage,
         },
     }

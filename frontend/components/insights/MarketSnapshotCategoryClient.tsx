@@ -254,6 +254,8 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
   if (!snapshot) return <CategorySkeleton category={category} />;
 
   const updatedLabel = formatSnapshotUpdatedAt(snapshotAsOf(snapshot));
+  const usesSectorEtfs = category.slug === "us-sectors" && (snapshot.sector_performance ?? []).some((item) => item.is_proxy);
+  const description = usesSectorEtfs ? "Daily price changes for eleven US sector ETFs. Returns exclude dividends." : category.description;
   const completedNews = completeNewsPayload(news, rows, category, snapshotAsOf(snapshot));
 
   return (
@@ -263,7 +265,7 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">INSIGHTS</p>
             <h1 className="mt-2 text-3xl font-semibold text-white">{category.title}</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{category.description}</p>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{description}</p>
             {updatedLabel ? <p className="mt-3 text-xs text-slate-500">{updatedLabel}</p> : null}
           </div>
           <Link href="/insights" className={ghostButtonClassName}>
@@ -278,7 +280,7 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
         <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Expanded Snapshot</h2>
-            <p className="mt-1 text-sm text-slate-400">{category.subtitle}</p>
+            <p className="mt-1 text-sm text-slate-400">{usesSectorEtfs ? "Completed trading session" : category.subtitle}</p>
           </div>
           <p className="text-xs text-slate-500">{rows.length} items</p>
         </div>

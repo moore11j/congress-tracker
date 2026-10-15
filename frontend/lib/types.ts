@@ -505,7 +505,11 @@ export type InsightsOverviewResponse = {
 
 export type SectorPerformancePoint = {
   sector: string;
-  change_pct: number;
+  change_pct: number | null;
+  symbol?: string;
+  is_proxy?: boolean;
+  previous_date?: string | null;
+  timeframe_label?: string;
   date?: string | null;
   unit_label?: string | null;
   source?: string | null;

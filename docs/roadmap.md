@@ -1,3 +1,5 @@
+October15: [Sector ETF replacement](sector-etf-replacement-2026-10-15.md) implemented locally with explicit completed-session price-return basis, eleven-sector coverage, bounded preparation and isolated rollback cache. Off by default; exact release/runtime and live price coverage/capacity remain. Broader67pass/4baseline failures independently confirmed. All FMP cutover gates remain.
+
 October15: [SEC revenue/assets](sec-asset-turnover-2026-10-15.md) implemented locally/unreleased:14/20 saved-source coverage, complete prior-field parity,33 focused checks and154 broader passes/one independently reproduced baseline failure. PR658 screener deployed5a4a1506/five hashes/four synthetic checks. Remaining cutover gates unchanged.
 
 October15: [Valuation guard release and screener transition](screener-source-provenance-2026-10-15.md) verifies deployed1b85b84d and local source/cache isolation with12newtests/18complete comparisons. Screener unreleased; full valuation model, sector data and all FMP cutover gates remain.
