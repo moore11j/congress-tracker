@@ -358,12 +358,17 @@ def build_signal_alert_digest(
     query_end = _coerce_aware(window_end or datetime.now(timezone.utc))
     alert_rows = _signal_monitoring_alerts(db, user, since=selection_since, before=query_end, limit=SIGNAL_QUERY_LIMIT)
     confirmation_rows = _signal_confirmation_events(db, user, since=selection_since, before=query_end, watchlist=watchlist, limit=SIGNAL_QUERY_LIMIT)
-    activity_sections = _signal_activity_sections(db, alert_rows)
     # The public Monitoring digest is a qualified ranked board. Candidates may
     # originate from MonitoringAlert rows, but broken or internal
     # monitoring changes are gated out before they reach public email content.
     raw_items = [_signal_alert_item(row) for row in alert_rows] + [_confirmation_signal_item(row) for row in confirmation_rows]
     raw_items = _apply_daily_signal_subscription_preferences(db, user, raw_items)
+    # Apply the same current delivery preferences to both the ranked board
+    # and the concrete trade/filing sections, before section limits/deduping.
+    allowed_alert_ids = {item.get("monitoring_alert_id") for item in raw_items}
+    activity_sections = _signal_activity_sections(
+        db, [row for row in alert_rows if row.id in allowed_alert_ids]
+    )
     qualified_items, diagnostics = _qualify_signal_items(raw_items)
     qualified_items, category_limited_count = _limit_signal_items_per_category(qualified_items)
     if category_limited_count:
@@ -1315,6 +1320,9 @@ def _subscription_allows_any_trigger(subscription: NotificationSubscription, ite
             category = category_for_trigger(trigger)
             if category and is_delivery_enabled(subscription, category, "daily"):
                 return True
+        # An explicit matrix replaces legacy trigger chips, including Off
+        # and intraday-only choices. Never fall through to old preferences.
+        return False
     selected = set(normalize_alert_triggers(_loads_list(subscription.alert_triggers_json)))
     if not selected:
         return False
@@ -1753,6 +1761,9 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "custom_delivery": payload.get("delivery"),
         "watchlist_boost": alert.source_type == "watchlist",
         "canonical_activity_event": bool(event_payload),
+        "monitoring_alert_id": alert.id,
+        "canonical_event_id": alert.event_id,
+        "content_url": event_payload.get("url") or payload.get("url"),
     }
 
 
@@ -2057,20 +2068,22 @@ def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[st
     candidates = [item for item in raw_items if item]
     qualified: list[dict[str, Any]] = []
     excluded_reasons: dict[str, int] = {}
-    seen_category_tickers: set[tuple[str, str]] = set()
+    seen_identities: set[tuple[str, ...]] = set()
 
     # A ticker/category can be discovered by both a saved screen and a
     # watchlist. Prefer the explicitly watched source for that overlap.
     for item in sorted(candidates, key=lambda value: (1 if value.get("watchlist_boost") else 0, *_signal_rank_key(value)), reverse=True):
         reason = _signal_exclusion_reason(item)
-        ticker = str(item.get("ticker") or "")
-        category_ticker = (_signal_item_category(item), ticker)
-        if reason is None and category_ticker in seen_category_tickers:
+        identities = _signal_item_identities(item)
+        if reason is None and identities.intersection(seen_identities):
+            # Retain both aliases when a duplicate bridges a provider URL
+            # and an event ID used by another watchlist copy.
+            seen_identities.update(identities)
             reason = "duplicate"
         if reason is not None:
             excluded_reasons[reason] = excluded_reasons.get(reason, 0) + 1
             continue
-        seen_category_tickers.add(category_ticker)
+        seen_identities.update(identities)
         qualified.append(item)
 
     return qualified, {
@@ -2079,6 +2092,27 @@ def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[st
         "excluded_count": len(candidates) - len(qualified),
         "excluded_reasons": excluded_reasons,
     }
+
+
+def _signal_item_identities(item: dict[str, Any]) -> set[tuple[str, ...]]:
+    category = _signal_item_category(item)
+    ticker = str(item.get("ticker") or "")
+    if category not in SIGNAL_CONTENT_CATEGORIES:
+        return {(category, ticker)}
+    # Distinct articles about one ticker are not duplicate monitoring signals.
+    # Event IDs preserve overlap across watchlists; canonical URLs reconcile
+    # retained old-provider rows without folding case-sensitive URL paths.
+    from app.services.finnhub_research import canonical_news_url
+    identities: set[tuple[str, ...]] = set()
+    if item.get("canonical_event_id") is not None:
+        identities.add((category, ticker, "event", str(item["canonical_event_id"])))
+    url = canonical_news_url(item.get("content_url"))
+    if url:
+        identities.add((category, ticker, "url", url))
+    if not identities:
+        title = " ".join(str(item.get("why_notable") or "").split()).casefold()
+        identities.add((category, ticker, "legacy_title", title, str(item.get("latest_event_date") or "")))
+    return identities
 
 
 def _limit_signal_items_per_category(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:

@@ -1,3 +1,9 @@
+## October 15, 2026: Scheduled digest source integrity
+
+- **2026-10-15 scheduled digest integrity repair:** [Evidence](docs/digest-source-integrity-2026-10-15.md). Reproduced and repaired daily activity sections bypassing current subscription preferences, matrix-Off falling through to legacy chips, and distinct same-ticker news/press being collapsed. Actual prepared Finnhub publication through two watchlists/daily digest repeats with canonical identities intact.215 distinct Windows checks and56 final Linux checks pass; no network/mail in new fixtures. Local/unreleased, exact review/release/runtime and ordinary operation pending. Prior percentage-only turn was no progress; current reproduction/code/consumer checks advance the full migration. All broader gates remain; pending exports untouched.
+
+Files: email_digests.py and new isolated regression suite. No new durable product decision; existing opt-in/deduplication requirements enforced. No deployment in this checkpoint.
+
 ## October 15, 2026: Finnhub source-to-consumer readers
 
 - **2026-10-15 Finnhub consumer integration:** [Reader report](docs/finnhub-paid-readers-2026-10-15.md). Cache-only annual/quarterly forecast and Premium target projections now connect ticker/research/comparison consumers locally. Explicit reviewed-basis gate is empty/default-off; source clocks, fiscal identity, raw hashes, Free access and canonical isolation preserved.215 distinct Linux checks pass across runs, one legacy forward-P/E failure independently reproduces on main; nine frontend checks pass. Final type-check/review/release/runtime and live paid basis/coverage/schedules remain. Previous percentage-only turn was no progress; current implementation and consumer evidence are concrete progress. All broader FMP gates and pending export approvals remain; no source/spend/schedule/host/email change.
