@@ -13,6 +13,11 @@ from app.services.direct_feed_store import (
 )
 
 KIND = 'reddit_q4_v1'
+MSFT_KIND = 'microsoft_events_v1'
+MRNA_KIND = 'moderna_events_v1'
+IBM_KIND = 'ibm_events_v1'
+EVENT_FEED = 'issuer_earnings_event'
+PDF_KINDS = {'META': 'meta_q4_pdf_v1', 'SOFI': 'sofi_q4_pdf_v1'}
 INDEX_FEED = 'issuer_earnings_index'
 QUARTERS = {'First Quarter': 1, 'Second Quarter': 2, 'Third Quarter': 3, 'Fourth Quarter': 4}
 DATE_PATTERN = r'\b\d{2}\s*-\s*\d{2}\s*-\s*\d{4}\b'
@@ -44,11 +49,30 @@ def format_policy(year, quarter, policy):
 
 
 def enabled_company(company):
-    return company.get('symbol') == 'RDDT' and company.get('discovery', {}).get('kind') == KIND
+    return (company.get('symbol'), company.get('discovery', {}).get('kind')) in {
+        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), *PDF_KINDS.items()}
 
 
 def index_url(company, year):
-    if not enabled_company(company) or not 2000 <= year <= 2100:
+    if enabled_company(company) and company['symbol'] == 'IBM':
+        from app.services.issuer_ibm_discovery import INDEX_URL
+        if year is not None:
+            raise DirectSourceError('IBM index does not use calendar years')
+        return INDEX_URL
+    if enabled_company(company) and company['symbol'] == 'MRNA':
+        from app.services.issuer_moderna_discovery import INDEX_URL
+        if year is not None:
+            raise DirectSourceError('Moderna index does not use calendar years')
+        return INDEX_URL
+    if enabled_company(company) and company['symbol'] in PDF_KINDS:
+        from app.services.issuer_q4_pdf_discovery import index_url as pdf_index_url
+        return pdf_index_url(company, year)
+    if enabled_company(company) and company['symbol'] == 'MSFT':
+        from app.services.issuer_microsoft_discovery import INDEX_URL
+        if year is not None:
+            raise DirectSourceError('Microsoft index does not use calendar years')
+        return INDEX_URL
+    if not enabled_company(company) or type(year) is not int or not 2000 <= year <= 2100:
         raise DirectSourceError('Unreviewed issuer discovery policy')
     sources = {d.get('source_page_url', '') for d in company.get('documents', [])}
     sources = {s for s in sources if s.startswith('https://investor.redditinc.com/feed/FinancialReport.svc/GetFinancialReportList?')}
@@ -61,11 +85,33 @@ def index_url(company, year):
 
 
 def index_metadata(company, year):
+    if enabled_company(company) and company['symbol'] in {'MSFT', 'MRNA', 'IBM'}:
+        symbol = company['symbol']
+        return {'key': symbol+':reports:latest', 'url': index_url(company, year),
+                'symbol': symbol, 'discovery_kind': company['discovery']['kind']}
     return {'key': f"{company['symbol']}:reports:{year}", 'url': index_url(company, year),
-            'symbol': company['symbol'], 'year': year, 'discovery_kind': KIND}
+            'symbol': company['symbol'], 'year': year, 'discovery_kind': company['discovery']['kind']}
 
 
 def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
+    if enabled_company(company) and company['symbol'] == 'IBM':
+        from app.services.issuer_ibm_discovery import parse_index as parse_ibm_index
+        if year is not None:
+            raise DirectSourceError('IBM index does not use calendar years')
+        return parse_ibm_index(raw, company, observed)
+    if enabled_company(company) and company['symbol'] == 'MRNA':
+        from app.services.issuer_moderna_discovery import parse_index as parse_moderna_index
+        if year is not None:
+            raise DirectSourceError('Moderna index does not use calendar years')
+        return parse_moderna_index(raw, company, observed)
+    if enabled_company(company) and company['symbol'] in PDF_KINDS:
+        from app.services.issuer_q4_pdf_discovery import parse_index as parse_pdf_index
+        return parse_pdf_index(raw, company, year, observed)
+    if enabled_company(company) and company['symbol'] == 'MSFT':
+        from app.services.issuer_microsoft_discovery import parse_index as parse_msft_index
+        if year is not None:
+            raise DirectSourceError('Microsoft index does not use calendar years')
+        return parse_msft_index(raw, company, observed)
     parser_policy({'parser_policy': policy})
     if not raw or len(raw) > 2_000_000:
         raise DirectSourceError('Issuer index size invalid')
@@ -114,6 +160,18 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
 
 
 def parse_candidate(raw, metadata, observed):
+    if metadata.get('discovery_kind') == IBM_KIND:
+        from app.services.issuer_ibm_discovery import parse_candidate as parse_ibm_candidate
+        return parse_ibm_candidate(raw, metadata, observed)
+    if metadata.get('discovery_kind') == MRNA_KIND:
+        from app.services.issuer_moderna_discovery import parse_candidate as parse_moderna_candidate
+        return parse_moderna_candidate(raw, metadata, observed)
+    if metadata.get('discovery_kind') in PDF_KINDS.values():
+        from app.services.issuer_q4_pdf_discovery import parse_candidate as parse_pdf_candidate
+        return parse_pdf_candidate(raw, metadata, observed)
+    if metadata.get('discovery_kind') == MSFT_KIND:
+        from app.services.issuer_microsoft_discovery import parse_candidate as parse_msft_candidate
+        return parse_msft_candidate(raw, metadata, observed)
     provisional = {**metadata, 'publication_pattern': DATE_PATTERN}
     provisional.pop('published_at', None)
     text, parsed = parse_issuer_material(raw, provisional)
@@ -136,6 +194,9 @@ def parse_candidate(raw, metadata, observed):
 
 def verified_metadata(db, company, metadata):
     """Rebuild permission from immutable original index bytes and current policy."""
+    if metadata.get('discovery_kind') == IBM_KIND and metadata.get('discovery_stage') == 'pdf':
+        from app.services.issuer_ibm_discovery import verified_pdf_metadata
+        return verified_pdf_metadata(db, company, metadata, verified_metadata)
     year = metadata.get('discovery_year')
     expected_index = index_metadata(company, year)
     index = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed == INDEX_FEED,
@@ -158,7 +219,20 @@ def verified_metadata(db, company, metadata):
     expected = dict(base)
     if metadata.get('published_at'):
         d = date.fromisoformat(metadata['published_at'])
-        expected.update(published_at=d.isoformat(), publication_pattern=rf'{d:%m}\s*-\s*{d:%d}\s*-\s*{d:%Y}')
+        if base.get('discovery_kind') in PDF_KINDS.values():
+            from app.services.issuer_q4_pdf_discovery import publication_pattern
+            pattern = publication_pattern(base['symbol'], d)
+        elif base.get('discovery_kind') == MRNA_KIND:
+            if metadata['published_at'] != base['published_at']:
+                raise DirectSourceError('Moderna publication date changed from original index')
+            from app.services.issuer_moderna_discovery import publication_pattern
+            pattern = publication_pattern(d)
+        elif base.get('discovery_kind') == MSFT_KIND:
+            from app.services.issuer_microsoft_discovery import publication_pattern
+            pattern = publication_pattern(d)
+        else:
+            pattern = rf'{d:%m}\s*-\s*{d:%d}\s*-\s*{d:%Y}'
+        expected.update(published_at=d.isoformat(), publication_pattern=pattern)
     if metadata != expected:
         raise DirectSourceError('Issuer discovery metadata changed')
     return base
@@ -170,14 +244,20 @@ def latest_metadata(db, registry, symbol, static):
         return static
     # At most two years/four periods each. Pending newest periods deliberately
     # block falling back to an older prepared quarter.
-    rows = list(db.scalars(select(DirectFeedDocument).where(DirectFeedDocument.feed == 'issuer_earnings',
+    feeds = ['issuer_earnings', EVENT_FEED] if symbol == 'IBM' else ['issuer_earnings']
+    rows = list(db.scalars(select(DirectFeedDocument).where(DirectFeedDocument.feed.in_(feeds),
         DirectFeedDocument.source_key.like(symbol+':earnings_transcript:%')).limit(101)))
     if len(rows) > 100:
         raise DirectSourceError('Issuer prepared period bound exceeded')
     candidates = [static] if static else []
+    document_keys = {r.source_key for r in rows if r.feed == 'issuer_earnings'}
+    if static:
+        document_keys.add(static['key'])
     for row in rows:
+        if row.feed == EVENT_FEED and row.source_key in document_keys:
+            continue
         m = json.loads(row.metadata_json)
-        if m.get('discovery_kind') == KIND:
+        if m.get('discovery_kind') == company['discovery']['kind']:
             verified_metadata(db, company, m)
             candidates.append(m)
     return max(candidates, key=lambda m: (m['fiscal_year'], m['fiscal_quarter'])) if candidates else None
@@ -188,7 +268,7 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
     companies = {c['symbol']: c for c in registry if enabled_company(c)}
     now = utcnow()
     for company in companies.values():
-        for year in (now.year, now.year-1):
+        for year in ((None,) if company['symbol'] in {'MSFT', 'MRNA', 'IBM'} else (now.year, now.year-1)):
             discover(db, INDEX_FEED, index_metadata(company, year))
     db.commit()
     spent, processed, errors, stop_reason = 0, 0, [], None
@@ -196,12 +276,12 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
                    for c in registry for d in c.get('documents', [])}
     while spent < min(limit, 2) and companies:
         rows = list(db.scalars(select(DirectFeedDocument).where(
-            DirectFeedDocument.feed.in_([INDEX_FEED, 'issuer_earnings']),
+            DirectFeedDocument.feed.in_([INDEX_FEED, EVENT_FEED, 'issuer_earnings']),
             (DirectFeedDocument.checked_at.is_(None)) | (DirectFeedDocument.checked_at <= now-timedelta(hours=max(24,recheck_hours)))
         ).order_by(DirectFeedDocument.checked_at.asc().nullsfirst(), DirectFeedDocument.id.asc())))
         eligible = [(row, json.loads(row.metadata_json)) for row in rows]
         eligible = [(r,m) for r,m in eligible if m.get('symbol') in companies
-                    and m.get('discovery_kind') == KIND
+                    and m.get('discovery_kind') == companies[m['symbol']]['discovery']['kind']
                     and r.error != 'Issuer period changed source URL; review required']
         if not eligible:
             db.commit()
@@ -215,7 +295,7 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
         db.commit()  # Persist the daily attempt even if this process is interrupted.
         try:
             if feed == INDEX_FEED:
-                if metadata != index_metadata(company, metadata['year']) or url != metadata['url']:
+                if metadata != index_metadata(company, metadata.get('year')) or url != metadata['url']:
                     raise DirectSourceError('Issuer index configuration changed')
                 base = None
             else:
@@ -226,29 +306,34 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
                 # revisions and publication receipts keep their original parser.
                 has_revision = db.scalar(select(DirectFeedRevision.id).where(
                     DirectFeedRevision.document_id == row_id).limit(1)) is not None
-                if (not has_revision and not metadata.get('published_at')
+                if (base.get('discovery_kind') == KIND and not has_revision and not metadata.get('published_at')
                         and parser_policy(base) < PARSER_POLICY):
                     base = {**base, **format_policy(base['fiscal_year'], base['fiscal_quarter'], PARSER_POLICY)}
                 # Grant this one validated link, never its CDN host or siblings.
                 client.issuer_document_urls = frozenset([*client.issuer_document_urls, url])
             db.commit()  # Release pooled connection/transaction before HTTP.
             raw = client.get(url)
-            if feed == INDEX_FEED:
-                candidates = parse_index(raw, company, metadata['year'], now)
+            if feed in {INDEX_FEED, EVENT_FEED}:
+                if feed == INDEX_FEED:
+                    candidates = parse_index(raw, company, metadata.get('year'), now)
+                else:
+                    from app.services.issuer_ibm_discovery import parse_event
+                    candidates = [parse_event(raw, base, now)]
                 row = db.get(DirectFeedDocument, row_id)
                 record_document(db, row, raw, raw.decode('utf-8'), {'candidates': candidates})
                 for candidate in candidates:
                     if candidate['key'] in static_keys:
                         continue  # Existing reviewed period keeps its original proof.
-                    existing = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed == 'issuer_earnings',
+                    target_feed = EVENT_FEED if candidate.get('discovery_stage') == 'event' else 'issuer_earnings'
+                    existing = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.feed == target_feed,
                         DirectFeedDocument.source_key == candidate['key']))
                     if existing is None:
-                        discover(db, 'issuer_earnings', candidate)
+                        discover(db, target_feed, candidate)
                     elif existing.source_url != candidate['url']:
                         existing.status = 'quarantined'
                         existing.error = 'Issuer period changed source URL; review required'
                         existing.checked_at = now
-                        errors.append({'feed': 'issuer_earnings', 'key': candidate['key'], 'error': existing.error})
+                        errors.append({'feed': target_feed, 'key': candidate['key'], 'error': existing.error})
             else:
                 resolved, text, parsed = parse_candidate(raw, base, now)
                 row = db.get(DirectFeedDocument, row_id)

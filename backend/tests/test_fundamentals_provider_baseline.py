@@ -19,6 +19,8 @@ from app.services.confirmation_monitoring import refresh_watchlist_confirmation_
 def test_fresh_workers_share_provider_version(provider, suffix, retired):
     env = {**os.environ, 'DATABASE_URL': 'sqlite:///:memory:', 'FUNDAMENTALS_PROVIDER': provider,
            'FMP_PROVIDER_DISABLED': '1' if retired else '0'}
+    if provider != 'fmp':
+        suffix += '_sec_net_debt_finance_leases_v1'
     if retired:
         suffix += '_fmp_retired_v1'
     result = subprocess.run([sys.executable, '-c',
@@ -30,7 +32,7 @@ def test_fresh_workers_share_provider_version(provider, suffix, retired):
                         'confirmation_score_v9_macro_freshness'+suffix, 'confirmation_direction_v10_macro_freshness'+suffix]
 
 
-@pytest.mark.parametrize('suffix', ['_sec_fundamentals_v1', '_sec_fundamentals_v1_fmp_retired_v1', '_free_fundamentals_v1', '_free_fundamentals_v1_fmp_retired_v1'])
+@pytest.mark.parametrize('suffix', ['_free_fundamentals_v1_sec_net_debt_finance_leases_v1', '_sec_fundamentals_v1', '_sec_fundamentals_v1_fmp_retired_v1', '_free_fundamentals_v1', '_free_fundamentals_v1_fmp_retired_v1'])
 def test_sec_coverage_transition_preserves_history_and_does_not_alert(monkeypatch, suffix):
     before_version = 'confirmation_direction_v10_macro_freshness'
     after_version = before_version + suffix
@@ -71,7 +73,7 @@ def test_combined_provider_methodologies_are_distinct_in_new_workers(sec,analyst
          'FUNDAMENTALS_PROVIDER':'sec_edgar' if sec else 'fmp',
          'ANALYST_PROVIDER':'finnhub' if analysts else 'fmp',
          'FMP_PROVIDER_DISABLED':'1' if retired else '0'}
-    suffix=('_sec_fundamentals_v1' if sec else '')+('_analyst_display_only_v1' if analysts else '')+('_fmp_retired_v1' if retired else '')
+    suffix=('_sec_fundamentals_v1_sec_net_debt_finance_leases_v1' if sec else '')+('_analyst_display_only_v1' if analysts else '')+('_fmp_retired_v1' if retired else '')
     r=subprocess.run([sys.executable,'-c',
         'import json;from app.services.confirmation_score import CONFIRMATION_SCORING_VERSION as s;'
         'from app.services.outcome_ledger import CURRENT_CONFIRMATION_METHODOLOGY_VERSION as o;'

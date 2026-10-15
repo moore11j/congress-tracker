@@ -311,6 +311,11 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
     if not ends:
         return None  # Unsupported taxonomy/currency requires a separate adapter.
     latest_fact = max(ends)
+    # An updated balance-sheet fact does not prove that the revenue history
+    # has arrived. Recover the same report when its trailing revenue is still
+    # incomplete, while retaining the no-request path for complete histories.
+    revenue_records = sec._records(payload, 'revenue', available, forms=forms,
+        concepts=tags['revenue'], unit=currency)
     recent = company.get('filings',{}).get('recent',{})
     keys = ['accessionNumber','form','filingDate','reportDate','primaryDocument']
     arrays = [recent.get(k,[]) for k in keys]
@@ -319,7 +324,8 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
     candidates = []
     for accession, form, filed, report, filename in zip(*arrays):
         end, filing = sec._day(report), sec._day(filed)
-        if (end and filing and latest_fact < end <= filing <= available
+        if (end and filing and end <= filing <= available
+                and (latest_fact < end or (latest_fact == end and sec._ttm(revenue_records, end) is None))
                 and periodic_document(symbol, cik, form, report, filename)):
             candidates.append((str(end),str(filing),accession,form,filename))
     if not candidates:

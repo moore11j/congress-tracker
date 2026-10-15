@@ -57,8 +57,10 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     from app.services.sec_financial_continuity import record_sets
     metrics={name:(tags,'USD') for name,tags in facts.TAGS.items()}
     metrics['eps']=(('EarningsPerShareDiluted',),'USD/shares')
-    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,filing_supplement=filing_supplement,company=company)
+    metrics['statement_assets']=(('Assets',),'USD')
+    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,instant_metrics={'statement_assets'},filing_supplement=filing_supplement,company=company)
     eps_records=records.pop('eps')
+    asset_records=records.pop('statement_assets')
     from app.services.sec_reporting_policy import reviewed
     reporting_policy = reviewed(symbol, cik)
     annual, quarters = set(), set()
@@ -145,8 +147,14 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
         payload['summary'].update(revenueTtm=ttm('revenue'), netIncomeTtm=ttm('net_income'),
             operatingCashFlowTtm=ttm('operating_cash_flow'), freeCashFlowTtm=current.get('free_cash_flow'),
             grossMargin=current.get('gross_margin'), operatingMargin=current.get('operating_margin'), currentRatio=current.get('current_ratio'))
+        from app.services.sec_asset_turnover import derive
+        turnover = derive(source, asset_records)
+        payload['sourceEvidence']['assetTurnover'] = turnover
+        if turnover['status'] == 'available':
+            payload['summary'].update(assetRatio=turnover['value'], assetRatioBasis=turnover['basis'])
+            payload['health'].update(assetRatio=turnover['value'], assetRatioBasis=turnover['basis'])
         payload['health']['currentRatio'] = current.get('current_ratio')
-        if current.get('current_ratio') is not None:
+        if current.get('current_ratio') is not None or turnover['status'] == 'available':
             payload['sections']['health'] = 'partial'
             payload['subsections']['health'] = _subsection(status='limited', reason_code='partial_sec_coverage', data=payload['health'])
     return payload
@@ -177,6 +185,9 @@ def cached_row_payload(row, symbol, *, now=None):
         return None
     from app.services import sec_foreign_statements as foreign
     if symbol in foreign.PROFILES and payload.get('preparationVersion') != foreign.VERSION:
+        return None
+    from app.services.sec_bank_revenue import REVIEWED_SYMBOL, REVIEWED_VERSION
+    if symbol == REVIEWED_SYMBOL and payload.get('preparationVersion') != REVIEWED_VERSION:
         return None
     if symbol in {'FITB', 'RF', 'EWBC'} and payload.get('preparationVersion') != 'sec_bank_contract_recovery_v1':
         return None
@@ -269,6 +280,9 @@ def prepared(symbol):
         from app.services import sec_foreign_statements as foreign
         if symbol in foreign.PROFILES:
             payload['preparationVersion']=foreign.VERSION
+        from app.services.sec_bank_revenue import REVIEWED_SYMBOL, REVIEWED_VERSION
+        if symbol == REVIEWED_SYMBOL:
+            payload['preparationVersion'] = REVIEWED_VERSION
         if symbol in {'FITB', 'RF', 'EWBC'}:
             payload['preparationVersion']='sec_bank_contract_recovery_v1'
         if symbol == 'PROV':

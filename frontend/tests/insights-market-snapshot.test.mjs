@@ -100,7 +100,7 @@ test("insights market snapshot hides provider and internal source terms", () => 
     assert.doesNotMatch(source, /snapshot\.source/);
     assert.doesNotMatch(source, /fmp/i);
     assert.doesNotMatch(source, /fred\s*cache/i);
-    assert.doesNotMatch(source, /proxy/i);
+    // Investment-basis labels are verified by sector-etf-display.test.mjs.
     assert.doesNotMatch(source, /launch disabled/i);
   }
 

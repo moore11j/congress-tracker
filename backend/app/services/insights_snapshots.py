@@ -16,6 +16,7 @@ from app.services.fmp_news import get_general_news
 from app.services.finnhub_research import selected_news_provider
 from app.services.provider_usage import fmp_provider_disabled
 from app.services.insights_builder_safe import build_builder_safe_insights_snapshot
+from app.services import sector_etf_snapshot
 from app.services.insights_quote_overview import refresh_insights_quote_overview
 from app.services.walnut_takes import enrich_walnut_takes
 
@@ -118,7 +119,7 @@ def _decorate(payload: dict[str, Any], row: InsightsSnapshot | None, *, stale: b
 
 
 def _load_row(db: Session, kind: str = INSIGHTS_SNAPSHOT_KIND) -> InsightsSnapshot | None:
-    return db.get(InsightsSnapshot, kind)
+    return db.get(InsightsSnapshot, sector_etf_snapshot.snapshot_kind(kind))
 
 
 def _loads_payload(row: InsightsSnapshot) -> dict[str, Any]:
@@ -130,6 +131,7 @@ def _loads_payload(row: InsightsSnapshot) -> dict[str, Any]:
 
 
 def _store_payload(db: Session, payload: dict[str, Any], *, kind: str = INSIGHTS_SNAPSHOT_KIND, source: str = "fmp", fetched_at: datetime | None = None) -> InsightsSnapshot:
+    kind = sector_etf_snapshot.snapshot_kind(kind)
     now = _utcnow()
     stamp = fetched_at if fetched_at is not None else now
     row = _load_row(db, kind)
@@ -246,10 +248,17 @@ def refresh_insights_snapshot(db: Session, kind: str = INSIGHTS_SNAPSHOT_KIND) -
         return snapshot
     started_at = perf_counter()
     try:
+        sector_etf_snapshot.warm(db)
         if _insights_data_mode() == "builder_safe":
             payload = build_builder_safe_insights_snapshot(db)
         else:
             payload = _with_fred_macro_sections(db, get_macro_snapshot())
+            if sector_etf_snapshot.selected():
+                items, coverage = sector_etf_snapshot.build(db)
+                payload['sector_performance'] = items
+                payload.setdefault('block_status', {})['us_sectors'] = coverage
+                if coverage['available_count'] and payload.get('status') in {'warming','unavailable'}:
+                    payload['status'] = 'partial'
         if not isinstance(payload, dict):
             payload = _empty_snapshot_payload(status="unavailable")
         existing = _load_row(db, INSIGHTS_SNAPSHOT_KIND)

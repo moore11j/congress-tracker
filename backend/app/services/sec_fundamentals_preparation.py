@@ -16,13 +16,16 @@ from app.services import sec_directory, sec_fundamentals
 VERSION = 'sec_ratio_preparation_v5'
 TTL = timedelta(hours=24)
 METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
-    'operating_margin_expansion', 'eps_growth', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth')
+    'operating_margin_expansion', 'eps_growth', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth', 'net_debt_to_ebitda')
 
 
 def version_for_symbol(symbol):
     if symbol == 'CAT':
         from app.services.sec_cat_interest import VERSION as interest_version
         return VERSION+'_'+interest_version
+    from app.services.sec_bank_revenue import REVIEWED_SYMBOL, REVIEWED_VERSION
+    if symbol == REVIEWED_SYMBOL:
+        return VERSION+'_'+REVIEWED_VERSION
     if symbol == 'SPCX':
         from app.services.sec_registration_history import VERSION as registration_version
         return VERSION+'_'+registration_version

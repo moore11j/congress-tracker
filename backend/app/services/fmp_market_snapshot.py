@@ -1620,6 +1620,9 @@ def _canonical_sector_name(value: str | None) -> str | None:
 
 
 def _build_sector_performance() -> list[dict[str, Any]]:
+    from app.services.sector_etf_snapshot import selected
+    if selected():
+        return []
     for offset in range(0, 6):
         target_date = (date.today() - timedelta(days=offset)).isoformat()
         try:

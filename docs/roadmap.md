@@ -1,3 +1,29 @@
+October15: [IBM transcript chain](ibm-transcript-rollover-2026-10-15.md) PR664/665 deployed3e3f219c; four complete public transcripts/nine source originals, focused suites and seven runtime hashes/synthetic repeat/tamper/partial-status checks verify. Six reviewed issuer discovery policies deployed. Ordinary collection, NVIDIA/Alphabet403-held discovery, broad publication and all wider FMP gates remain open.
+
+October15,05:12UTC: [FUSB correction](fusb-bank-revenue-2026-10-15.md) PR666/c6c7f91d deployed:160 checks, seven runtime hashes, five original/source cache ratios and two public statement repeats verify. Ordinary refresh, sustained capacity and all wider FMP cutover gates remain.
+
+
+October15: [FUSB bank revenue](fusb-bank-revenue-2026-10-15.md) implemented locally and original/cache/alert replay verified. Release, ordinary refresh and all broader FMP cutover gates remain pending.
+
+
+October15: [IBM report correction](ibm-transcript-rollover-2026-10-15.md) locally passes133 affected checks after PR664 deployed. Final combined release/runtime and ordinary collection remain pending; all wider FMP gates remain.
+
+October15: [IBM event-chain discovery](ibm-transcript-rollover-2026-10-15.md) local implementation passes438 distinct focused checks and full four-original/nine-hop-source replay. Release/runtime, ordinary collection and broad publication remain unverified. NVIDIA/Alphabet public indexes403 held. All other FMP cutover gates remain.
+
+October15: [Moderna transcript rollover](moderna-transcript-rollover-2026-10-15.md) PR663 deployed1dcccc30;397 focused checks, six-original replay and seven runtime hashes/synthetic repeat/tamper checks pass. Ordinary collection, three other issuer policies, broad publication and full FMP cutover gates remain.
+
+October15: [Meta/SoFi transcript rollover](issuer-pdf-rollover-2026-10-15.md) PR662 deployedce2ad71a;355 focused checks, full twelve-original parity, eight runtime hashes and synthetic bounded/repeat/tamper checks pass. Ordinary collection, four other issuer policies, publication and all broader FMP cutover gates remain.
+
+October15: [Microsoft transcript rollover](microsoft-transcript-rollover-2026-10-15.md) PR661 deployed4432fe8a;278 checks, actual-original full-text/repeat parity and seven runtime hashes/synthetic rollover verify. Ordinary discovery, six remaining issuer rollover policies and full FMP cutover gates remain.
+
+October15: [Sector ETF replacement](sector-etf-replacement-2026-10-15.md) implemented locally with explicit completed-session price-return basis, eleven-sector coverage, bounded preparation and isolated rollback cache. Off by default; final sector acquisition explicitly uses Massive only. Legacy canonical-price helpers still prefer FMP and require separate final-price repair. Exact release/runtime and live price coverage/capacity remain. Broader67pass/4baseline failures independently confirmed. All FMP cutover gates remain.
+
+October15: [SEC revenue/assets](sec-asset-turnover-2026-10-15.md) implemented locally/unreleased:14/20 saved-source coverage, complete prior-field parity,33 focused checks and154 broader passes/one independently reproduced baseline failure. PR658 screener deployed5a4a1506/five hashes/four synthetic checks. Remaining cutover gates unchanged.
+
+October15: [Valuation guard release and screener transition](screener-source-provenance-2026-10-15.md) verifies deployed1b85b84d and local source/cache isolation with12newtests/18complete comparisons. Screener unreleased; full valuation model, sector data and all FMP cutover gates remain.
+
+October15: [Valuation shutdown audit](valuation-provider-guard-2026-10-15.md) adds explicit own-DCF, sector-performance and screener-provenance cutover gaps. Provider guard repaired locally, eight new checks pass; three existing valuation failures reproduce on main. Not deployed; all broader FMP gates and pending payload permissions remain.
+
 October15,01:53UTC: [CAT preparation PR656](cat-interest-evidence-2026-10-15.md#review-and-production-verification-hold-0153-utc) implemented with212 affected/29 final checks and complete-source parity; not merged/deployed. Production receipt requires explicit approval after auto-review rejection. All FMP cutover gates remain; independent work continues.
 
 October15,01:40UTC: [CAT interest source proof](cat-interest-evidence-2026-10-15.md) verifies two public originals and offline complete EBITDA/repeat with10 checks. Research prototype only; bounded acquisition, production integration and consumer validation remain. All FMP exit gates remain open.
@@ -523,3 +549,12 @@ October9 scheduled-recovery follow-up: final news normalization/cache release58d
 
 
 **October12,16:13UTC:** [Issuer financial collection](issuer-financial-staging-2026-10-12.md) PR608/ea6d7874 deployed and normal demand queue verified: six AZO annual metrics persisted, public core unchanged. [Current coverage](free-fundamentals-paired-coverage-2026-10-11.md)1081usableSEC/916combined; remaining cache/period/coverage and all-consumer gates prevent full activation. Massive stays final; no new subscription.
+
+
+October15: [Net-debt policy](sec-net-debt-policy-2026-10-15.md) implemented locally with346 selected checks and26-source exact-repeat evidence. Release/runtime/ordinary preparation pending; coreFMP and all broader cutover gates remain.
+
+
+October15,05:48UTC: [Net-debt policy](sec-net-debt-policy-2026-10-15.md#deployed-release-and-live-verification) PR667 deployed8d3b04ed;346 checks,26-original repeat,nine runtime hashes and three complete live source-cache proofs verify. Only3 prepared ratios versus1360 legacy; ordinary propagation, broad coverage and all wider FMP cutover gates remain.
+
+
+October15: [Partial companyfacts recovery](sec-partial-companyfacts-recovery-2026-10-15.md) local/unreleased,367 checks and two complete source/cache replays pass. Ordinary net-debt policy propagation verified33 scopes/four completed batches. Full coverage and all wider FMP gates remain.

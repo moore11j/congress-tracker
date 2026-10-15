@@ -1,6 +1,7 @@
 [
   {
     "symbol": "MSFT",
+    "discovery": {"kind": "microsoft_events_v1"},
     "company_website": "https://www.microsoft.com/",
     "investor_website": "https://www.microsoft.com/en-us/Investor",
     "verification": "Official Microsoft FY2026 Q2 and Q4 event pages reviewed October10,2026. Selected-company transcript coverage only; not a broad market transcript feed.",
@@ -51,6 +52,7 @@
   },
   {
     "symbol": "META",
+    "discovery": {"kind": "meta_q4_pdf_v1"},
     "company_website": "https://about.meta.com/",
     "investor_website": "https://investor.atmeta.com/",
     "verification": "Official Meta Q2 2026 issuer transcript PDF and exact CDN redirect reviewed October10,2026. Selected-company coverage only.",
@@ -94,6 +96,7 @@
   },
   {
     "symbol": "IBM",
+    "discovery": {"kind": "ibm_events_v1"},
     "company_website": "https://www.ibm.com/",
     "investor_website": "https://www.ibm.com/investor/",
     "verification": "Original transcript and official linking page reviewed October10,2026. Attribution preserved; selected-company preparation only.",
@@ -115,6 +118,7 @@
   },
   {
     "symbol": "SOFI",
+    "discovery": {"kind": "sofi_q4_pdf_v1"},
     "company_website": "https://www.sofi.com/",
     "investor_website": "https://investors.sofi.com/",
     "verification": "Original transcript and official linking page reviewed October10,2026. Attribution preserved; selected-company preparation only.",
@@ -138,6 +142,7 @@
   },
   {
     "symbol": "MRNA",
+    "discovery": {"kind": "moderna_events_v1"},
     "company_website": "https://www.modernatx.com/",
     "investor_website": "https://investors.modernatx.com/",
     "verification": "Original transcript and official linking page reviewed October10,2026. Attribution preserved; selected-company preparation only.",
