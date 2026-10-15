@@ -1,4 +1,6 @@
-October15: [Moderna transcript rollover](moderna-transcript-rollover-2026-10-15.md) local implementation passes397 focused checks and full six-original canonical/repeat replay. Release/runtime, ordinary collection, three other issuer policies and full FMP cutover gates remain.
+October15: [IBM event-chain discovery](ibm-transcript-rollover-2026-10-15.md) local implementation passes438 distinct focused checks and full four-original/nine-hop-source replay. Release/runtime, ordinary collection and broad publication remain unverified. NVIDIA/Alphabet public indexes403 held. All other FMP cutover gates remain.
+
+October15: [Moderna transcript rollover](moderna-transcript-rollover-2026-10-15.md) PR663 deployed1dcccc30;397 focused checks, six-original replay and seven runtime hashes/synthetic repeat/tamper checks pass. Ordinary collection, three other issuer policies, broad publication and full FMP cutover gates remain.
 
 October15: [Meta/SoFi transcript rollover](issuer-pdf-rollover-2026-10-15.md) PR662 deployedce2ad71a;355 focused checks, full twelve-original parity, eight runtime hashes and synthetic bounded/repeat/tamper checks pass. Ordinary collection, four other issuer policies, publication and all broader FMP cutover gates remain.
 
