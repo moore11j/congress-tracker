@@ -117,6 +117,7 @@ def _run_locked():
         db.commit()
     # Planning commits before nested directory/panel cache transactions.
     results = []
+    sec_stop = None
     for symbol in selected:
         # Attempts order due work. Cache access never resets an observation's
         # deadline, including stocks outside the watch/research priority set.
@@ -133,6 +134,11 @@ def _run_locked():
             result = {'scope': symbol, 'status': payload['status'], 'source': payload['source'],
                       'metrics': len(payload['values']), 'reason': payload.get('reason'),
                       'observed_at': payload['observed_at']}
+            cash_flow = payload.get('calculation_evidence', {}).get('issuer_cash_flow', {})
+            if (symbol == 'NVDA' and cash_flow.get('reason') == 'cash_flow_source_unavailable'
+                    and cash_flow.get('retryable') is True):
+                result['source_stop_reason'] = 'cash_flow_source_unavailable'
+                next_refresh = now + sec_fundamentals_preparation.CASH_FLOW_RETRY_TTL
         except Exception as exc:
             result = {'scope': symbol, 'status': 'unavailable', 'reason': type(exc).__name__}
             if isinstance(exc, DirectSourceError):
@@ -145,6 +151,9 @@ def _run_locked():
         versions[symbol] = sec_fundamentals_preparation.version_for_symbol(symbol)
         if symbol in current_dependencies:
             issuer_dependencies[symbol] = current_dependencies[symbol]
+        if result.get('source_stop_reason'):
+            sec_stop = result['source_stop_reason']
+            break
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
     metric_results = []
@@ -184,13 +193,14 @@ def _run_locked():
                 metric_stop = item.get('reason')
                 break
             metric_attempts[symbol] = attempted_at
-    receipt = {'status': 'partial' if truncated or metric_stop or any(r['status'] not in {'ok','partial'} for r in [*results, *metric_results]) else 'ok',
+    receipt = {'status': 'partial' if truncated or metric_stop or sec_stop or any(r['status'] not in {'ok','partial'} for r in [*results, *metric_results]) else 'ok',
         'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': truncated, 'ranking_universe_enabled': broad, 'priority_universe_size': len(priority_symbols), 'ranking_cache_symbols': min(len(ranked),5000), 'batch_limit': batch_limit,
         'planned_scopes': len(selected), 'due_scopes': len(due_symbols), 'completed_scopes': len(results), 'results': results,
         'metric_results': metric_results,
         'planned_metric_scopes': metric_planned, 'completed_metric_scopes': len(metric_results),
         'metric_batch_limit': metric_limit, 'metric_elapsed_seconds': round(time.monotonic()-metric_started, 3),
         'metric_stop_reason': metric_stop,
+        'sec_stop_reason': sec_stop,
         'fundamentals_selection': os.getenv('FUNDAMENTALS_PROVIDER', 'fmp'),
         'canonical_writes': 0, 'model_calls': 0, 'emails': 0}
     with SessionLocal() as db:

@@ -1,3 +1,5 @@
+October15: [Optional cash-flow reliability](sec-cash-flow-isolation-2026-10-15.md) implemented locally,268 distinct selected checks pass. Preserves verified NVIDIA metrics on optional-source failure and retains batch stop/backoff. Release/runtime/ordinary verification pending; no financial definition/source change or new coverage claim. Full FMP gates remain.
+
 October15: [Finnhub estimate/target preparation](finnhub-paid-preparation-2026-10-15.md) implemented locally with203 selected checks. Five default-off staging scopes; live entitlement/basis/coverage, public consumer projection and schedules remain unverified. No paid requests or source switch; full FMP retirement gates remain.
 
 October15: [IBM transcript chain](ibm-transcript-rollover-2026-10-15.md) PR664/665 deployed3e3f219c; four complete public transcripts/nine source originals, focused suites and seven runtime hashes/synthetic repeat/tamper/partial-status checks verify. Six reviewed issuer discovery policies deployed. Ordinary collection, NVIDIA/Alphabet403-held discovery, broad publication and all wider FMP gates remain open.

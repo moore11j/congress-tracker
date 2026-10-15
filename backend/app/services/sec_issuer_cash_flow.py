@@ -8,7 +8,8 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import re
-from lxml import html
+from lxml import html, etree
+from requests import RequestException
 
 from app.clients.direct_sources import DirectSourceError
 
@@ -32,7 +33,10 @@ def parse_principal(raw, *, accession, filed, report_date):
     """Only unsegmented USD facts with verified issuer and filing-period identity."""
     if not raw or len(raw) > 4_000_000:
         raise CashFlowEvidenceError('filing_size')
-    tree = html.fromstring(raw)
+    try:
+        tree = html.fromstring(raw)
+    except etree.ParserError as exc:
+        raise CashFlowEvidenceError('invalid_filing_html') from exc
     if not re.fullmatch(r'http://www\.nvidia\.com/[0-9]{8}', tree.get('xmlns:nvda', '')):
         raise CashFlowEvidenceError('issuer_namespace')
     identities = {n.text_content().strip().zfill(10) for n in tree.iter()
@@ -177,6 +181,11 @@ def supplement(values, facts_raw, company_raw, *, client):
         if 'fcf_margin' in result: evidence['calculations']['fcf_margin'] = 'reviewed issuer TTM free cash flow / TTM revenue * 100'
         if 'fcf_growth' in result: evidence['calculations']['fcf_growth'] = '(reviewed issuer TTM free cash flow / prior comparable TTM free cash flow - 1) * 100'
         review['status'] = 'available'
+    except (DirectSourceError, RequestException):
+        # Failure of this supplemental source must not discard independently
+        # verified revenue/margins/equity. All cash-flow fields were removed
+        # above, so neither partial arithmetic nor stale values can survive.
+        review.update(reason='cash_flow_source_unavailable', retryable=True)
     except (CashFlowEvidenceError, KeyError, IndexError, ValueError) as exc:
         review['reason'] = str(exc)
     result['source_evidence_json'] = json.dumps(evidence, sort_keys=True)

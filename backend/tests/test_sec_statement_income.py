@@ -23,7 +23,11 @@ def test_exact_source_review_preserves_parent_and_repeats(symbol,index):
     assert promoted['value']==proof['value'] and promoted['consolidated_statement_review']['source_sha256']==proof['source_sha256']
     assert subject.apply(records,symbol=symbol,cik=profile['cik'])==(output,evidence)
     assert evidence['accepted_periods']==[promoted['consolidated_statement_review']]
-    assert version_for_symbol(symbol).endswith(subject.VERSION)
+    from app.services.sec_fundamentals_preparation import VERSION, CASH_FLOW_RECOVERY_VERSION
+    expected = VERSION+'_'+subject.VERSION
+    if symbol == 'NVDA':
+        expected += '_'+CASH_FLOW_RECOVERY_VERSION
+    assert version_for_symbol(symbol) == expected
 
 
 @pytest.mark.parametrize('field',['start','end','filed','accession','value','unit','source_cik','source_sha256','source_url','context_id','tag','derived','missing','conflict','nci','redeemable','nci_conflict'])
