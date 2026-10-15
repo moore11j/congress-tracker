@@ -17,6 +17,13 @@ from app.services.official_congress import normalize_congress_owner, normalize_c
 # Senate historian's index explicitly equates Addison Mitchell and Mitch.
 # https://www.senate.gov/about/resources/pdf/baker-richard-a-full-transcript-with-index.pdf
 _REVIEWED_NAMES = {('a', 'mitchell', 'mcconnell'): 'M000355'}
+# The official PTR names Richard W. Allen, Member for GA12; the Clerk's
+# current member record identifies that office as Rick W. Allen (A000372).
+# https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035648.pdf
+# https://clerk.house.gov/Members/A000372
+# Exact reviewed name only; the ordinary district/term/ambiguity checks apply.
+_REVIEWED_HOUSE_NAMES = {('richard', 'w', 'allen'): 'A000372'}
+
 
 
 def name_tokens(value):
@@ -57,7 +64,8 @@ def resolve_direct_member(metadata, chamber, directory):
         names = [name.get('official_full'), ' '.join(filter(None, [name.get('first'), name.get('middle'), name.get('last')]))]
         if name.get('nickname'):
             names.append(f"{name['nickname']} {name.get('last', '')}")
-        if not any(_same_name(source, name_tokens(candidate)) for candidate in names) and _REVIEWED_NAMES.get(source) != identifier:
+        reviewed_names = _REVIEWED_HOUSE_NAMES if chamber == 'house' else _REVIEWED_NAMES
+        if not any(_same_name(source, name_tokens(candidate)) for candidate in names) and reviewed_names.get(source) != identifier:
             continue
         terms = [term for term in person.get('terms', [])
                  if term.get('type') == ('rep' if chamber == 'house' else 'sen')
