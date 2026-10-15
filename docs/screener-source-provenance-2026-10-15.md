@@ -30,3 +30,10 @@ Owner preference is pending on replacing the final FMP valuation calculation wit
 CAT PR656 and the separate institutional snapshot export still await explicit production-payload permissions after automatic review rejected copies into OneDrive. Neither rejected command was retried or routed around. The deployed guard verifier returned only code hashes and synthetic test counts; it read no production cache, financial, institutional or scheduler data.
 
 FMP remains enabled for core/prices/transcripts and institutional publication remains disabled. Full financial/statement/valuation/sector/transcript coverage, current institutional writer/consumer proof, all alerts/rankings, sustained performance, final Massive subscription/validation and global zero-FMP/billing verification remain open. No host, schedule, subscription, landing-page, video or customer-email change.
+
+
+## Deployed October 15
+
+PR658 source `67a0325dd75a8cb2d2765600518743e6c20b0d3b` merged as `5a4a1506bb0711cd44c6fbba0c0e39754d4f59ce` at02:29:42UTC. Backend workflow38671297186 completed successfully. Five runtime source hashes and four synthetic provider/cache checks pass on Python3.12.15; receipt `artifacts/screener-source-runtime-1792031667.json`. The verifier uses isolated in-memory SQLite, blocks sockets and returns only code hashes/pass counts. It reads no production financial, institutional, cache or scheduler records and makes no provider request or production write.
+
+Exact-head CI38670912038: secret scan and Vercel preview pass; backend Pillow10.4.0 and frontend dependency audits fail on unchanged dependencies. The frontend production audit reports five vulnerability groups, four high and one critical. No all-CI or full-suite pass is claimed. Runtime correctness is verified for this bounded repair; full data coverage and sustained production performance remain separate gates. No source, schedule or host change.

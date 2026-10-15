@@ -712,7 +712,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
     () => [
       { label: "Debt / Equity", value: formatRatio(summary?.debtToEquity) },
       { label: "Current Ratio", value: formatRatio(summary?.currentRatio) },
-      { label: "Asset Ratio", value: formatRatio(summary?.assetRatio) },
+      { label: ["revenue_to_total_assets", "ttm_revenue_to_ending_total_assets"].includes(summary?.assetRatioBasis ?? "") ? "Revenue / Assets" : "Asset Ratio", value: formatRatio(summary?.assetRatio) },
     ],
     [summary],
   );

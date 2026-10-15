@@ -57,8 +57,10 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     from app.services.sec_financial_continuity import record_sets
     metrics={name:(tags,'USD') for name,tags in facts.TAGS.items()}
     metrics['eps']=(('EarningsPerShareDiluted',),'USD/shares')
-    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,filing_supplement=filing_supplement,company=company)
+    metrics['statement_assets']=(('Assets',),'USD')
+    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,instant_metrics={'statement_assets'},filing_supplement=filing_supplement,company=company)
     eps_records=records.pop('eps')
+    asset_records=records.pop('statement_assets')
     from app.services.sec_reporting_policy import reviewed
     reporting_policy = reviewed(symbol, cik)
     annual, quarters = set(), set()
@@ -145,8 +147,14 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
         payload['summary'].update(revenueTtm=ttm('revenue'), netIncomeTtm=ttm('net_income'),
             operatingCashFlowTtm=ttm('operating_cash_flow'), freeCashFlowTtm=current.get('free_cash_flow'),
             grossMargin=current.get('gross_margin'), operatingMargin=current.get('operating_margin'), currentRatio=current.get('current_ratio'))
+        from app.services.sec_asset_turnover import derive
+        turnover = derive(source, asset_records)
+        payload['sourceEvidence']['assetTurnover'] = turnover
+        if turnover['status'] == 'available':
+            payload['summary'].update(assetRatio=turnover['value'], assetRatioBasis=turnover['basis'])
+            payload['health'].update(assetRatio=turnover['value'], assetRatioBasis=turnover['basis'])
         payload['health']['currentRatio'] = current.get('current_ratio')
-        if current.get('current_ratio') is not None:
+        if current.get('current_ratio') is not None or turnover['status'] == 'available':
             payload['sections']['health'] = 'partial'
             payload['subsections']['health'] = _subsection(status='limited', reason_code='partial_sec_coverage', data=payload['health'])
     return payload

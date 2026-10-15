@@ -876,17 +876,18 @@ def _ratio_from_parts(numerator: float | None, denominator: float | None) -> flo
     return numerator / denominator
 
 
-def _normalize_health(ratio_rows: list[dict[str, Any]], metrics_rows: list[dict[str, Any]], balance_rows: list[dict[str, Any]]) -> dict[str, float | None]:
+def _normalize_health(ratio_rows: list[dict[str, Any]], metrics_rows: list[dict[str, Any]], balance_rows: list[dict[str, Any]]) -> dict[str, Any]:
     ratio_row = _latest_provider_row(ratio_rows)
     metrics_row = _latest_provider_row(metrics_rows)
     balance_row = _latest_provider_row(balance_rows)
 
     total_debt = _numeric(balance_row, "totalDebt", "shortTermDebt", "longTermDebt")
     total_equity = _numeric(balance_row, "totalStockholdersEquity", "totalEquity", "totalShareholderEquity")
-    total_assets = _numeric(balance_row, "totalAssets")
-    total_liabilities = _numeric(balance_row, "totalLiabilities", "totalLiabilitiesAndStockholdersEquity")
     current_assets = _numeric(balance_row, "totalCurrentAssets")
     current_liabilities = _numeric(balance_row, "totalCurrentLiabilities")
+    asset_turnover = _numeric(ratio_row, "assetTurnoverTTM", "assetTurnover")
+    if asset_turnover is None:
+        asset_turnover = _numeric(metrics_row, "assetTurnoverTTM", "assetTurnover")
 
     return {
         "debtToEquity": _numeric(
@@ -901,9 +902,8 @@ def _normalize_health(ratio_rows: list[dict[str, Any]], metrics_rows: list[dict[
         "currentRatio": _numeric(ratio_row, "currentRatioTTM", "currentRatio")
         or _numeric(metrics_row, "currentRatioTTM", "currentRatio")
         or _ratio_from_parts(current_assets, current_liabilities),
-        "assetRatio": _numeric(ratio_row, "assetTurnoverTTM", "assetTurnover")
-        or _numeric(metrics_row, "assetTurnoverTTM", "assetTurnover")
-        or _ratio_from_parts(total_assets, total_liabilities),
+        "assetRatio": asset_turnover,
+        "assetRatioBasis": "revenue_to_total_assets" if asset_turnover is not None else None,
         "priceToBook": _numeric(
             ratio_row,
             "priceToBookRatioTTM",
@@ -1004,6 +1004,7 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str
             "debtToEquity": None,
             "currentRatio": None,
             "assetRatio": None,
+            "assetRatioBasis": None,
         },
         "annual": [],
         "quarterly": [],
@@ -1419,6 +1420,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
             "debtToEquity": health.get("debtToEquity"),
             "currentRatio": health.get("currentRatio"),
             "assetRatio": health.get("assetRatio"),
+            "assetRatioBasis": health.get("assetRatioBasis"),
             "priceToBook": price_to_book,
             "navPerShare": nav_per_share,
         },
