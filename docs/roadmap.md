@@ -1,3 +1,5 @@
+October15: [Valuation shutdown audit](valuation-provider-guard-2026-10-15.md) adds explicit own-DCF, sector-performance and screener-provenance cutover gaps. Provider guard repaired locally, eight new checks pass; three existing valuation failures reproduce on main. Not deployed; all broader FMP gates and pending payload permissions remain.
+
 October15: [SEC submission scanning](sec-submission-scan-2026-10-15.md) implemented locally/unreleased;170 checks and four complete718-original/402-peer parity passes. Candidate CPU lower with large variation; exact release/runtime and writer/sustained capacity remain unverified. All FMP cutover gates remain.
 
 October15,00:53UTC: [PR651 original debt precision](sec-debt-precision-2026-10-14.md#deployed-and-ordinary-preparation-verified-october-15) deployed544b893b;123 integrated checks,14 runtime hashes and exact full-original parity pass. Eight ordinary v8 panels persist; Comcast positive persistence/issuer rotation, canonical leverage and broad coverage remain open. Portfolio dispatch/full-cycle, sustained capacity and all FMP cutover gates remain.

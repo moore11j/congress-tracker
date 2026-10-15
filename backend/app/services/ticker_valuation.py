@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.clients.fmp import FMPClientError, FMPSubscriptionRestrictedError, _request_stable_rows
+from app.services.provider_usage import ProviderUnavailable
 from app.utils.symbols import normalize_symbol
 
 UNAVAILABLE_MESSAGE = "Valuation inputs are not available for this ticker yet."
@@ -926,6 +927,8 @@ def get_ticker_valuation(symbol: str) -> dict[str, Any]:
             allow_user_request=True,
         )
         consensus = _target_consensus_row(consensus_rows)
+    except ProviderUnavailable:
+        return _unavailable(normalized_symbol, message=TEMPORARILY_UNAVAILABLE_MESSAGE)
     except (FMPClientError, FMPSubscriptionRestrictedError):
         consensus = {"targetConsensus": None, "targetHigh": None, "targetLow": None, "targetMedian": None, "status": "unavailable"}
 
@@ -942,7 +945,7 @@ def get_ticker_valuation(symbol: str) -> dict[str, Any]:
         )
     except FMPSubscriptionRestrictedError:
         return _unavailable(normalized_symbol, consensus=consensus, message=TEMPORARILY_UNAVAILABLE_MESSAGE)
-    except FMPClientError:
+    except (FMPClientError, ProviderUnavailable):
         return _unavailable(normalized_symbol, consensus=consensus, message=TEMPORARILY_UNAVAILABLE_MESSAGE)
 
     dcf = _valuation_from_dcf_rows(
