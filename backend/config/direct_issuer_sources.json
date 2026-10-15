@@ -96,6 +96,7 @@
   },
   {
     "symbol": "IBM",
+    "discovery": {"kind": "ibm_events_v1"},
     "company_website": "https://www.ibm.com/",
     "investor_website": "https://www.ibm.com/investor/",
     "verification": "Original transcript and official linking page reviewed October10,2026. Attribution preserved; selected-company preparation only.",
