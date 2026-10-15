@@ -4598,6 +4598,7 @@ export type TickerFinancialsResponse = {
     debtToEquity?: number | null;
     currentRatio?: number | null;
     assetRatio?: number | null;
+    assetRatioBasis?: string | null;
   };
   annual: TickerFinancialsPoint[];
   quarterly: TickerFinancialsPoint[];
