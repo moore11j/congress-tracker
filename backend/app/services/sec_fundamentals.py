@@ -273,7 +273,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
                        observed_at=observed_at, supplement=filing_supplement)
     from app.services.sec_financial_continuity import record_sets
     from app.services import sec_leverage, sec_parent_income, sec_depreciation_components
-    from app.services import sec_parent_statement_income
+    from app.services import sec_parent_statement_income, sec_parent_equity
     from app.services.sec_currency_ratios import basis as currency_basis, REVIEW as currency_review
     native_basis = currency_basis(symbol, cik)
     currency = native_basis['currency'] if native_basis else 'USD'
@@ -285,14 +285,17 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         metric_tags.update(sec_operating_components.TAGS)
     if sec_depreciation_components.applies(symbol, cik):
         metric_tags.update(sec_depreciation_components.TAGS)
+    equity_tags = sec_parent_equity.tags_for(symbol, cik)
+    metric_tags.update(equity_tags)
     all_records, continuity = record_sets(payload,symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at,history_raw=history_raw,filing_supplement=filing_supplement,company=company,
-        metrics={name:(tags, currency) for name,tags in metric_tags.items()}, instant_metrics=sec_leverage.INSTANT)
+        metrics={name:(tags, currency) for name,tags in metric_tags.items()}, instant_metrics=set(sec_leverage.INSTANT) | set(equity_tags))
     all_records, operating_evidence = sec_operating_components.apply(all_records, symbol=symbol, cik=cik)
     all_records, consolidated_income_evidence = sec_parent_income.consolidated_for_leverage(all_records)
     from app.services import sec_statement_income
     all_records, statement_income_evidence = sec_statement_income.apply(all_records, symbol=symbol, cik=cik)
     all_records, parent_income_evidence = sec_parent_income.apply(all_records)
     all_records, parent_statement_evidence = sec_parent_statement_income.apply(all_records, symbol=symbol, cik=cik)
+    all_records, parent_equity_evidence = sec_parent_equity.apply(all_records, symbol=symbol, cik=cik, payload=payload)
     depreciation_evidence = sec_depreciation_components.reconcile(all_records, symbol=symbol, cik=cik)
     records = {name: all_records[name] for name in TAGS}
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
@@ -337,6 +340,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
             evidence['limitations'].append('HCA operating income is derived from reviewed expenses with independent pretax reconciliation, not a reported subtotal.')
     if parent_income_evidence['derived_periods'] or parent_income_evidence['holds']:
         evidence['parent_income_reconciliation'] = parent_income_evidence
+    if parent_equity_evidence is not None:
+        evidence["parent_equity_reconciliation"] = parent_equity_evidence
     if parent_statement_evidence is not None:
         evidence['parent_statement_review'] = parent_statement_evidence
     from app.services.sec_bank_revenue import basis
@@ -394,7 +399,11 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
             if sec_parent_income.is_derived(current.get("net_income")) else "net income")
         if sec_parent_statement_income.is_reviewed(current.get("net_income")):
             income_label = "parent net income (reviewed original-statement reconciliation)"
-        save("roe", ratio(val("net_income"), (equity_then + equity_now) / 2, 100), f"TTM {income_label} / average beginning and ending equity * 100")
+        equity_label = "equity"
+        if any((evidence["instant"].get(k) or {}).get("derivation") == sec_parent_equity.VERSION
+               for k in ("equity", "beginning_equity")):
+            equity_label = "parent equity (reviewed component and balance-sheet reconciliation)"
+        save("roe", ratio(val("net_income"), (equity_then + equity_now) / 2, 100), f"TTM {income_label} / average beginning and ending {equity_label} * 100")
     cash, capex = val("operating_cash_flow"), val("capex")
     old_cash, old_capex = val("operating_cash_flow", True), val("capex", True)
     fcf = cash - capex if cash is not None and capex is not None and capex >= 0 else None
