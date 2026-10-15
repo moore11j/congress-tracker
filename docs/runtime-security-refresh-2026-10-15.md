@@ -1,6 +1,6 @@
 # Runtime dependency security refresh, October 15, 2026
 
-Status: prepared and locally verified, not merged or deployed. Based on backend main 2543d410. This removes recurring dependency audit failures from the migration release path; it does not activate a provider or complete FMP retirement.
+Status: deployed and runtime verified through PR671/bbbc72c3; see the release receipt below. Preparation evidence follows. Based on backend main 2543d410. This removes recurring dependency audit failures from the migration release path; it does not activate a provider or complete FMP retirement.
 
 ## Change
 
@@ -29,4 +29,13 @@ Fault injection with the backend unavailable reveals ticker React Server Compone
 
 Local artifacts: pillow123-regression-oct15.log, house-pillow-parity-oct15.json, backend-security-audit-oct15.json, frontend-security-final-audit-oct15.json, frontend-security-tests-oct15.log, frontend-security-baseline-tests-oct15.log, frontend-security-baseline-comparison-oct15.json, frontend-security-build-oct15.log and next-security-runtime-oct15.json. Artifacts may be local-only; this report preserves consequential results.
 
-Exact-head CI, review and guarded release/runtime verification remain pending. Core financial coverage, institutions, transcripts, all scheduled alerts/rankings/consumers, sustained performance, final Massive activation, zero-FMP traffic and billing remain open. CAT PR656 is unmerged/unreleased; rejected production-export checks remain unrun and pending explicit approval. No secrets, account records or production snapshots were read for this work.
+The preparation-time release gates below are superseded by the deployed receipt. Broader migration gates remain. Core financial coverage, institutions, transcripts, all scheduled alerts/rankings/consumers, sustained performance, final Massive activation, zero-FMP traffic and billing remain open. CAT PR656 is unmerged/unreleased; rejected production-export checks remain unrun and pending explicit approval. No secrets, account records or production snapshots were read for this work.
+
+
+## Deployed release and runtime verification, October15 15:49UTC
+
+[PR671](https://github.com/moore11j/congress-tracker/pull/671) source6c549122 merged bbbc72c3c19c7a9e846ff5548238c87634f654bc. Exact-head security workflow38762960441 passed both audits and secret scan; required CI-tool logs verify `pip_audit -r backend/requirements.txt` reports no known vulnerabilities and production npm audit reports zero. Preview succeeds. Main Vercel deployment HJQeUABSVm2tBp9SwvV35TEK5R5E also reports success for this exact merge.
+
+Guarded backend workflow38763224424/job116519661522 succeeds: exact image built15:47:04, reservation ready15:47:09, owner release15:47:52 and readiness/Premium privacy checks pass. Runtime Python3.12.15 verifies Pillow12.3.0 and unchanged pdf2image1.17.0/pytesseract0.3.13/pypdf6.19.0, exact requirements hash c85d144222e61cec2600797f983bf82334620fb077539a6cf123321dd6f6fc04, and synthetic PNG/JPEG/WebP encode/decode. No production database reads, writes or network calls inside the verifier. Receipt runtime-security-1792079361.json.
+
+Public readiness200/databaseokay, Feed0.409s and Insights0.290s/no literal exception page (fusb-public-1792079363.json). These are immediate HTTP spot checks, not signed-in/streamed rendering or sustained capacity proof. New local ticker snapshot reliability repair is tracked separately. CAT/institutional export restrictions remain unchanged. Attachment attempt failed at the100-item chat limit; the PR link remains usable.
