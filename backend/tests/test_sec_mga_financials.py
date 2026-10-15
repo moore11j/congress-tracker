@@ -213,3 +213,11 @@ def test_comparative_change_reconciles_locally_but_cannot_mix_periods(monkeypatc
     mga.parse(raw,source_key='current')
     data['mga_originals']['current']=raw
     with pytest.raises(mga.MgaFinancialError,match='restatement'):project(data)
+
+
+def test_prior_period_amendment_before_annual_report_requires_review():
+    c=company();r=c['filings']['recent']
+    row=dict(zip(('accessionNumber','form','filingDate','reportDate','primaryDocument'),('0000000000-25-999999','6-K/A','2025-10-14','2025-06-30','amendment.htm')))
+    for k in r:r[k].append(row.get(k,''))
+    with pytest.raises(mga.MgaFinancialError,match='amended_report_requires_review'):
+        mga.validate_company(c,symbol='MGA',cik=mga.CIK,observed_at=NOW)

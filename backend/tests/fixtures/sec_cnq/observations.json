@@ -1,0 +1,121 @@
+{
+  "current": {
+    "original_sha256": "8a212e3907e172c591a44d28a815b6d3f855788bb94ad009a568d86c11a66aba"
+  },
+  "annual": {
+    "original_sha256": "506ecaff6f6018648b34ece6ed34413bbaac4f27f1b32bf7c85ec2e541a1e322"
+  },
+  "prior": {
+    "original_sha256": "53c328d16d5ca0337cc3ea3328e02a5ab2dfaa5eca1091f255d5ab7e1cf2c0c8"
+  },
+  "company": {
+    "cik": "0001017413",
+    "name": "CANADIAN NATURAL RESOURCES Ltd",
+    "tickers": [
+      "CNQ"
+    ],
+    "exchanges": [
+      "NYSE"
+    ],
+    "filings": {
+      "recent": {
+        "accessionNumber": [
+          "0001017413-26-000045",
+          "0001017413-26-000043",
+          "0001017413-26-000018",
+          "0001017413-25-000043"
+        ],
+        "filingDate": [
+          "2026-08-06",
+          "2026-08-06",
+          "2026-03-26",
+          "2025-08-07"
+        ],
+        "reportDate": [
+          "2026-08-06",
+          "2026-06-30",
+          "2025-12-31",
+          "2025-06-30"
+        ],
+        "acceptanceDateTime": [
+          "2026-08-06T20:59:30.000Z",
+          "2026-08-06T20:52:30.000Z",
+          "2026-03-25T23:28:55.000Z",
+          "2025-08-07T19:51:40.000Z"
+        ],
+        "act": [
+          "34",
+          "34",
+          "34",
+          "34"
+        ],
+        "form": [
+          "6-K",
+          "6-K",
+          "40-F",
+          "6-K"
+        ],
+        "fileNumber": [
+          "333-12138",
+          "333-12138",
+          "333-12138",
+          "333-12138"
+        ],
+        "filmNumber": [
+          "261250181",
+          "261250091",
+          "26793975",
+          "251193669"
+        ],
+        "items": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "core_type": [
+          "6-K",
+          "6-K",
+          "XBRL",
+          "6-K"
+        ],
+        "size": [
+          1068893,
+          4723595,
+          40736641,
+          4542532
+        ],
+        "isXBRL": [
+          0,
+          0,
+          1,
+          0
+        ],
+        "isInlineXBRL": [
+          0,
+          0,
+          1,
+          0
+        ],
+        "isXBRLNumeric": [
+          0,
+          0,
+          null,
+          null
+        ],
+        "primaryDocument": [
+          "a08062026dividendcover.htm",
+          "a063020266-kcover.htm",
+          "cnq-20251231.htm",
+          "a063020256-kcover.htm"
+        ],
+        "primaryDocDescription": [
+          "6-K",
+          "6-K",
+          "40-F",
+          "6-K"
+        ]
+      }
+    }
+  }
+}

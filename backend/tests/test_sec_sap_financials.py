@@ -183,3 +183,11 @@ def test_prepared_cache_persists_eur_provenance_and_repeat_without_fetch(monkeyp
         assert prep.prepare('SAP')==first and len(calls)==5
         with factory() as db:assert json.loads(db.get(InsightsSnapshot,'sec-current-fundamentals:SAP:v1').payload_json)==first
     finally:engine.dispose()
+
+
+def test_prior_period_amendment_before_annual_report_requires_review():
+    c=deepcopy(META['company']);r=c['filings']['recent']
+    row=dict(zip(('accessionNumber','form','filingDate','reportDate','primaryDocument'),('0000000000-25-999999','6-K/A','2025-10-14','2025-06-30','amendment.htm')))
+    for k in r:r[k].append(row.get(k,''))
+    with pytest.raises(sap.SapFinancialError,match='amended_report_requires_review'):
+        sap.validate_company(c,symbol='SAP',cik=sap.CIK,observed_at=NOW)

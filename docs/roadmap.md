@@ -1,3 +1,5 @@
+October15: [CNQ financial preparation](cnq-interim-financials-2026-10-15.md) implemented locally: four verified CAD ratios, classification still incomplete. SAP/MGA comparative-amendment guards tightened; final validation/release/ordinary operation and full FMP gates remain.
+
 October15: [SAP EUR IFRS preparation](sap-interim-financials-2026-10-15.md) implemented locally; seven ratios,304 Linux checks and full-original isolated consumers verified. Cash definitions, release/ordinary rollover and all broader FMP gates remain.
 
 October15: [Novartis IFRS preparation](nvs-interim-financials-2026-10-15.md) implemented locally; ten metrics/40 original-input matches/isolated consumer repeat verified. Release, ordinary operation and full FMP gates remain.

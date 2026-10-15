@@ -6,7 +6,7 @@ import re
 from zoneinfo import ZoneInfo
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
 
-VERSION = 'sec_sap_eur_statements_v1'
+VERSION = 'sec_sap_eur_statements_v2'
 CIK = '0001000184'
 END = date(2026,6,30)
 MAX_BYTES = 15_000_000
@@ -58,7 +58,7 @@ def validate_company(company, *, symbol, cik, observed_at):
     # A later or amended filing is held until its financial relevance is reviewed.
     for acc,form,filed,report,name in filings:
         if form in ('6-K','6-K/A','20-F','20-F/A') and filed<=str(available) and (
-                filed>SOURCES['current']['filed'] or (form.endswith('/A') and filed>=SOURCES['annual']['filed'])
+                filed>SOURCES['current']['filed'] or (form.endswith('/A') and filed >= min(s['filed'] for s in SOURCES.values()))
                 or (filed==SOURCES['current']['filed'] and acc!=SOURCES['current']['accession'])):
             raise SapFinancialError('sap_newer_or_amended_report_requires_review')
 
