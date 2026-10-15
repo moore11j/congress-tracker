@@ -20,6 +20,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 
 
 def version_for_symbol(symbol):
+    if symbol == 'CAT':
+        from app.services.sec_cat_interest import VERSION as interest_version
+        return VERSION+'_'+interest_version
     if symbol == 'SPCX':
         from app.services.sec_registration_history import VERSION as registration_version
         return VERSION+'_'+registration_version
@@ -135,6 +138,10 @@ def prepare(symbol, *, max_cache_age=TTL):
             except sec_fundamentals.SecFundamentalsCoverageError as exc:
                 payload.update(reason='unsupported_current_financial_coverage', detail=str(exc))
             else:
+                if symbol == 'CAT':
+                    from app.services.sec_cat_interest import supplement as interest_components
+                    values = interest_components(values, raw, company, symbol=symbol, cik=cik,
+                        observed_at=now, client=client, history_raw=history, filing_supplement=filing)
                 from app.services.sec_issuer_cash_flow import supplement
                 values = supplement(values, raw, company, client=client)
                 if symbol in ISSUER_PROFILES:

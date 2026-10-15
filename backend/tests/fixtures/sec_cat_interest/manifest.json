@@ -1,0 +1,38 @@
+{
+  "sources": [
+    {
+      "file": "annual.html.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000008/cat-20251231.htm",
+      "sha256": "a599b3d51789d4bcbdd269192af26ab1e0ed1e3e7d8b2fc9f16f6d77508d325e",
+      "bytes": 6100587,
+      "accession": "0000018230-26-000008",
+      "filed": "2026-02-13",
+      "period": "2025-12-31",
+      "form": "10-K",
+      "name": "annual.html"
+    },
+    {
+      "file": "interim.html.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000046/cat-20260630.htm",
+      "sha256": "7c417e54e8dda457a23d152104ddb537bad4e8da0019e9bfbc2cff6c7a139d63",
+      "bytes": 4580618,
+      "accession": "0000018230-26-000046",
+      "filed": "2026-08-05",
+      "period": "2026-06-30",
+      "form": "10-Q",
+      "name": "interim.html"
+    },
+    {
+      "name": "CAT-facts.json",
+      "file": "CAT-facts.json.gz",
+      "sha256": "01ddc6ffa741f0a7da440e2949b2ed19cec14fab35435a398e3f3d0100019715",
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000018230.json"
+    },
+    {
+      "name": "CAT-company.json",
+      "file": "CAT-company.json.gz",
+      "sha256": "cd43eaa79308f1f76d62092b45c603432a39e32ae369548886e7bd923b90c278",
+      "url": "https://data.sec.gov/submissions/CIK0000018230.json"
+    }
+  ]
+}

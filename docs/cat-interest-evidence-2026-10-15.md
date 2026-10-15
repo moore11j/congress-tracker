@@ -1,6 +1,6 @@
 # Caterpillar interest reconciliation evidence
 
-October 15, 2026, 01:40 UTC. Offline source proof is complete. Production acquisition and preparation integration are **not implemented**, and no public metric or provider selection changed.
+October 15, 2026. Offline source proof is complete. Bounded acquisition and preparation integration are now implemented locally, with release and ordinary production verification pending. No public metric or provider selection changed.
 
 ## Source gap and recovery
 
@@ -41,3 +41,17 @@ Implement bounded acquisition of the required annual/current originals and an is
 At 01:33 UTC, the read-only portfolio receipt still shows no new active, pending or continuing portfolio cycle and no new external request. The latest GitHub scheduled-ingest run is the completed 00:28 recent-Congress run, not portfolio. Receipt `artifacts/portfolio-cycle-1792028002.json`; no duplicate or manual job dispatched. Ordinary portfolio completion remains a gate.
 
 The last verified deployment remains `12fd3668`. Core financials/prices/transcripts remain FMP and institutional publication remains disabled. The blocked institutional export was not retried. Current full institutional writer/consumer evidence, financial/transcript coverage, sustained performance, all alert/ranking consumers, final Massive subscription/validation, global zero-FMP requests and billing/access dates remain open. No account, host, schedule, subscription, customer-email, video or landing-page change.
+
+## Preparation adapter implemented locally
+
+The new `sec_cat_interest` adapter selects one or two exact filing identities from the existing period-aligned EBITDA companion inputs. Every identity must match the current submissions directory; ambiguous paths, unavailable/future dates, newer amendments, excessive source counts and stale periods are held before transport. The existing bounded SEC client fetches at most two original documents. An optional transport or parse failure preserves all existing financial values and records an unavailable explanation; partial source acquisition cannot publish a partial interest sum.
+
+The parser validates the exact statement labels and disjoint product members, one explicit dimension and no additional segment content, original issuer/form/report identity, currency, periods and finite nonnegative amounts. It continues to use the unchanged strict generic parser for the companion observations. The issuer rule requires these structural checks on every retrieved filing, rather than treating the two reviewed hashes as blanket approval for future statement changes.
+
+Both the free preparation job and selected SEC fundamentals fetch path call this adapter. Application preserves reported observations and conflicts, and attaches verified companion provenance only to matching leverage inputs. Only CAT's preparation version changes. No canonical financial field, provider selector, schedule or source publication flag changes.
+
+Linux Python 3.12.3 validation: **212 affected checks pass**, then **29 final CAT checks pass** after adding rejection of extra dimension content. Tests include full originals, exact seven recovered periods, unchanged canonical/non-leverage values, source failure after either request, invalid identities/directories, newer amendments, retained conflicts, a real isolated SQLite preparation/repeat with no additional source calls, zero canonical financial/event writes, and both preparation entry points. The first integrated run passed211 with one incorrect five-period expectation; the corrected assertion checks all seven source periods explicitly. No application defect or production change resulted from that assertion failure.
+
+Complete Linux adapter replay SHA256: `bd9d4c70b8d309dd33ab90bebbe1b2de0452314b16a1a6282ac91aa412ed4f88`. It performs two fixture reads, zero network requests or production writes, and repeats identically. Measured isolated CPU2.828seconds/wall3.064seconds is not a production-capacity claim. Receipt: `artifacts/cat-interest-adapter-replay-oct15.json`. Public SEC fixtures and hashes are tracked under `backend/tests/fixtures/sec_cat_interest` (883,787 compressed fixture/manifest bytes).
+
+Exact deployment/source hashes, deployed Python3.12 original replay and ordinary scheduled CAT persistence remain required. The runtime verifier is prepared but has not run. Wider financial definitions/coverage, financial consumers and all other FMP cutover gates remain open.
