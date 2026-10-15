@@ -49,6 +49,9 @@ def _base_version_for_symbol(symbol):
     if symbol == 'ASML':
         from app.services.sec_asml_financials import VERSION as asml_version
         return VERSION+'_'+asml_version
+    if symbol == 'MGA':
+        from app.services.sec_mga_financials import VERSION as mga_version
+        return VERSION+'_'+mga_version
     if symbol == 'TSM':
         from app.services.sec_tsm_financials import VERSION as tsm_version
         return VERSION+'_'+tsm_version

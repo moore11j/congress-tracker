@@ -1,3 +1,5 @@
+October15: [Magna SEC financials](mga-sec-financials-2026-10-15.md) implemented locally: seven metrics,298 distinct checks and complete originals/cache/alerts/control replay pass. Two scored inputs still fail the classification gate. Release/runtime, ordinary rotation/rollover and all broad FMP gates remain.
+
 October15: [Optional cash-flow reliability](sec-cash-flow-isolation-2026-10-15.md) implemented locally,268 distinct selected checks pass. Preserves verified NVIDIA metrics on optional-source failure and retains batch stop/backoff. Release/runtime/ordinary verification pending; no financial definition/source change or new coverage claim. Full FMP gates remain.
 
 October15: [Finnhub estimate/target preparation](finnhub-paid-preparation-2026-10-15.md) implemented locally with203 selected checks. Five default-off staging scopes; live entitlement/basis/coverage, public consumer projection and schedules remain unverified. No paid requests or source switch; full FMP retirement gates remain.
