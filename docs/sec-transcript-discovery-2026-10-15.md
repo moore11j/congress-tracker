@@ -8,7 +8,7 @@ The reviewed directory currently contains 31 relevant covers. The adapter keeps 
 
 Two transcript layouts are verified: the current webcast heading and the older numeric-date TRANSCRIPT heading, each with the exact fiscal period/call date, actual first analyst question, operator closing and issuer transcription disclaimer. SEC's SGML envelope is accepted only with the linked exhibit filename. Changed links for one fiscal period quarantine the existing record; ambiguous same-period filings require reconciliation. No arbitrary website or sibling-file permission is granted.
 
-The existing shared two-request collection budget and minimum daily per-page retry are preserved. An identified current transcript precedes older pending covers. Directory and cover proofs are loaded in batches, then reparsed from immutable bytes; the actual 31-cover reader uses six SELECTs rather than per-cover queries. Source preparation remains distinct from research publication. No provider selector or schedule change.
+The existing shared two-request collection budget and minimum daily per-page retry are preserved. Successfully parsed SEC filing originals are reused; the submissions directory is refreshed for new or amended filings. Failed/pending originals keep daily retries, and an explicit cleared check timestamp permits a reviewed recheck. This avoids spending the recurring budget on downloading all historical covers again. An identified current transcript precedes older pending covers. Directory and cover proofs are loaded in batches, then reparsed from immutable bytes; the actual 31-cover reader uses six SELECTs rather than per-cover queries. Source preparation remains distinct from research publication. No provider selector or schedule change.
 
 ## Retained public originals
 
@@ -21,11 +21,11 @@ The current non-transcript financial cover and complete company directory also p
 
 ## Validation
 
-Final Linux Python 3.12.3 selection: 367 passed, including 49 new SEC policy/collector/reader tests and existing issuer, registry, transcript and free research consumer tests. Earlier Windows selection had 356 passes and three setup errors in existing tests with oversized parametrized IDs; the Linux suite passes. Final new 49 also pass on Windows Python 3.14.2.
+Final Linux Python 3.12.3 selection: 368 passed, including 50 new SEC policy/collector/reader tests and existing issuer, registry, transcript and free research consumer tests. Earlier Windows selection had 356 passes and three setup errors in existing tests; the Linux suite passes. Final SEC and IBM selection passes 86 checks on Windows Python 3.14.2, including the immutable-original refresh regression.
 
 The full saved-original replay passes on both runtimes. Two collection runs consume exactly two requests each: directory, transcript cover, current transcript and same-day financial cover. Both complete transcript texts match the retained originals. The current source produces one research document, zero research evidence events and an exactly unchanged complete database on repeat. Actual current reader query count is six. Synthetic tests also cover next-quarter rollover, stale/failed/future directories, immutable tampering at every hop, changed links, cross-provider exact reuse/conflicting-period holds and unchanged existing FMP records. These are isolated consumer checks, not live scheduled delivery evidence.
 
-Receipts: artifacts/sec-transcript-final-linux-oct15.log; artifacts/sec-transcript-replay-linux-oct15.json; artifacts/sec-transcript-replay-win32-oct15.json. The installed-code synthetic probe has passed its local rehearsal with all external connections blocked; it has not yet run in production. Its initial exception handler was corrected to catch the actual DirectSourceError type.
+Receipts: artifacts/sec-transcript-release-linux-oct15.log; artifacts/sec-transcript-replay-linux-oct15.json; artifacts/sec-transcript-replay-win32-oct15.json. The installed-code synthetic probe has passed its local rehearsal with all external connections blocked; it has not yet run in production. Its initial exception handler was corrected to catch the actual DirectSourceError type.
 
 ## Release and remaining gates
 

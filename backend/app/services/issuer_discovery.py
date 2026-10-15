@@ -303,7 +303,13 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
         eligible = [(row, json.loads(row.metadata_json)) for row in rows]
         eligible = [(r,m) for r,m in eligible if m.get('symbol') in companies
                     and m.get('discovery_kind') == companies[m['symbol']]['discovery']['kind']
-                    and r.error != 'Issuer period changed source URL; review required']
+                    and r.error != 'Issuer period changed source URL; review required'
+                    # Filed SEC originals are immutable evidence. Refresh the
+                    # directory for new/amended filings, not every old exhibit.
+                    # Failed/pending originals retain the daily retry; clearing
+                    # checked_at still permits an explicit reviewed recheck.
+                    and not (m.get('discovery_kind') == SEC_KIND and r.feed != INDEX_FEED
+                             and r.status == 'parsed' and r.checked_at is not None)]
         if not eligible:
             db.commit()
             break

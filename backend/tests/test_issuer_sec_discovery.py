@@ -308,3 +308,16 @@ def test_reviewed_legacy_numeric_date_layout(mutation):
     if mutation == 'valid': assert policy.parse_candidate(raw, m, NOW)[2]['has_qa']
     else:
         with pytest.raises(DirectSourceError): policy.parse_candidate(raw, m, NOW)
+
+
+def test_daily_directory_refresh_reuses_immutable_sec_originals(db, monkeypatch):
+    client = collect(db)
+    before = [(r.id, r.content_hash, r.fetched_at) for r in db.scalars(select(DirectFeedRevision))]
+    later = NOW + timedelta(hours=25)
+    monkeypatch.setattr(discovery, 'utcnow', lambda: later)
+    monkeypatch.setattr(store, 'utcnow', lambda: later)
+    result = discovery.collect_discovery(db, client, [company()], limit=2, recheck_hours=24)
+    assert result['attempted'] == result['processed'] == 1 and not result['errors']
+    assert client.calls == [policy.INDEX_URL, COVER, TRANSCRIPT, policy.INDEX_URL]
+    assert before == [(r.id, r.content_hash, r.fetched_at) for r in db.scalars(select(DirectFeedRevision))]
+    assert issuer.prepared_transcript(db, 'MGA', observed_by=later)['status'] == 'prepared'
