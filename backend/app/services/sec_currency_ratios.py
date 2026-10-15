@@ -18,6 +18,9 @@ REVIEW = {
 
 
 def basis(symbol, cik):
+    if symbol == 'VALE':
+        from app.services.sec_vale_financials import basis as vale_basis
+        return vale_basis(cik)
     if symbol == 'NVS':
         from app.services.sec_nvs_financials import basis as nvs_basis
         return nvs_basis(cik)

@@ -1,3 +1,5 @@
+October15: [Vale IFRS preparation](vale-ifrs-financials-2026-10-15.md) locally adds seven reviewed ratios with226 checks/full-original consumer repeat. Cash/leverage/ADR and exact release/ordinary verification remain open; full FMP gates unchanged.
+
 October15: [Financial version rotation](financial-version-rotation-2026-10-15.md) locally fixes observed update delay within existing batch/priority limits;66 tests pass. Exact release and ordinary verification remain.
 
 October15: [Unilever restated financials](ul-restated-financials-2026-10-15.md) locally reconcile seven EUR ratios with complete-source consumer repeats; release/ordinary rollover and all broader FMP gates remain.

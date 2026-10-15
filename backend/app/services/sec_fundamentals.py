@@ -347,8 +347,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
             evidence['limitations'].append('Only dimensionless ratios are published; no FX conversion or USD cash amounts.')
         else:
             evidence['limitations'].extend([
-                'Reported USD cash amounts and ratios; no FX conversion or ADR per-share inference.',
-                'Margin denominators use net sales, excluding separately reported other revenue.',
+                native_basis['review'].get('amount_basis', 'Reported USD cash amounts and ratios; no FX conversion or ADR per-share inference.'),
+                native_basis['review'].get('margin_basis', 'Margin denominators use net sales, excluding separately reported other revenue.'),
                 native_basis['review']['cash_flow_basis']])
     from app.services.sec_reporting_policy import reviewed
     reporting_policy = reviewed(symbol, cik)
