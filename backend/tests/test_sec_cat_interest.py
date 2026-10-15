@@ -54,6 +54,11 @@ def test_complete_originals_preserve_canonical_and_nonleverage_values(originals,
     assert {k:v for k,v in before.items() if k != 'source_evidence_json'} == {k:v for k,v in after.items() if k != 'source_evidence_json'}
     a,b = [json.loads(v['source_evidence_json']) for v in (before,after)]
     old,new = a.pop('leverage_preparation'),b.pop('leverage_preparation')
+    old_policy,new_policy = a.pop('net_debt_policy'),b.pop('net_debt_policy')
+    assert old_policy.pop('reason') == 'incomplete_or_nonpositive_ebitda'
+    assert new_policy.pop('reason') == 'no_verified_finance_inclusive_debt'
+    assert old_policy == new_policy
+    assert new_policy['status'] == 'unavailable'
     assert a == b
     assert old['ebitda']['missing_components'] == ['leverage_interest']
     assert new['ebitda']['status'] == 'components_complete'
