@@ -1,5 +1,6 @@
 """Unilever EUR statements with the issuer's explicit ice-cream restatement."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from pathlib import Path
 import hashlib
 import io
 import json
@@ -7,7 +8,8 @@ import re
 from zoneinfo import ZoneInfo
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
 
-VERSION = 'sec_ul_restated_eur_v1'
+VERSION = 'sec_ul_archived_restatement_v2'
+RESTATEMENT_FILE = Path(__file__).resolve().parents[2]/'config/financial_continuity/ul-half-year-restatement-2026-03-12.pdf'
 CIK = '0000217410'
 END = date(2026, 6, 30)
 SOURCES = {'current': {'period': '2026-06-30', 'form': '6-K', 'filed': '2026-07-28', 'accession': '0000217410-26-000057', 'document': 'ul-20260630.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000021741026000057/ul-20260630.htm', 'sha256': '4f6be2d563061a80c34c691eee64a0874c4ca1a6ff034f17cde9e58194774188', 'bytes': 2092905, 'tables': 9, 'inline_facts': 0}, 'annual': {'period': '2025-12-31', 'form': '20-F', 'filed': '2026-03-12', 'accession': '0000217410-26-000007', 'document': 'ul-20251231.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000021741026000007/ul-20251231.htm', 'sha256': '6b7a85d845cd8874ef8ddc674016ab8f693f7443d41fd19e0e4ddb2a01d5659c', 'bytes': 13935127, 'tables': 17, 'inline_facts': 0}}
@@ -56,6 +58,8 @@ def validate_company(company, *, symbol, cik, observed_at):
             raise UnileverFinancialError('ul_newer_or_amended_report_requires_review')
     if date.fromisoformat(RESTATEMENT['published'])>available:
         raise UnileverFinancialError('ul_restatement_not_available')
+    if observed_at < datetime.fromisoformat(RESTATEMENT['observed_at']):
+        raise UnileverFinancialError('ul_historical_original_not_yet_observed')
 
 
 def amount(value):
@@ -100,7 +104,9 @@ def _income(rows, *, source_key):
 def _proof(source):
     return {'url':source['url'],'sha256':source['sha256'],'published':source.get('filed',source.get('published')),
             'source_kind':source.get('source_kind','sec_filing'),'currency':'EUR','scale':1_000_000,
-            **({'accession':source['accession']} if 'accession' in source else {})}
+            **({'accession':source['accession']} if 'accession' in source else {}),
+            **({'retrieval':'reviewed_historical_original', 'source_observed_at':source['observed_at']}
+               if source.get('source_kind')=='issuer_restatement_pdf' else {})}
 
 
 def _facts(income,source,*,annual=False):
@@ -205,13 +211,22 @@ def parse_restated(raw):
     return {'facts':_facts(inc,RESTATEMENT),'evidence':_proof(RESTATEMENT),'income':inc}
 
 
+def historical_restatement():
+    """Retain the reviewed original, never present a local read as a new fetch."""
+    try:
+        raw = RESTATEMENT_FILE.read_bytes()
+    except OSError as exc:
+        raise UnileverFinancialError('ul_historical_original_missing') from exc
+    if (len(raw) != RESTATEMENT['bytes']
+            or hashlib.sha256(raw).hexdigest() != RESTATEMENT['sha256']):
+        raise UnileverFinancialError('ul_historical_original_changed')
+    return raw
+
+
 def acquire(company_raw,*,symbol,cik,observed_at,client):
     validate_company(json.loads(company_raw),symbol=symbol,cik=cik,observed_at=observed_at)
-    original_urls=client.issuer_document_urls
-    try:
-        client.issuer_document_urls=frozenset([*original_urls,RESTATEMENT['url']])
-        return {'ul_originals':{**{k:client.get(s['url']) for k,s in SOURCES.items()},'restated':client.get(RESTATEMENT['url'])}}
-    finally:client.issuer_document_urls=original_urls
+    archived = historical_restatement()
+    return {'ul_originals':{**{k:client.get(s['url']) for k,s in SOURCES.items()},'restated':archived}}
 
 
 def project(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
@@ -269,5 +284,6 @@ def project(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
             'Net margin and ROE retain total parent earnings including discontinued operations and disposal gains; not recurring profitability.',
             'FCF margin uses continuing cash flow with IFRS interest classified in financing, excludes intangible purchases, and is not issuer-adjusted FCF.',
             'No gross margin, prior FCF growth, EBITDA, net debt or ADR/EPS inference from incomplete definitions.',
-            'New or amended financial disclosures and any changed reviewed original require review.']}
+            'Historical issuer restatement uses the reviewed original captured on '+RESTATEMENT['observed_at']+'; it is not a fresh issuer-site observation.',
+            'Fresh SEC directory and report checks remain required. Any new filing or amended financial disclosure requires review.']}
     values['source_evidence_json']=json.dumps(evidence,sort_keys=True);return values

@@ -1,3 +1,5 @@
+October15: [UL historical-original retention](ul-historical-original-2026-10-15.md) locally removes repeated dependence on blocked historical PDF while retaining source clocks/hash/current SEC checks.193 checks/full-original consumer parity pass; exact release/ordinary recovery and all broader FMP gates remain.
+
 October15: [Vale IFRS preparation](vale-ifrs-financials-2026-10-15.md) locally adds seven reviewed ratios with226 checks/full-original consumer repeat. Cash/leverage/ADR and exact release/ordinary verification remain open; full FMP gates unchanged.
 
 October15: [Financial version rotation](financial-version-rotation-2026-10-15.md) locally fixes observed update delay within existing batch/priority limits;66 tests pass. Exact release and ordinary verification remain.

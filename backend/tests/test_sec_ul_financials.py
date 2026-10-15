@@ -21,6 +21,8 @@ def bundle(monkeypatch,*,pages=None):
     for k,raw in docs.items():monkeypatch.setitem(ul.SOURCES,k,{**ul.SOURCES[k],'sha256':hashlib.sha256(raw).hexdigest()})
     docs['restated']=b'%PDF-synthetic-extraction-fixture'
     monkeypatch.setitem(ul.RESTATEMENT,'sha256',hashlib.sha256(docs['restated']).hexdigest())
+    monkeypatch.setitem(ul.RESTATEMENT,'bytes',len(docs['restated']))
+    monkeypatch.setattr(ul,'RESTATEMENT_FILE',types.SimpleNamespace(read_bytes=lambda:docs['restated']))
     import pypdf
     texts=pages if pages is not None else json.loads((ROOT/'restated-extracted.json').read_bytes())
     class Reader:
@@ -119,19 +121,20 @@ def test_restatement_extraction_must_match_reviewed_basis(monkeypatch,change):
     with pytest.raises(ul.UnileverFinancialError):project(bundle(monkeypatch,pages=pages))
 
 
-def test_only_exact_restatement_url_is_temporarily_permitted(monkeypatch):
+def test_archived_restatement_needs_only_current_sec_sources(monkeypatch):
     data=bundle(monkeypatch);calls=[];permitted=frozenset(['https://example.test/already-reviewed'])
-    urls={**{s['url']:data['ul_originals'][k] for k,s in ul.SOURCES.items()},ul.RESTATEMENT['url']:data['ul_originals']['restated']}
+    urls={s['url']:data['ul_originals'][k] for k,s in ul.SOURCES.items()}
     class Client:
         issuer_document_urls=permitted
         def get(self,url):
-            assert self.issuer_document_urls==permitted|{ul.RESTATEMENT['url']}
+            assert self.issuer_document_urls==permitted
+            assert url.startswith('https://www.sec.gov/Archives/')
             calls.append(url);return urls[url]
     client=Client();assert ul.acquire(json.dumps(COMPANY).encode(),symbol='UL',cik=ul.CIK,observed_at=NOW,client=client)==data
-    assert len(calls)==3 and client.issuer_document_urls==permitted
-    def fail(url):raise RuntimeError('transport')
+    assert len(calls)==2 and client.issuer_document_urls==permitted
+    def fail(url):raise RuntimeError('SEC unavailable')
     client.get=fail
-    with pytest.raises(RuntimeError):ul.acquire(json.dumps(COMPANY).encode(),symbol='UL',cik=ul.CIK,observed_at=NOW,client=client)
+    with pytest.raises(RuntimeError,match='SEC unavailable'):ul.acquire(json.dumps(COMPANY).encode(),symbol='UL',cik=ul.CIK,observed_at=NOW,client=client)
     assert client.issuer_document_urls==permitted
 
 
@@ -166,9 +169,9 @@ def test_prepared_cache_persists_restatement_and_repeats_without_fetch(monkeypat
     monkeypatch.setattr(prep,'SessionLocal',factory);monkeypatch.setattr(prep,'datetime',Clock)
     monkeypatch.setattr(prep,'DirectSourceClient',Client);monkeypatch.setattr(sec_directory,'directory',lambda:{'UL':{'cik':ul.CIK}})
     try:
-        first=prep.prepare('UL');assert set(first['values'])==FIELDS and len(calls)==5
+        first=prep.prepare('UL');assert set(first['values'])==FIELDS and len(calls)==4
         assert first['calculation_evidence']['reporting_currency']=='EUR'
-        assert prep.prepare('UL')==first and len(calls)==5
+        assert prep.prepare('UL')==first and len(calls)==4
         assert prep.version_for_symbol('UL')==prep.VERSION+'_'+ul.VERSION
         assert prep.version_for_symbol('AAPL')==prep.VERSION
         with factory() as db:assert json.loads(db.get(InsightsSnapshot,'sec-current-fundamentals:UL:v1').payload_json)==first
@@ -229,3 +232,35 @@ def test_other_sources_keep_existing_labels(monkeypatch):
     e=json.loads(r['source_evidence_json']);e.pop('display_context');r.update(provider='sec_edgar',source_evidence_json=json.dumps(e))
     context=fundamentals_summary_from_cache_row(types.SimpleNamespace(**r),now=NOW)['context']
     assert context['source_label']=='SEC EDGAR' and context['source_note'] is None
+
+
+def test_packaged_complete_original_and_capture_provenance():
+    raw=ul.historical_restatement()
+    assert len(raw)==179697 and hashlib.sha256(raw).hexdigest()==ul.RESTATEMENT['sha256']
+    result=ul.parse_restated(raw)
+    assert result['income']['revenue']==[25506000000,26507000000]
+    assert result['evidence']['retrieval']=='reviewed_historical_original'
+    assert result['evidence']['source_observed_at']=='2026-10-15T20:42:20.679876+00:00'
+    assert result['evidence']['published']=='2026-03-12'
+
+
+@pytest.mark.parametrize('change',['missing','truncated','same_size_tamper'])
+def test_missing_or_tampered_archive_fails_before_transport(monkeypatch,tmp_path,change):
+    raw=ul.historical_restatement();path=tmp_path/'original.pdf'
+    if change=='truncated':path.write_bytes(raw[:-1])
+    elif change=='same_size_tamper':path.write_bytes(raw[:-1]+bytes([raw[-1]^1]))
+    monkeypatch.setattr(ul,'RESTATEMENT_FILE',path)
+    class Client:
+        def get(self,url):raise AssertionError('Transport before archive validation')
+    with pytest.raises(ul.UnileverFinancialError,match='ul_historical_original_'):
+        ul.acquire(json.dumps(COMPANY).encode(),symbol='UL',cik=ul.CIK,observed_at=NOW,client=Client())
+
+
+def test_archive_does_not_claim_observation_before_capture(monkeypatch):
+    data=bundle(monkeypatch)
+    with pytest.raises(ul.UnileverFinancialError,match='not_yet_observed'):
+        project(data,observed_at=NOW.replace(hour=20,minute=41))
+    evidence=json.loads(project(data)['source_evidence_json'])
+    original=next(s for s in evidence['sources'] if s['source_kind']=='issuer_restatement_pdf')
+    assert original['source_observed_at']!=NOW.isoformat()
+    assert any('not a fresh issuer-site observation' in line for line in evidence['limitations'])
