@@ -81,6 +81,10 @@ def fetch_fundamentals(symbol: str):
                 'company': {'url': f'https://data.sec.gov/submissions/CIK{cik}.json', 'sha256': hashlib.sha256(company).hexdigest()},
                 'current': {}, 'prior': {}, 'instant': {}, 'calculations': {},
                 'limitations': ['Financial facts unavailable; market data is independently verified']})}
+    if symbol == 'CAT' and values.get('period_date') is not None:
+        from app.services.sec_cat_interest import supplement as interest_components
+        values = interest_components(values, facts, company, symbol=symbol, cik=cik,
+            observed_at=now, client=client, history_raw=history, filing_supplement=filing)
     from app.services.sec_issuer_cash_flow import supplement
     values = supplement(values, facts, company, client=client)
     if symbol in ISSUER_PROFILES:
@@ -245,7 +249,7 @@ def _prior_end(records, end):
 
 
 def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, cik: str,
-                         observed_at: datetime, history_raw=None, filing_supplement=None):
+                         observed_at: datetime, history_raw=None, filing_supplement=None, interest_supplement=None):
     """Return cache values plus evidence; requires a current, coherent revenue period.
 
     Filed dates have day resolution. Today's filings are excluded until the day
@@ -408,7 +412,14 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     save("fcf_margin", ratio(fcf, val("revenue"), 100), "TTM free cash flow / TTM revenue * 100")
     fcf_growth = ratio(fcf, old_fcf, 100)
     save("fcf_growth", fcf_growth - 100 if fcf_growth is not None else None, "(TTM free cash flow / prior TTM free cash flow - 1) * 100")
+    interest_evidence = None
+    if symbol == 'CAT' and interest_supplement is not None:
+        from app.services.sec_cat_interest import apply as interest_components
+        all_records, interest_evidence = interest_components(all_records, interest_supplement,
+            symbol=symbol, cik=cik, available_by=available_by)
     evidence["leverage_preparation"] = sec_leverage.project(all_records, end=end, start=reference_start)
+    if interest_evidence is not None:
+        evidence['leverage_preparation']['interest_reconciliation'] = interest_evidence
     if native_basis:
         evidence['leverage_preparation']['reporting_currency'] = currency
         evidence['leverage_preparation']['currency_policy'] = 'Non-USD leverage is not prepared by this ratios adapter.'

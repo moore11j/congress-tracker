@@ -24,6 +24,14 @@ October15: [Valuation guard release and screener transition](screener-source-pro
 
 October15: [Valuation shutdown audit](valuation-provider-guard-2026-10-15.md) adds explicit own-DCF, sector-performance and screener-provenance cutover gaps. Provider guard repaired locally, eight new checks pass; three existing valuation failures reproduce on main. Not deployed; all broader FMP gates and pending payload permissions remain.
 
+October15,01:53UTC: [CAT preparation PR656](cat-interest-evidence-2026-10-15.md#review-and-production-verification-hold-0153-utc) implemented with212 affected/29 final checks and complete-source parity; not merged/deployed. Production receipt requires explicit approval after auto-review rejection. All FMP cutover gates remain; independent work continues.
+
+October15,01:40UTC: [CAT interest source proof](cat-interest-evidence-2026-10-15.md) verifies two public originals and offline complete EBITDA/repeat with10 checks. Research prototype only; bounded acquisition, production integration and consumer validation remain. All FMP exit gates remain open.
+
+October15,01:27UTC: [Current institutional cohort](institutional-current-cohort-2026-10-15.md) capture prepared/11 integrity checks pass; automatic approval review requires explicit owner approval for Fly-to-local institutional payload. No export executed. Current cohort/writer/consumer and all FMP exit gates remain; independent aggregate audit confirms remaining price/transcript/core dependencies.
+
+October15,01:16UTC: [SEC scanner PR655](sec-submission-scan-2026-10-15.md#release-and-current-production-preparation) deployed12fd3668; nine runtime hashes and complete20-target/688-peer read-only preparation verify. Current1321parsed/63quarantined cohort requires refreshed writer/consumer proof; publication cost, sustained capacity and all FMP cutover gates remain.
+
 October15: [SEC submission scanning](sec-submission-scan-2026-10-15.md) implemented locally/unreleased;170 checks and four complete718-original/402-peer parity passes. Candidate CPU lower with large variation; exact release/runtime and writer/sustained capacity remain unverified. All FMP cutover gates remain.
 
 October15,00:53UTC: [PR651 original debt precision](sec-debt-precision-2026-10-14.md#deployed-and-ordinary-preparation-verified-october-15) deployed544b893b;123 integrated checks,14 runtime hashes and exact full-original parity pass. Eight ordinary v8 panels persist; Comcast positive persistence/issuer rotation, canonical leverage and broad coverage remain open. Portfolio dispatch/full-cycle, sustained capacity and all FMP cutover gates remain.
@@ -556,3 +564,14 @@ October15: [Portfolio release coordination](portfolio-release-guard-2026-10-15.m
 
 
 October15,14:32UTC: [Portfolio release guard](portfolio-release-guard-2026-10-15.md) primitive deployed885e896f and runtime verified after successful1135-scope/five-window portfolio cycle. Workflow caller timeout is separate from successful durable completion. Guarded workflow wiring locally passes19 checks; release/live guarded cycle still pending. Broader FMP gates remain.
+
+
+October15,14:37UTC: [Portfolio release coordination](portfolio-release-guard-2026-10-15.md) deployed through PR670/2543d410 with verified live reservation/rollout/cleanup and five runtime hashes. Full durable portfolio1135/1135 succeeds; repeated operation, source/price quality, other consumers and sustained capacity remain open. FMP retirement remains incomplete; no provider activation or subscription.
+
+October15,06:10UTC: [Partial SEC response recovery](sec-partial-companyfacts-recovery-2026-10-15.md#deployed-release-and-live-verification-0610-utc) PR668 deployed af59d62b;367 checks, four runtime hashes and two live complete policy/source-cache proofs verify. Observed ordinary debt-policy rotation is33 scopes/four completed batches; broad coverage, consumer/capacity and all wider FMP cutover gates remain.
+
+
+October15: [CAT complete balance debt](cat-interest-evidence-2026-10-15.md#complete-balance-sheet-debt-prepared-october15) is locally prepared,350 distinct checks and full original/repeat/alert parity pass. Net debt/EBITDA2.0858026701400196 recovered with existing fields preserved. PR656 remains unreleased; minimized production verification approval and ordinary operation remain pending. Broader source/consumer/capacity/finalMassive/zero-FMP/billing gates unchanged.
+
+
+October15: [CAT independent debt acquisition](cat-interest-evidence-2026-10-15.md#independent-debt-acquisition-october15-follow-up) now handles reported consolidated interest locally;357 checks pass and real-original output is unchanged. This supersedes the earlier missing-interest-only restriction. PR656 remains unreleased; source/runtime/ordinary verification and all broader retirement gates remain.
