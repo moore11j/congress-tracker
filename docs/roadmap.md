@@ -1,3 +1,7 @@
+October15: [SEC submission scanning](sec-submission-scan-2026-10-15.md) implemented locally/unreleased;170 checks and four complete718-original/402-peer parity passes. Candidate CPU lower with large variation; exact release/runtime and writer/sustained capacity remain unverified. All FMP cutover gates remain.
+
+October15,00:53UTC: [PR651 original debt precision](sec-debt-precision-2026-10-14.md#deployed-and-ordinary-preparation-verified-october-15) deployed544b893b;123 integrated checks,14 runtime hashes and exact full-original parity pass. Eight ordinary v8 panels persist; Comcast positive persistence/issuer rotation, canonical leverage and broad coverage remain open. Portfolio dispatch/full-cycle, sustained capacity and all FMP cutover gates remain.
+
 October15,00:40UTC: [PR654 ticker query repair](historical-similarity-query-batching-2026-10-15.md#deployed-release-and-current-observation) deployed68c28d9a;78checks, exact deployed source/result parity and ordinary news/earnings verify. Immediate Feed0.394s/Insights0.748s; ticker2.270-2.396s and sustained capacity/full portfolio remain open. Full FMP cutover gates unchanged.
 
 October15: [Historical similarity query repair](historical-similarity-query-batching-2026-10-15.md) implemented locally/unreleased,78 checks and exact actual AAPL/NVDA result parity pass;214/101 queries become3. Exact release/public speed/sustained capacity remain unverified. Full portfolio and FMP cutover gates unchanged.

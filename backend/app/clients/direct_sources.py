@@ -179,6 +179,21 @@ def validated_ownership_xml(raw: bytes, metadata: dict) -> str:
     return xml
 
 
+def _submission_sections(text: str, opening: str, closing: str):
+    """Yield the same nonoverlapping sections as a literal, lazy DOTALL match."""
+    offset = 0
+    while True:
+        start = text.find(opening, offset)
+        if start < 0:
+            return
+        start += len(opening)
+        end = text.find(closing, start)
+        if end < 0:
+            return
+        yield text[start:end]
+        offset = end + len(closing)
+
+
 def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
     """Validate a complete modern EDGAR submission before staging its holdings."""
     from app.clients.sec_edgar import _13f_row_texts, _parse_13f_information_fields
@@ -196,13 +211,13 @@ def parse_13f_submission(raw: bytes, metadata: dict) -> tuple[str, dict]:
         raise DirectSourceError("Historical 13F value units require separate validation")
 
     documents = []
-    for block in re.findall(r"<DOCUMENT>(.*?)</DOCUMENT>", text, re.S):
+    for block in _submission_sections(text, "<DOCUMENT>", "</DOCUMENT>"):
         filename = re.search(r"<FILENAME>([^\r\n]+)", block)
-        xml = re.search(r"<XML>\s*(.*?)\s*</XML>", block, re.S)
-        if xml:
+        xml = next(_submission_sections(block, "<XML>", "</XML>"), None)
+        if xml is not None:
             if not filename or not re.fullmatch(r"[A-Za-z0-9_.-]+", filename[1]):
                 raise DirectSourceError("SEC 13F attachment name invalid")
-            payload = xml[1].encode()
+            payload = xml.strip().encode()
             documents.append((filename[1], payload, ET.fromstring(payload)))
     covers = [root for _, _, root in documents if root.tag.split("}")[-1] == "edgarSubmission"]
     tables = [(name, payload, root) for name, payload, root in documents if root.tag.split("}")[-1] == "informationTable"]
