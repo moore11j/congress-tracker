@@ -1,3 +1,5 @@
+October15: [Scheduled digest repair](digest-source-integrity-2026-10-15.md) locally verifies preference enforcement and distinct content identity,215 distinct Windows/56 Linux checks. Release/runtime and all scheduled/full migration gates remain.
+
 October15: [Finnhub retained-consumer readers](finnhub-paid-readers-2026-10-15.md) implemented locally, default-off with no reviewed production basis.215 distinct backend and nine frontend checks pass; one unchanged-main baseline failure. Release/runtime, live paid coverage and schedules remain; all full FMP gates unchanged.
 
 October15: [CNQ financial preparation](cnq-interim-financials-2026-10-15.md) implemented locally: four verified CAD ratios, classification still incomplete. SAP/MGA comparative-amendment guards tightened; final validation/release/ordinary operation and full FMP gates remain.
