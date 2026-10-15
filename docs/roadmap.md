@@ -1,3 +1,5 @@
+October15: [Financial version rotation](financial-version-rotation-2026-10-15.md) locally fixes observed update delay within existing batch/priority limits;66 tests pass. Exact release and ordinary verification remain.
+
 October15: [Unilever restated financials](ul-restated-financials-2026-10-15.md) locally reconcile seven EUR ratios with complete-source consumer repeats; release/ordinary rollover and all broader FMP gates remain.
 
 October15: [SEC transcript cover compatibility](sec-transcript-cover-compatibility-2026-10-15.md) locally verifies all31 covers/seven transcripts,445 Linux checks and exact consumer repeat. Exact release/ordinary recovery and broader FMP gates remain.

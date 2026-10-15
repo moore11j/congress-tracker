@@ -1,3 +1,9 @@
+## October15,2026: Financial version rotation repair
+
+**2026-10-15 financial version rotation repair:** [Evidence](docs/financial-version-rotation-2026-10-15.md). Ordinary batches rotate ten old routine scopes ahead ofUL despite its obsolete adapter version. Added one bounded ordinary slot for waiting version updates, preserving active priorities, size/deadlines/locks/backoff.66 Linux tests and isolated12-scope10/2/0 scheduler replay pass; release pending. Captured Vale interim amendment/original/annual/prior public sources, integration unverified. Previous goal turn and this turn concrete progress; goalactive, full FMP gates remain.
+
+Owner asks continued FMP migration. Repaired demonstrated release-propagation delay; no product or source-selection decision. Exact release/runtime and ordinary coverage are next.
+
 ## October 15, 2026: Unilever restated financials
 
 **2026-10-15 UL restated financial preparation:** [Evidence](docs/ul-restated-financials-2026-10-15.md). Complete SEC/issuer originals reconcile seven EUR ratios; Windows/Linux isolated cache, confirmation and watchlist replays pass with exact repeat, zero false/duplicate alerts and 20 unchanged issuer controls. Mixed-source/disposal qualifications now reach the existing summary. Local/unreleased; final regressions, exact release, ordinary propagation and all wider FMP gates remain. Previous percentage-only turn was no progress; this implementation and consumer evidence advance the active goal.
