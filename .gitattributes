@@ -10,3 +10,6 @@ docs/massive-options-feasibility-2026-09-14.md -text
 backend/config/financial_continuity/*.htm -text
 
 backend/tests/fixtures/asml/*.htm -text
+
+# Keep the Linux release guard executable from Windows/WSL checkouts.
+backend/scripts/deploy_backend_guarded.sh text eol=lf

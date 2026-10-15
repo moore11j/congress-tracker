@@ -556,3 +556,6 @@ October15: [Portfolio release coordination](portfolio-release-guard-2026-10-15.m
 
 
 October15,14:32UTC: [Portfolio release guard](portfolio-release-guard-2026-10-15.md) primitive deployed885e896f and runtime verified after successful1135-scope/five-window portfolio cycle. Workflow caller timeout is separate from successful durable completion. Guarded workflow wiring locally passes19 checks; release/live guarded cycle still pending. Broader FMP gates remain.
+
+
+October15: [Runtime dependency repair](runtime-security-refresh-2026-10-15.md) locally verified with clean production audits and unchanged frontend baseline failures; release pending. Backend-unavailable fault injection identifies ticker metadata rethrow as an additional reliability repair. Full FMP retirement gates remain.
