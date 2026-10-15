@@ -1,3 +1,5 @@
+October15,21:46UTC: [UL PR688 recovery](ul-historical-original-2026-10-15.md#deployed-and-ordinary-recovery-verified-october-15-2146-utc) deployedfbb0220f;193 checks and ordinary seven-ratio exact-source preparation pass with historical source clock intact. Public coreFMP; broader cutover gates remain.
+
 October15: [UL historical-original retention](ul-historical-original-2026-10-15.md) locally removes repeated dependence on blocked historical PDF while retaining source clocks/hash/current SEC checks.193 checks/full-original consumer parity pass; exact release/ordinary recovery and all broader FMP gates remain.
 
 October15: [Vale IFRS preparation](vale-ifrs-financials-2026-10-15.md) locally adds seven reviewed ratios with226 checks/full-original consumer repeat. Cash/leverage/ADR and exact release/ordinary verification remain open; full FMP gates unchanged.
