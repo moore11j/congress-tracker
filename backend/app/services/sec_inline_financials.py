@@ -178,7 +178,10 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
             dates.add(str(date.fromisoformat(value)))
     cover_evidence = None
     if cover_raw is not None or cover_url is not None:
-        from app.services.sec_nvs_financials import form_proof
+        if cik == '0001306965':
+            from app.services.sec_shell_financials import form_proof
+        else:
+            from app.services.sec_nvs_financials import form_proof
         if namespace != 'ifrs-full' or currency != 'USD':
             raise InlineFactsError('unsupported_cover_basis')
         cover_evidence = form_proof(cover_raw, cover_url, url=url, cik=cik, form=form,
@@ -370,7 +373,7 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
         end, filing = sec._day(report), sec._day(filed)
         if (end and filing and end <= filing <= available
                 and (latest_fact < end or (latest_fact == end and (sec._ttm(revenue_records, end) is None
-                    or (symbol in {'NVS', 'VALE'} and latest_revenue_filed is not None and filing > latest_revenue_filed))))
+                    or (symbol in {'NVS', 'VALE', 'SHEL'} and latest_revenue_filed is not None and filing > latest_revenue_filed))))
                 and periodic_document(symbol, cik, form, report, filename)):
             candidates.append((str(end),str(filing),accession,form,filename))
     if not candidates:
@@ -388,8 +391,11 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
             or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.html?',filename)):
         raise InlineFactsError('filing_directory_identity')
     url=f'https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace("-", "")}/{filename}'
-    if symbol == 'NVS' and form in {'6-K', '6-K/A'}:
-        from app.services.sec_nvs_financials import exhibit_url
+    if symbol in {'NVS', 'SHEL'} and form in {'6-K', '6-K/A'}:
+        if symbol == 'SHEL':
+            from app.services.sec_shell_financials import exhibit_url
+        else:
+            from app.services.sec_nvs_financials import exhibit_url
         cover = client.get(url)
         exhibit = exhibit_url(cover, url, cik=cik)
         return parse(client.get(exhibit), cik=cik, accession=accession, filed=filed, report_date=report,
