@@ -62,3 +62,10 @@ Static-document metadata confirms MRNA refreshed at23:13:05.710346 andRDDT at00:
 A separate read-only verification of all ten configured readers reached its50second local observation timeout without a result. Exact-code process scan confirms remotePID2396 still running with7.91CPU seconds at00:57UTC (issuer-reader-liveness-1792112221.json). No duplicate probe was started and no source payload/customer data was exported. Reader acceptance stays unverified until a completed receipt; process liveness is not success. Pending private-export approvals remain untouched.
 
 At00:58UTC the same exact reader process2396 is confirmed running with14.41CPU seconds (issuer-reader-liveness-1792112298.json). The existing process retains its20/25CPU-second safety limit; no new probe was launched. No completed reader receipt exists. Documentation diff check passes and unrelated frontend build-metadata SHA256 remainsA185B71626210F3E1B07F4EFC977408ADC8F7FB3103CAC7E726F2D5F95CC6DEA.
+
+
+## October16 configured-reader acceptance
+
+Completed read-only production verification of all10configured readers: 9prepared (MGA,MSFT,NVDA,META,GOOGL,IBM,SOFI,MRNA,RDDT), holds=[{"symbol": "UL", "reason": "latest_issuer_index_not_verified"}]. Every prepared result has exact reader-validated source/text hashes, document/revision provenance and Q&A; no text/customer payload exported, zero writes. This is current selected reader behavior on the existing deployed image, not the new cache runtime or broad all-ticker transcript coverage. Receipt artifacts/issuer-reader-stream-1792113034.json.
+
+The separate PDF reuse release is merged but not installed; broader coverage and source publication remain gated.

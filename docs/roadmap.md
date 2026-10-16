@@ -1,3 +1,7 @@
+October16: [Individual analyst rating preparation](finnhub-rating-preparation-2026-10-16.md) implemented locally with190 Linux checks. Public event replacement remains incomplete: live entitlement, coverage, canonical reconciliation, scheduled consumers and individual price-target history are unresolved. No activation; broader FMP retirement gates remain.
+
+October16: [PR699 and configured-reader proof](issuer-pdf-text-reuse-2026-10-16.md#reviewed-merge-and-configured-reader-acceptance-october16) mergedf8176981/allCI; current10reader probe yields9prepared plus explicit holds. Cache runtime not deployed; broad coverage/publication/capacity and remaining FMP gates stay open.
+
 October16: [Bounded issuer PDF reuse](issuer-pdf-text-reuse-2026-10-16.md) locally preserves nine complete originals and476affected checks, reducing repeated parsing with8MiBpayload cap. Reviewed release/installed verification and all broader source/consumer/capacity/FMP gates remain.
 
 October16,00:57UTC: [Shell PR698](shell-sec-financials-2026-10-16.md#reviewed-merge-and-deferred-deployment-october16-0053utc) merged55f32028/allCI, awaiting protected portfolio completion before deployment. [Ordinary issuer mixed collection](issuer-collection-fairness-2026-10-15.md#ordinary-mixed-collection-confirmed-october16-0055utc) verifies two successful discovery/static runs and MRNA/RDDT freshness recovery; broader reader/coverage and all FMP gates remain.
