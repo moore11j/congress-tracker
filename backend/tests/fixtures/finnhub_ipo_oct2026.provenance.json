@@ -10,7 +10,7 @@
   "complete_row_parity": true,
   "next_month_rows": 0,
   "next_month_status": 200,
-  "public_fixture_sha256": "f79e87dd4c96e8b1001908506e323756cb1a55befddfa988aa215da737f58932",
+  "public_fixture_sha256": "04d95f64c58233211cf4c8c3d506106d0a461dcdbf329f6ee9d605ea1565e551",
   "requests_total": 4,
   "shared_budget_reserved_for_each": true,
   "original_response_hashes": [
@@ -19,5 +19,6 @@
     "2e59d3b1c6042774b8c30bf84ca0f62dd3c2fdd1c8c29b0957eb6e3f0c929574",
     "1db33eaa715b52fe099ea28f04646fccab1fbc6bfef564ea1087a9199870818f"
   ],
-  "scope": "Complete returned-source parity, not independent proof of market-wide IPO coverage. No confirmed first trading dates inferred."
+  "scope": "Complete returned-source parity, not independent proof of market-wide IPO coverage. No confirmed first trading dates inferred.",
+  "public_fixture_sha256_encoding": "UTF-8, LF line endings"
 }

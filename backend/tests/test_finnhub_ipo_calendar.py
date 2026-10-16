@@ -267,3 +267,12 @@ def test_ipo_refresh_dispatch_uses_existing_calendar_queue_contract(monkeypatch)
     monkeypatch.setattr(ipo, 'refresh', lambda db, month: calls.append((db, month)) or {'status': 'ok'})
     assert free_calendar.refresh(None, 'ipo', MONTH) == {'status': 'ok'}
     assert calls == [(None, MONTH)]
+
+
+def test_public_fixture_matches_portable_provenance_digest():
+    import hashlib
+    fixture = Path(__file__).parent/'fixtures/finnhub_ipo_oct2026.json'
+    manifest = json.loads(fixture.with_suffix('.provenance.json').read_text())
+    raw = fixture.read_bytes().replace(b'\r\n', b'\n')
+    assert manifest['public_fixture_sha256_encoding'] == 'UTF-8, LF line endings'
+    assert hashlib.sha256(raw).hexdigest() == manifest['public_fixture_sha256']
