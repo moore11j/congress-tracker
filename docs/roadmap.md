@@ -1,3 +1,5 @@
+October16: [Free IPO calendar](finnhub-ipo-calendar-2026-10-16.md) locally implemented with205distinct Linux checks, actual32record/window parity and seven-hash local replay. Review/release/ordinary selected operation pending; full FMP retirement remains incomplete.
+
 October16,01:38UTC: [FRED integrity/audit PR701](fmp-dependency-audit-2026-10-16.md#reviewed-merge-and-pending-runtime-october16-0138utc) merged237d593b after90Linux checks and exact11-series consumer parity. Local two-hash verifier passes; backend/ordinary runtime still deferred. Full FMP retirement gates remain.
 
 October16: [Dependency audit/FRED integrity](fmp-dependency-audit-2026-10-16.md) documents74static endpoint references and remaining DCF/individual-target/calendar gates. Local wrong-series/conflict/nonfinite repair passes90Linux tests and all11public-series consumer parity; release pending. Full FMP retirement remains incomplete.

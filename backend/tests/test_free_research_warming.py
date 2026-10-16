@@ -20,6 +20,7 @@ def factory(monkeypatch):
     monkeypatch.setenv('FREE_RESEARCH_WARMING_ENABLED', '1')
     monkeypatch.setenv('FINNHUB_API_KEY', 'test-only')
     monkeypatch.setenv('FINNHUB_SHARED_LIMITER_ENABLED', '1')
+    monkeypatch.setenv('IPO_CALENDAR_PROVIDER', 'disabled')
     monkeypatch.setenv('ANALYST_PROVIDER', 'fmp')
     monkeypatch.setenv('CALENDAR_PROVIDER', 'fmp')
     monkeypatch.setattr(queue, '_recently_viewed_ticker_symbols', lambda *a, **k: [])
@@ -98,3 +99,15 @@ def test_unselected_refresh_still_requires_explicit_shadow_flag(factory, monkeyp
             replacement_analysts.refresh(db, 'ABC')
         with pytest.raises(ValueError):
             free_calendar.refresh(db, 'bls', datetime.now(timezone.utc).strftime('%Y-%m'))
+
+
+def test_selected_ipo_adds_only_two_months_to_existing_warmer(factory, monkeypatch):
+    monkeypatch.setenv('IPO_CALENDAR_PROVIDER', 'finnhub')
+    calls = []
+    monkeypatch.setattr(free_calendar, 'refresh', lambda db, dataset, scope: calls.append((dataset, scope)) or {'status': 'ok'})
+    monkeypatch.setattr(replacement_analysts, 'refresh', lambda *a: {'status': 'ok'})
+    result = job.run()
+    assert result['completed_scopes'] == result['planned_scopes'] == 7
+    assert len([c for c in calls if c[0] == 'ipo']) == 2
+    assert [c[1] for c in calls if c[0] == 'ipo'] == [c[1] for c in calls if c[0] == 'earnings']
+    assert result['canonical_writes'] == result['emails'] == 0

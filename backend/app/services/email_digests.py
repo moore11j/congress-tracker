@@ -2603,6 +2603,8 @@ def _calendar_items_html(items: list[dict[str, Any]], *, coverage_message: str |
 
 
 def _calendar_detail(item: dict[str, Any]) -> str:
+    if item.get("kind") == "ipo" and item.get("date_basis") == "provider_ipo_status_date":
+        return _clean_text(item.get("subtitle")) or "First trading date not confirmed"
     if str(item.get("kind") or "").lower() == "ipo":
         return _clean_text(item.get("company")) or _clean_text((item.get("payload") or {}).get("companyName") if isinstance(item.get("payload"), dict) else None) or _clean_text(item.get("subtitle")) or ""
     return _clean_text(item.get("subtitle")) or ""

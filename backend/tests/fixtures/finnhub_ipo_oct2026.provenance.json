@@ -1,0 +1,23 @@
+{
+  "source_url": "https://finnhub.io/docs/api/ipo-calendar",
+  "observed_utc_date": "2026-10-16",
+  "free_account_entitlement_verified": true,
+  "monthly_rows": 32,
+  "nonoverlapping_rows": [
+    31,
+    1
+  ],
+  "complete_row_parity": true,
+  "next_month_rows": 0,
+  "next_month_status": 200,
+  "public_fixture_sha256": "f79e87dd4c96e8b1001908506e323756cb1a55befddfa988aa215da737f58932",
+  "requests_total": 4,
+  "shared_budget_reserved_for_each": true,
+  "original_response_hashes": [
+    "51cad54d5e1d8c324a8e3a26957070776d73fd72994b8ea31005610de83ee5f2",
+    "1cda107e2039161ae372913855d3022b0062691d31f0406c62c2080431bf484e",
+    "2e59d3b1c6042774b8c30bf84ca0f62dd3c2fdd1c8c29b0957eb6e3f0c929574",
+    "1db33eaa715b52fe099ea28f04646fccab1fbc6bfef564ea1087a9199870818f"
+  ],
+  "scope": "Complete returned-source parity, not independent proof of market-wide IPO coverage. No confirmed first trading dates inferred."
+}
