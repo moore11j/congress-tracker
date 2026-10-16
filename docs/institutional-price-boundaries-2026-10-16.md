@@ -1,0 +1,35 @@
+# Institutional cached price boundary reads, October 16, 2026
+
+## Problem and change
+
+The ordinary institutional performance refresh was observed running in the shared data lane. Its return reader aggregates minimum/maximum dates over every valid price in each holder/period, then joins those dates back to prices. A complete 24-symbol, 52,800-price local fixture reproduces substantial unnecessary work. This does not establish what proportion of the production job is attributable to this query.
+
+The replacement performs two correlated, ordered, one-row boundary lookups per symbol and period through the existing `(symbol, date)` primary key. The symbol set still comes from all eligible holdings and the existing active-filing selection. No holding, symbol or period limit is added. Adjusted-only versus close selection, positive-price filtering, six-place rounding, nonfinite/missing boundaries, 65% coverage, weighted returns and cache publication remain unchanged. No schema, schedule, provider, source selector or host change.
+
+## Verification
+
+Before change, the query-work regression fails with 8,342 SQLite work units for both reference and candidate; five other cases pass. After change, the broader Linux Python 3.12.3 run has 82 passes and one unrelated existing profile-name failure. A further complete summary/cache/repeat test brings the focused file to seven passes, giving 83 distinct passing tests overall. The same profile-name test fails with the frozen original price reader: the unchanged router deliberately retains public holder identity, while the older test expects None. That test was not weakened or changed. This is not a full-suite pass.
+
+Frozen prior implementation verifies exact price-pair dictionaries for all periods, adjusted and unadjusted prices, missing/zero/negative/nonfinite/rounded-zero boundaries, active/all-filing selection, 1,203 holdings, no-data periods and empty periods. Complete four-period holder summaries and persisted metric fields also match, including repeat. Volatile DB update timestamps are excluded from persisted comparison.
+
+Actual local PostgreSQL 16.15 receipt `artifacts/institution-boundary-postgres-1792110599.json`:
+
+| Measure across three periods | Prior | Replacement |
+| --- | ---: | ---: |
+| Price rows examined in EXPLAIN ANALYZE | 211,200 | 96 |
+| Shared blocks | 2,255 | 531 |
+| Query execution, ms | 284.853 | 3.697 |
+
+Complete outputs and repeat match; the existing price_cache_pkey is used. These are synthetic local measurements, not production latency or sustained-capacity proof. An initial diagnostic recorder erroneously recorded its own EXPLAIN; that rehearsal failed and cleaned its schema/server. After correcting the recorder, the successful rehearsal again removed its owned schema and stopped its server. No production access, provider request or email.
+
+Prepared `artifacts/verify-institution-boundary-runtime-oct16.py` passes local Python 3.14.2 rehearsal: two hashes, all six valid adjusted pairs/seven unadjusted pairs, missing-adjustment exclusion and exact repeat, network forbidden. Receipt `artifacts/institution-boundary-runtime-1792110713.json`. Installed production verification remains required after a successful guarded release.
+
+## Ordinary source acceptance
+
+Normal SEC Form4 publisher run125, triggered October15 23:57UTC, completed October16 00:21:03UTC. It attempts200filings, publishes188 with365transactions/events, and holds12 for review. All365receipt references have distinct IDs, existing events, correct SEC provenance and normalized source identities; none are backdated arrivals.123published filings have a prior different-owner overlap handled by the deployed predicate. Exit1 remains explicit partial status. Current remaining273unattempted/270held. Owner remains SECgeneration2. Read-only receipt `artifacts/form4-ordinary-1792110332.json` verifies actual ordinary publication, not inbox receipt or all-source completeness. No new manual job or email.
+
+## Release state and remaining work
+
+PR696 merged as7914518f at00:22:06UTC, confirmed from GitHub in this turn. PR694/695/696 remain undeployed. Protected portfolio cycle is526/1135 with zero recorded failures at00:25, while another ordinary process occupies the data lane. No release retry, interruption or guard bypass. New boundary reader is locally prepared on codex/institutional-price-boundary-reads; exact review/merge/release and installed/ordinary performance verification remain.
+
+Previous percentage-only turn was no progress toward the goal. This continuation confirms actual scheduled insider publication and implements/measures a separate complete-data query repair. Goal stays active; broad financial/institutional/transcript coverage, all monitoring/watchlist/daily/weekly/ranking acceptance, sustained capacity, final Massive activation, actual zero-FMP requests and billing closure remain. Pending private exports are untouched.

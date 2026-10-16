@@ -2824,44 +2824,36 @@ def _cached_price_pairs_for_holder_periods(
         key = str(period["key"])
         start_date = period["start_date"]
         end_date = period["end_date"]
-        bounds = (
-            select(
-                PriceCache.symbol.label("symbol"),
-                func.min(PriceCache.date).label("start_day"),
-                func.max(PriceCache.date).label("end_day"),
-            )
-            .join(position_symbols, position_symbols.c.symbol == PriceCache.symbol)
+        # Seek the two valid boundaries through the (symbol, date) primary key.
+        # Aggregating min/max over every cached day repeats the full history scan
+        # for each holder and period. These scalar reads retain every holding.
+        boundary = (
+            select(price_column)
+            .where(PriceCache.symbol == position_symbols.c.symbol)
             .where(PriceCache.date >= start_date.isoformat())
             .where(PriceCache.date <= end_date.isoformat())
             .where(price_column.is_not(None))
             .where(price_column > 0)
-            .group_by(PriceCache.symbol)
-            .subquery()
+            .correlate(position_symbols)
+            .limit(1)
         )
         rows = db.execute(
-            select(PriceCache.symbol, PriceCache.date, price_column, bounds.c.start_day, bounds.c.end_day)
-            .join(bounds, bounds.c.symbol == PriceCache.symbol)
-            .where(or_(PriceCache.date == bounds.c.start_day, PriceCache.date == bounds.c.end_day))
-            .where(price_column.is_not(None))
-            .where(price_column > 0)
+            select(
+                position_symbols.c.symbol,
+                boundary.order_by(PriceCache.date.asc()).scalar_subquery(),
+                boundary.order_by(PriceCache.date.desc()).scalar_subquery(),
+            )
         ).all()
-        grouped: dict[str, dict[str, float | str]] = {}
-        for symbol, day, price, start_day, end_day in rows:
-            normalized = normalize_symbol(symbol)
-            parsed = _round_optional(price, 6)
-            if not normalized or not day or parsed is None or parsed <= 0:
-                continue
-            item = grouped.setdefault(normalized, {"start_day": str(start_day), "end_day": str(end_day)})
-            if str(day) == str(start_day):
-                item["start_price"] = parsed
-            if str(day) == str(end_day):
-                item["end_price"] = parsed
         pairs: dict[str, tuple[float, float]] = {}
-        for symbol, item in grouped.items():
-            start_price = item.get("start_price")
-            end_price = item.get("end_price")
-            if isinstance(start_price, (int, float)) and isinstance(end_price, (int, float)):
-                pairs[symbol] = (float(start_price), float(end_price))
+        for symbol, start_value, end_value in rows:
+            normalized = normalize_symbol(symbol)
+            start_price = _round_optional(start_value, 6)
+            end_price = _round_optional(end_value, 6)
+            # Keep the existing boundary semantics: an invalid rounded boundary
+            # does not allow a later or earlier price to stand in for it.
+            if (normalized and start_price is not None and start_price > 0
+                    and end_price is not None and end_price > 0):
+                pairs[normalized] = (start_price, end_price)
         results[key] = pairs
     return results
 
