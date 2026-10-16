@@ -1162,3 +1162,17 @@ Checks/results and deployment state are recorded in the linked report. Next safe
 **2026-10-16 dependency audit and FRED repair:** [Report](docs/fmp-dependency-audit-2026-10-16.md). Reproducible current-source inventory74literal endpoints/32modules identifies distinct DCF, individual price-target history and missing calendar gates; count is not active traffic/completion. Reproduced wrong-series, conflicting-date and nonfinite FRED acceptance; repaired complete-response validation preserves verified caches.90Linux checks and all11public-series/2647-observation/six-macro/five-Treasury full consumer parity pass. Review/release/runtime pending; protectedportfolio still defers PR694-700, no bypass. Prior/current goalturns concrete progress; FMPenabled and all broader acceptance gates remain.
 
 Changed source-only audit utility, FRED parser and focused tests/report. No deployment or production settings/records changed. Next reviewed release/installed and ordinary refresh proof, then remaining source/consumer acceptance.
+
+
+## October16: FRED repair reviewed merge
+
+**2026-10-16,01:38UTC FRED integrity and dependency audit merged:** [PR701/report](docs/fmp-dependency-audit-2026-10-16.md#reviewed-merge-and-pending-runtime-october16-0138utc) merged237d593b/exact2d13ab4a parity/allCI.90Linux checks/all11public-series2647-observation/six-macro/five-Treasury equality and two-hash isolated local verifier pass. Static inventory74paths/32modules is not active traffic; DCF/individual-target/calendar and other gates explicit. Protectedportfolio595/1135/zero failures continues,12pending; PR694-701undeployed/no bypass. Prior/current turns concrete progress; goalactive/FMPenabled; installed/ordinary FRED proof and full source/allconsumer/capacity/finalMassive/zero-FMP/billing remain. Pending private exports untouched; no subscription/schedule/host/customer-send/video/landing changes.
+
+Exact merge/CI/local verifier evidence and current deployment guard recorded in linked report. Next installed and ordinary FRED acceptance when guarded release is safe; remaining cutover features continue independently.
+
+
+## October16: free IPO calendar preparation
+
+**2026-10-16 IPO calendar preparation:** [Report](docs/finnhub-ipo-calendar-2026-10-16.md). Existing free account returns32October records; two nonoverlapping windows31+1match all original fields, Novembervalidempty. Local gated adapter/cache/calendar/digest/warmer preserves four status phases, raw provenance and duplicate/correction identities; no confirmed trading-date inference.205distinct Linux3.12.3 checks and seven-hash isolated local replay pass. Review/release/installed/ordinary activation pending; productionIPOselector unchanged. Protectedportfolio603/1135/zero failures continues, no liveportfolioPID at observation; PR694-701undeployed/no bypass. Previous status-only turn no progress; this turn concrete source/implementation/consumer progress. Goalactive/FMPenabled; broader source/allconsumer/capacity/finalMassive/zero-FMP/billing gates and pending private exports remain.
+
+No subscription, new schedule, host change, customer send, canonical rewrite or landing edit. Four bounded public requests reserve shared budget; source fixture and provenance tracked. Two-service release guard remains in force. Next reviewed merge, safe release and actual selected scheduled acceptance.

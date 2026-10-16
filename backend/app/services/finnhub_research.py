@@ -47,7 +47,7 @@ def require_paid_preparation():
 def request_json(path: str, params: dict):
     if path in PAID_PREPARATION_PATHS:
         require_paid_preparation()
-    if path not in PAID_PREPARATION_PATHS and path not in {"news", "company-news", "stock/recommendation", "calendar/earnings",
+    if path not in PAID_PREPARATION_PATHS and path not in {"news", "company-news", "stock/recommendation", "calendar/earnings", "calendar/ipo",
                     "stock/earnings", "stock/metric", "stock/profile2", "stock/peers"}:
         raise ValueError("Unsupported research endpoint")
     key = (os.getenv("FINNHUB_API_KEY") or "").strip()

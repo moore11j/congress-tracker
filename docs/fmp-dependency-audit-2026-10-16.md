@@ -6,7 +6,7 @@ Audited the managed application at merged11ec7d824334751295580c7d5d903a0968dcebe
 
 Result: **74 endpoint references,72 stable paths and2 legacy paths, across32 FMP-referencing modules**. None of the known catalog paths is missing; no unclassified literal request argument was found. This includes optional/unused helpers, registry defaults and literal references; it is not74 active calls or74 independently missing replacements. Computed endpoint expressions and database-configured overrides are not fully resolved. HTTP call sites can also serve non-FMP sources and are marked for review. Inventory does not establish zero traffic, source selection, data freshness or shutdown readiness.
 
-Two independent runs produce byte-identical JSON, SHA256 feca89ff409be9cdea08c6324a3ede16d5988b1e270d5f039f8aadeab65b3c62 (remove the display space). Receipts artifacts/fmp-dependencies-oct16.json and artifacts/fmp-dependencies-oct16-repeat.json retain every reference, function, line and normalized source hash. The older inventory omitted market-capitalization-batch; current client/leaderboard paths include it. The tracked table below makes the complete endpoint list durable.
+Two independent runs produce byte-identical JSON, SHA256 feca89ff409be9cdea08c6324a3ede16d5988b1e270d5f039f8aadeab65b3c62. Receipts artifacts/fmp-dependencies-oct16.json and artifacts/fmp-dependencies-oct16-repeat.json retain every reference, function, line and normalized source hash. The older inventory omitted market-capitalization-batch; current client/leaderboard paths include it. The tracked table below makes the complete endpoint list durable.
 
 ## Acceptance map
 
@@ -130,3 +130,12 @@ Reviewed PR/CI/merge and guarded backend deployment remain next. The current pro
 | `/stable/splits-calendar` | Calendars | [backend/app/services/event_calendar.py:33](../backend/app/services/event_calendar.py#L33) `module` |
 | `/stable/treasury-rates` | Macro and sectors | [backend/app/services/fmp_market_snapshot.py:1520](../backend/app/services/fmp_market_snapshot.py#L1520) `_build_treasury` |
 | `/stable/upgrades-downgrades-consensus-bulk` | Analysts | [backend/app/clients/fmp.py:490](../backend/app/clients/fmp.py#L490) `fetch_bulk_upgrades_downgrades_consensus` |
+
+
+## Reviewed merge and pending runtime, October16 01:38UTC
+
+[PR701](https://github.com/moore11j/congress-tracker/pull/701), tested2d13ab4a4c28b42d1c560d31ea0b520cb45d906b, merged237d593b27f190b7a539c5b2b3c594d0a5291475 at01:38:39UTC. Exact-head backend/frontend dependency audits and secret scan succeed in workflow38836104721, and Vercel preview succeeds. Fetched merged application/test/auditor diff is empty. The chat reached its100-attachment limit; ordinary PR URL retained. Unrelated TypeScript build metadata still hashesA185B71626210F3E1B07F4EFC977408ADC8F7FB3103CAC7E726F2D5F95CC6DEA.
+
+Prepared installed verifier artifacts/verify-fred-runtime-oct16.py and passed local Python3.14.2 rehearsal: two source hashes, all11public originals/2647observations, exact full prior-consumer digest67071e99235a0b2c30f53ed59660bed97b8644bc4b434c979d1c3d63f48cad07 and rejection of wrong-series/nonfinite/conflicting responses. No production records, network or writes. Receipt artifacts/fred-runtime-1792114704.json. An initial local command exceeded Windows argument length; compressed in-process code transport repaired the harness without changing application logic. Old-parser replay helpers are pinned to11ec7d82 so future reruns cannot silently compare the repaired parser with itself.
+
+Post-merge guard artifacts/release-blocker-1792114732.json still reports one continuing protectedportfolio cycle595/1135, zero failed scopes and12pending jobs. No portfolio process was active at that instant; its unfinished durable cycle continues to prohibit rollout. PR694-701 remain merged but undeployed. No guard bypass, cycle reset or deployment retry. Earlier local/unreviewed wording is superseded by this reviewed merge; installed runtime and ordinary FRED refresh remain unverified. Prior/current turns both concrete progress; goalactive/FMPenabled and all remaining source/consumer/capacity/final-provider/zero-FMP/billing gates remain. All local test/probe handles are terminal.

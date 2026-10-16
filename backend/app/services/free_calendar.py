@@ -101,6 +101,9 @@ def _cached(db, key, source, now):
 
 
 def refresh(db, dataset: str, month: str):
+    if dataset == 'ipo':
+        from app.services.finnhub_ipo_calendar import refresh as refresh_ipo
+        return refresh_ipo(db, month)
     if not (selected() or os.getenv('FREE_RESEARCH_WARMING_ENABLED', '0') == '1') or dataset not in {'bls', 'earnings'}:
         raise ValueError('Invalid free calendar job')
     start = date.fromisoformat(month + '-01')
@@ -146,15 +149,21 @@ def calendar_for_symbols(db, symbols, *, start, end, scope, enqueue):
         cursor = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
     work = [('bls', months[0], 'free-calendar:bls:v1', 'bls', 'economic')]
     work += [('earnings', month, f'free-calendar:earnings:{month}', 'finnhub', 'earnings') for month in months]
-    errors = [{'kind': kind, 'reason': 'coverage_unavailable'} for kind in ('ipo', 'dividend', 'split')]
+    from app.services import finnhub_ipo_calendar as ipos
+    ipo_selected = ipos.selected()
+    if ipo_selected:
+        work += [('ipo', month, ipos.key(month), ipos.VERSION, 'ipo') for month in months]
+    missing_kinds = ('dividend', 'split') if ipo_selected else ('ipo', 'dividend', 'split')
+    errors = [{'kind': kind, 'reason': 'coverage_unavailable'} for kind in missing_kinds]
     # Partial calendar coverage remains visible even if every BLS date loaded.
     errors.append({'kind': 'economic', 'reason': 'bls_only_no_consensus'})
     now, items = datetime.now(timezone.utc), {}
+    conflicting_ipo_ids = set()
     for dataset, month, key, source, kind in work:
-        payload = _cached(db, key, source, now)
+        payload = ipos.cached(db, month, observed_at=now) if dataset == 'ipo' else _cached(db, key, source, now)
         if payload is None:
             errors.append({'kind': kind, 'reason': 'cache_miss'})
-            if enqueue and (dataset != 'earnings' or os.getenv('FINNHUB_API_KEY', '').strip()):
+            if enqueue and (dataset == 'bls' or os.getenv('FINNHUB_API_KEY', '').strip()):
                 enqueue_data_enrichment_job(job_type='free_calendar', source='page_load', priority=45,
                     window_key=key, payload={'dataset': dataset, 'month': month})
             continue
@@ -162,6 +171,13 @@ def calendar_for_symbols(db, symbols, *, start, end, scope, enqueue):
         if dataset == 'bls' and (not records or max(row['date'] for row in records) < end.isoformat()):
             errors.append({'kind': 'economic', 'reason': 'schedule_horizon_incomplete'})
         for item in records:
-            if start.isoformat() <= item['date'] <= end.isoformat() and (kind == 'economic' or scope == 'all' or item.get('symbol') in symbols):
+            if start.isoformat() <= item['date'] <= end.isoformat() and (kind in {'economic', 'ipo'} or scope == 'all' or item.get('symbol') in symbols):
+                if item['id'] in items and items[item['id']] != item:
+                    if kind == 'ipo':
+                        conflicting_ipo_ids.add(item['id'])
+                        errors.append({'kind': 'ipo', 'reason': 'conflicting_ipo_scope'})
+                        continue
                 items[item['id']] = item
+    for identity in conflicting_ipo_ids:
+        items.pop(identity, None)
     return CalendarFetchResult(sorted(items.values(), key=lambda row: (row['date'], row['id'])), errors)

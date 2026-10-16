@@ -52,7 +52,9 @@ def run():
     # the shared Finnhub limiter uses the second cron connection.
     first = now.date().replace(day=1)
     months = [first.strftime('%Y-%m'), (first.replace(day=28)+timedelta(days=4)).strftime('%Y-%m')]
-    work = [('bls', months[0]), *[('earnings', month) for month in months],
+    from app.services.finnhub_ipo_calendar import selected as ipo_selected
+    ipo_work = [('ipo', month) for month in months] if ipo_selected() else []
+    work = [('bls', months[0]), *[('earnings', month) for month in months], *ipo_work,
             *[('recommendations', symbol) for symbol in symbols[:20]]]
     results = []
     for dataset, scope in work:
