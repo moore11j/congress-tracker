@@ -1141,3 +1141,10 @@ Continued full migration goal. Prior turn concrete progress. Followed prior read
 ### October16 PDF release merge and completed reader proof
 
 PR699 mergedf8176981 with allCI and exact tested-source parity. Completed read-only production verification of all10configured readers: 9prepared (MGA,MSFT,NVDA,META,GOOGL,IBM,SOFI,MRNA,RDDT), holds=[{"symbol": "UL", "reason": "latest_issuer_index_not_verified"}]. Every prepared result has exact reader-validated source/text hashes, document/revision provenance and Q&A; no text/customer payload exported, zero writes. This is current selected reader behavior on the existing deployed image, not the new cache runtime or broad all-ticker transcript coverage. Receipt artifacts/issuer-reader-stream-1792113034.json. No backend rollout; protected portfolio remains unfinished and PR694-699 await safe deployment. No subscriptions/source switches/customer email. Exact installed verification and remaining full migration gates are next.
+
+
+## October 16: Individual analyst replacement preparation
+
+**2026-10-16 individual analyst preparation:** [Report](docs/finnhub-rating-preparation-2026-10-16.md). Adds separately gated one-symbol/window rating-change raw evidence and inspection, with source timestamps, duplicate/conflict checks and unchanged monthly consumers.190 Linux3.12.3 tests pass; no live paid response, canonical publication or plan-entitlement claim. Review/release/runtime and cross-provider reconciliation remain. Fresh release guard561/1135/zero failures still defers PR694-699; actual institutional reference worker live,12pending. Previous status-only turn no progress; this implementation/validation is concrete progress. Goalactive/FMPenabled; all broad source/consumer/capacity/final-provider/zero-FMP/billing gates and pending private exports remain.
+
+Changed the transport allowlist and added preparation/CLI/tests. Current source/report and guard/process receipts reviewed;190 selected checks pass, diff whitespace checked. No production activation/deployment. Next reviewed release and live source/reconciliation/consumer acceptance.

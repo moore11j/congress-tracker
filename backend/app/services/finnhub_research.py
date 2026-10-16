@@ -33,7 +33,7 @@ def selected_news_provider() -> str:
     return value
 
 
-PAID_PREPARATION_PATHS = frozenset({"stock/eps-estimate", "stock/revenue-estimate", "stock/price-target"})
+PAID_PREPARATION_PATHS = frozenset({"stock/eps-estimate", "stock/revenue-estimate", "stock/price-target", "stock/upgrade-downgrade"})
 
 
 def require_paid_preparation():
