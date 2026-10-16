@@ -1,6 +1,6 @@
 # Outcomes hydration continuation
 
-Prepared October 15 local time / October 16 UTC, 2026. Implementation is local pending review and guarded release. FMP remains enabled.
+Prepared October 15 local time / October 16 UTC, 2026. PR695 is merged; guarded production release remains pending. FMP remains enabled.
 
 ## Confirmed defect and production observation
 
@@ -31,3 +31,14 @@ Only the exact Outcomes command is added to the checkpoint/isolated-preload allo
 ## Outstanding acceptance
 
 Review, exact guarded release, installed hashes/isolated replay and a complete ordinary production hydration cycle remain unverified. Continue the existing SEC collector/publisher observations; the last collector check still had the normal23:47trigger waiting. PR694's Allen repair remains merged but not deployed. Financial/institutional/transcript coverage, all alert/ranking consumers, sustained capacity, final Massive/paid-provider validation, zero-FMP traffic and cancellation remain open. Pending private-export approvals are untouched.
+
+
+## Merged; release remains deferred, October 16 00:09 UTC
+
+[PR695](https://github.com/moore11j/congress-tracker/pull/695) merged at00:08:54UTC as21aaa92d7aa0c3cc7bdcf90c24ad3d2cd6a236e6. The tested head92aa78628d28c80aa615c0331cde83c81b83c177 and merged tree are identical. Both dependency audits, secret scan and Vercel preview/feedback checks pass; workflow38827612410 is terminal success. Attachment failed only because this chat reached100artifact identities; the ordinary PR URL works.
+
+Prepared artifacts/verify-outcome-continuation-runtime-oct15.py passes local WindowsPython3.14.2 rehearsal: seven source hashes,17-symbol8/8/1 completion, exact no-work repeat, real isolated scheduler fairness/retained trigger/release guard and zero network/production reads/writes/customer emails. This verifier has NOT run against production; it must follow a successful deployment of the expected code.
+
+No backend deployment was attempted for PR695. Last protected-cycle receipt release-blocker-1792109139.json remains518/1135/zero failures, continuing,17queued. At00:08:26 the separate price hydrator is actually live at438seconds/38.49CPU with19queued (active-work-1792109306.json). This does not imply the job is stuck or terminal. Normal SEC collection completion remains unverified; no duplicate collector or publisher was queued.
+
+Public rendered-response spot check00:09:17 (public-render-1792109357240.json) passesHTTP200/no RSC or server-error markers: Feed0.284s,Insights0.240s,AAPL0.366s,NVDA0.675s. These are current public response samples, not complete client data, source freshness or sustained capacity evidence. Prior production backend18de6ae1 remains the last verified release; both PR694 andPR695 await a safe guarded rollout. The broad FMP migration stays active and incomplete.
