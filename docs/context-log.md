@@ -1162,3 +1162,10 @@ Checks/results and deployment state are recorded in the linked report. Next safe
 **2026-10-16 dependency audit and FRED repair:** [Report](docs/fmp-dependency-audit-2026-10-16.md). Reproducible current-source inventory74literal endpoints/32modules identifies distinct DCF, individual price-target history and missing calendar gates; count is not active traffic/completion. Reproduced wrong-series, conflicting-date and nonfinite FRED acceptance; repaired complete-response validation preserves verified caches.90Linux checks and all11public-series/2647-observation/six-macro/five-Treasury full consumer parity pass. Review/release/runtime pending; protectedportfolio still defers PR694-700, no bypass. Prior/current goalturns concrete progress; FMPenabled and all broader acceptance gates remain.
 
 Changed source-only audit utility, FRED parser and focused tests/report. No deployment or production settings/records changed. Next reviewed release/installed and ordinary refresh proof, then remaining source/consumer acceptance.
+
+
+## October16: FRED repair reviewed merge
+
+**2026-10-16,01:38UTC FRED integrity and dependency audit merged:** [PR701/report](docs/fmp-dependency-audit-2026-10-16.md#reviewed-merge-and-pending-runtime-october16-0138utc) merged237d593b/exact2d13ab4a parity/allCI.90Linux checks/all11public-series2647-observation/six-macro/five-Treasury equality and two-hash isolated local verifier pass. Static inventory74paths/32modules is not active traffic; DCF/individual-target/calendar and other gates explicit. Protectedportfolio595/1135/zero failures continues,12pending; PR694-701undeployed/no bypass. Prior/current turns concrete progress; goalactive/FMPenabled; installed/ordinary FRED proof and full source/allconsumer/capacity/finalMassive/zero-FMP/billing remain. Pending private exports untouched; no subscription/schedule/host/customer-send/video/landing changes.
+
+Exact merge/CI/local verifier evidence and current deployment guard recorded in linked report. Next installed and ordinary FRED acceptance when guarded release is safe; remaining cutover features continue independently.

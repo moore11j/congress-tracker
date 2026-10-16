@@ -1,3 +1,5 @@
+October16,01:38UTC: [FRED integrity/audit PR701](fmp-dependency-audit-2026-10-16.md#reviewed-merge-and-pending-runtime-october16-0138utc) merged237d593b after90Linux checks and exact11-series consumer parity. Local two-hash verifier passes; backend/ordinary runtime still deferred. Full FMP retirement gates remain.
+
 October16: [Dependency audit/FRED integrity](fmp-dependency-audit-2026-10-16.md) documents74static endpoint references and remaining DCF/individual-target/calendar gates. Local wrong-series/conflict/nonfinite repair passes90Linux tests and all11public-series consumer parity; release pending. Full FMP retirement remains incomplete.
 
 October16,01:27UTC: [Analyst preparation PR700](finnhub-rating-preparation-2026-10-16.md#reviewed-merge-and-deferred-deployment-october16-0127-utc) merged11ec7d82,190Linux checks/allCI/local four-hash proof. Backend remains deferred by protected portfolio; live entitlement/coverage/canonical event reconciliation and broader FMP gates remain.
