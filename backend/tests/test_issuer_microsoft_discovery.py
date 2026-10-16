@@ -6,7 +6,7 @@ import json
 import socket
 
 import pytest
-from sqlalchemy import create_engine, select, func
+from sqlalchemy import create_engine, select, func, event
 from sqlalchemy.orm import Session
 
 from app.db import Base
@@ -55,8 +55,16 @@ def db(monkeypatch):
     monkeypatch.setattr(store,'utcnow',lambda:NOW)
     engine=create_engine('sqlite:///:memory:')
     Base.metadata.create_all(engine)
-    with Session(engine) as session:yield session
-    engine.dispose()
+    # ORM defaults captured the original clock when the model was declared.
+    # Keep immutable source observations on this fixture's simulated clock.
+    def stamp(mapper, connection, target):
+        target.fetched_at = store.utcnow()
+    event.listen(DirectFeedRevision, 'before_insert', stamp)
+    try:
+        with Session(engine) as session:yield session
+    finally:
+        event.remove(DirectFeedRevision, 'before_insert', stamp)
+        engine.dispose()
 
 
 class Client:
