@@ -31,3 +31,7 @@ The three latest collection errors are two feed reports for the October15index H
 Local branchcodex/outcome-horizon-price-reads. Review/merge, guarded deployment, installed verification and actual scheduled savings remain pending. PR694/695 are merged but not deployed; the protected portfolio cycle was518/1135/zero recorded failures at00:17. At00:19 the actual data-lane process is app.refresh_institutional_performance_cache,275.6seconds/23.72group CPU,21queued. A continuing state is not proof of a live portfolio process; no release bypass or checkpoint clearing occurred.
 
 Financial/institutional/transcript coverage, all alert/ranking consumers, sustained capacity, final Massive/paid-provider validation, actual zero-FMP requests and billing closure remain. Pending private-export approvals are untouched. Previous goal turn produced a merged repair; this turn adds ordinary collection evidence and a separately reproduced/validated database-read repair.
+
+## Merge verified October16
+
+PR696 merged7914518f0b1bfd8623943a96a9b0fbb115a76bdc at00:22:06UTC, testedhead dddc732ed36627707a7ac64af18207e7d565054d. Production rollout remains deferred behind the protected portfolio cycle; no installed or ordinary savings claim.
