@@ -1,3 +1,7 @@
+October16: [Dependency audit/FRED integrity](fmp-dependency-audit-2026-10-16.md) documents74static endpoint references and remaining DCF/individual-target/calendar gates. Local wrong-series/conflict/nonfinite repair passes90Linux tests and all11public-series consumer parity; release pending. Full FMP retirement remains incomplete.
+
+October16,01:27UTC: [Analyst preparation PR700](finnhub-rating-preparation-2026-10-16.md#reviewed-merge-and-deferred-deployment-october16-0127-utc) merged11ec7d82,190Linux checks/allCI/local four-hash proof. Backend remains deferred by protected portfolio; live entitlement/coverage/canonical event reconciliation and broader FMP gates remain.
+
 October16: [Individual analyst rating preparation](finnhub-rating-preparation-2026-10-16.md) implemented locally with190 Linux checks. Public event replacement remains incomplete: live entitlement, coverage, canonical reconciliation, scheduled consumers and individual price-target history are unresolved. No activation; broader FMP retirement gates remain.
 
 October16: [PR699 and configured-reader proof](issuer-pdf-text-reuse-2026-10-16.md#reviewed-merge-and-configured-reader-acceptance-october16) mergedf8176981/allCI; current10reader probe yields9prepared plus explicit holds. Cache runtime not deployed; broad coverage/publication/capacity and remaining FMP gates stay open.

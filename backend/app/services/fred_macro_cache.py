@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import logging
+import math
 import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -130,30 +131,43 @@ def _fetch_fred_csv(series_id: str) -> str:
 
 
 def parse_fred_csv(series_id: str, csv_text: str) -> list[dict[str, Any]]:
-    rows = csv.DictReader(io.StringIO(csv_text))
-    points: list[dict[str, Any]] = []
-    seen_dates: set[date] = set()
+    # A single-series request must prove its identity before any observations
+    # can overwrite the cache. Never substitute an arbitrary numeric column.
+    rows = csv.reader(io.StringIO(csv_text), strict=True)
+    header = next(rows, [])
+    names = [name.strip().lstrip("\ufeff").lower() for name in header]
+    expected = series_id.strip().lower()
+    if (len(names) != 2 or names[0] not in {"date", "observation_date"}
+            or names[1] != expected or expected in {"date", "observation_date"}):
+        raise ValueError("fred_series_header_mismatch")
+    values: dict[date, float] = {}
     for row in rows:
-        normalized = {str(key).strip().lstrip("\ufeff").lower(): value for key, value in row.items()}
-        observation_date = _parse_date(normalized.get("observation_date") or normalized.get("date"))
-        if observation_date is None or observation_date in seen_dates:
+        if not row:
             continue
-        raw_value = normalized.get(series_id.lower())
-        if raw_value is None:
-            raw_value = next((value for key, value in normalized.items() if key not in {"observation_date", "date"}), None)
+        if len(row) != 2:
+            raise ValueError("fred_observation_shape_invalid")
+        raw_date = row[0].strip()
+        try:
+            observation_date = date.fromisoformat(raw_date)
+        except ValueError:
+            raise ValueError("fred_observation_date_invalid") from None
+        if observation_date.isoformat() != raw_date:
+            raise ValueError("fred_observation_date_invalid")
+        raw_value = row[1].strip()
+        if raw_value in {"", "."}:
+            continue
         value = _parse_float(raw_value)
-        if value is None:
-            continue
-        seen_dates.add(observation_date)
-        points.append(
-            {
-                "series_id": series_id,
-                "observation_date": observation_date,
-                "value": value,
-            }
-        )
-    points.sort(key=lambda point: point["observation_date"], reverse=True)
-    return points[: _max_observations_per_series()]
+        if value is None or not math.isfinite(value):
+            raise ValueError("fred_observation_value_invalid")
+        if observation_date in values and values[observation_date] != value:
+            raise ValueError("fred_observation_conflict")
+        values[observation_date] = value
+    # Validate the entire response, including older rows, before retaining the
+    # existing bounded history. Identical duplicates do not create extra rows.
+    return [
+        {"series_id": series_id, "observation_date": day, "value": values[day]}
+        for day in sorted(values, reverse=True)[:_max_observations_per_series()]
+    ]
 
 
 def _observation_insert(db: Session):

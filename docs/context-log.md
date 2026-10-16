@@ -1148,3 +1148,17 @@ PR699 mergedf8176981 with allCI and exact tested-source parity. Completed read-o
 **2026-10-16 individual analyst preparation:** [Report](docs/finnhub-rating-preparation-2026-10-16.md). Adds separately gated one-symbol/window rating-change raw evidence and inspection, with source timestamps, duplicate/conflict checks and unchanged monthly consumers.190 Linux3.12.3 tests pass; no live paid response, canonical publication or plan-entitlement claim. Review/release/runtime and cross-provider reconciliation remain. Fresh release guard561/1135/zero failures still defers PR694-699; actual institutional reference worker live,12pending. Previous status-only turn no progress; this implementation/validation is concrete progress. Goalactive/FMPenabled; all broad source/consumer/capacity/final-provider/zero-FMP/billing gates and pending private exports remain.
 
 Changed the transport allowlist and added preparation/CLI/tests. Current source/report and guard/process receipts reviewed;190 selected checks pass, diff whitespace checked. No production activation/deployment. Next reviewed release and live source/reconciliation/consumer acceptance.
+
+
+## October16: Analyst preparation merged; backend deferred
+
+**2026-10-16,01:27UTC analyst preparation merged:** [PR700/report](docs/finnhub-rating-preparation-2026-10-16.md#reviewed-merge-and-deferred-deployment-october16-0127-utc) merged11ec7d82/exacta470b276 application-test parity/allCI.190Linux checks and four-hash isolated local verifier pass; no installed/live-paid/publication claim. Protectedportfolio567/1135/zero failures continues;11pending. PR694-700undeployed, no guard bypass. Previous status-only turn no progress; current implementation/verification/merge concrete progress. Goalactive/FMPenabled; live analyst entitlement/coverage/canonical reconciliation, all source/consumer/capacity/finalMassive/zero-FMP/billing gates remain. Pending private exports untouched; no subscription/schedule/host/customer-send/video/landing changes.
+
+Checks/results and deployment state are recorded in the linked report. Next safe guarded release, actual source/reconciliation and scheduled consumer acceptance; no acceptance gate waived.
+
+
+## October16: Remaining dependencies and FRED source integrity
+
+**2026-10-16 dependency audit and FRED repair:** [Report](docs/fmp-dependency-audit-2026-10-16.md). Reproducible current-source inventory74literal endpoints/32modules identifies distinct DCF, individual price-target history and missing calendar gates; count is not active traffic/completion. Reproduced wrong-series, conflicting-date and nonfinite FRED acceptance; repaired complete-response validation preserves verified caches.90Linux checks and all11public-series/2647-observation/six-macro/five-Treasury full consumer parity pass. Review/release/runtime pending; protectedportfolio still defers PR694-700, no bypass. Prior/current goalturns concrete progress; FMPenabled and all broader acceptance gates remain.
+
+Changed source-only audit utility, FRED parser and focused tests/report. No deployment or production settings/records changed. Next reviewed release/installed and ordinary refresh proof, then remaining source/consumer acceptance.
