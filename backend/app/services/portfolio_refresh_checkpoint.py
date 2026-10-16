@@ -9,6 +9,8 @@ import sqlite3
 
 
 class PortfolioCheckpoint:
+    kind = 'portfolio_refresh_v1'
+
     def __init__(self, environment=None):
         env = os.environ if environment is None else environment
         self.path = Path(env['WALNUT_JOB_QUEUE']).resolve()
@@ -33,14 +35,14 @@ class PortfolioCheckpoint:
             if row['checkpoint_json'] is None:
                 return None
             state = json.loads(row['checkpoint_json'])
-            if state.get('kind') != 'portfolio_refresh_v1' or state.get('cycle_id') != self.cycle:
+            if state.get('kind') != self.kind or state.get('cycle_id') != self.cycle:
                 raise RuntimeError('Portfolio checkpoint identity mismatch')
             return state
         finally:
             db.close()
 
     def save(self, state):
-        if state.get('kind') != 'portfolio_refresh_v1' or state.get('cycle_id') != self.cycle:
+        if state.get('kind') != self.kind or state.get('cycle_id') != self.cycle:
             raise ValueError('Portfolio checkpoint identity mismatch')
         encoded = json.dumps(state, sort_keys=True, allow_nan=False)
         if len(encoded.encode()) > 1_000_000:

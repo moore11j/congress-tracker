@@ -23,6 +23,8 @@ import uuid
 
 
 PORTFOLIO_COMMAND = 'cd /app && python -m app.ingest_run --job portfolio-simulation-refresh'
+OUTCOME_COMMAND = 'cd /app && python -m app.ingest_run --job outcome-ledger-hydrator'
+CHECKPOINT_COMMANDS = {PORTFOLIO_COMMAND: 'portfolio_refresh_v1', OUTCOME_COMMAND: 'outcome_hydration_v1'}
 
 
 DELIVERY_COMMANDS = (
@@ -127,7 +129,7 @@ def database(path):
 
 
 RELEASE_PROTECTED_COMMANDS = {
-    PORTFOLIO_COMMAND, 'cd /app && python -m app.ingest_run --job all',
+    PORTFOLIO_COMMAND, OUTCOME_COMMAND, 'cd /app && python -m app.ingest_run --job all',
 }
 
 
@@ -146,12 +148,14 @@ def reserve_release(db, owner, manifest, *, seconds=600, now=None):
             # An idempotent transport retry cannot extend a hold indefinitely.
             db.commit()
             return {'status': 'ready', 'existing': True}
-        busy = any(manifest.get(row['key'], {}).get('command') in RELEASE_PROTECTED_COMMANDS
-                   or row['portfolio_checkpoint']
-                   for row in db.execute("SELECT key,coalesce(json_extract(checkpoint_json,'$.kind')='portfolio_refresh_v1',0) AS portfolio_checkpoint FROM jobs WHERE started_at IS NOT NULL OR continuation_at IS NOT NULL"))
+        busy = [row for row in db.execute("SELECT key,json_extract(checkpoint_json,'$.kind') AS kind FROM jobs WHERE started_at IS NOT NULL OR continuation_at IS NOT NULL")
+                if manifest.get(row['key'], {}).get('command') in RELEASE_PROTECTED_COMMANDS
+                or row['kind'] in CHECKPOINT_COMMANDS.values()]
         if busy:
+            outcome_only = all(manifest.get(row['key'], {}).get('command') == OUTCOME_COMMAND
+                               or row['kind'] == 'outcome_hydration_v1' for row in busy)
             db.commit()
-            return {'status': 'blocked', 'reason': 'portfolio_cycle_unfinished'}
+            return {'status': 'blocked', 'reason': 'outcome_cycle_unfinished' if outcome_only else 'portfolio_cycle_unfinished'}
         db.execute('INSERT INTO release_hold(id,owner,expires_at) VALUES(1,?,?) '
                    'ON CONFLICT(id) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at',
                    (owner, now + seconds))
@@ -242,8 +246,16 @@ def finish(db, job, code, now=None):
 
 
 def continue_portfolio(db, job, definition, code, now=None):
-    """Only a completed, checkpointed portfolio batch may yield the data lane."""
-    if code != 75 or definition.get('command') != PORTFOLIO_COMMAND or definition.get('lane') != 'data':
+    # Compatibility entry point: never admit an unrelated command here.
+    if definition.get('command') != PORTFOLIO_COMMAND:
+        return False
+    return continue_checkpointed_job(db, job, definition, code, now)
+
+
+def continue_checkpointed_job(db, job, definition, code, now=None):
+    """Only an explicitly approved, durably completed batch may yield."""
+    kind = CHECKPOINT_COMMANDS.get(definition.get('command'))
+    if code != 75 or kind is None or definition.get('lane') != 'data':
         return False
     now = time.time() if now is None else now
     db.execute('BEGIN IMMEDIATE')
@@ -251,7 +263,7 @@ def continue_portfolio(db, job, definition, code, now=None):
         row = db.execute('SELECT checkpoint_json,cycle_id FROM jobs WHERE key=? AND token=?',
                          (job['key'], job['token'])).fetchone()
         state = json.loads(row['checkpoint_json'] or '{}') if row else {}
-        if (not row or state.get('kind') != 'portfolio_refresh_v1' or not state.get('continuation')
+        if (not row or state.get('kind') != kind or not state.get('continuation')
                 or state.get('cycle_id') != row['cycle_id'] or state.get('deadline', 0) <= now):
             db.commit()
             return False
@@ -393,6 +405,7 @@ def worker(queue, manifest, lane, *, idle=.5):
                    'WALNUT_JOB_TOKEN': job['token'], 'WALNUT_JOB_CYCLE': job['cycle_id'],
                    'WALNUT_JOB_KEY': job['key'], 'WALNUT_JOB_QUEUE': str(queue),
                    'WALNUT_PORTFOLIO_CONTINUATION': '1' if definition['command'] == PORTFOLIO_COMMAND else '0',
+                   'WALNUT_OUTCOME_CONTINUATION': '1' if definition['command'] == OUTCOME_COMMAND else '0',
                    'PYTHONUNBUFFERED': '1'}
             process = None
             usage_before = resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -418,7 +431,7 @@ def worker(queue, manifest, lane, *, idle=.5):
                 usage_after = resource.getrusage(resource.RUSAGE_CHILDREN)
                 cpu_seconds = ((usage_after.ru_utime - usage_before.ru_utime) +
                                (usage_after.ru_stime - usage_before.ru_stime))
-                yielded = continue_portfolio(db, job, definition, code)
+                yielded = continue_checkpointed_job(db, job, definition, code)
                 if not yielded:
                     finish(db, job, code)
                 from preloaded_jobs import forget_identity

@@ -1260,87 +1260,11 @@ def _outcome_ledger_hydrator_symbols(db, *, limit: int, lookback_days: int) -> l
 
 
 def _run_outcome_ledger_hydrator_job() -> dict[str, object]:
-    if os.getenv("OUTCOME_LEDGER_HYDRATOR_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
-        logger.info("outcome_ledger_hydrator_skipped reason=hydrator_disabled")
-        return {"job": "outcome-ledger-hydrator", "status": "skipped", "reason": "hydrator_disabled"}
-    guard = check_background_job_guard("outcome-ledger-hydrator")
-    if not guard.proceed:
-        logger.info("outcome_ledger_hydrator_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
-        return {**background_job_skip_payload("outcome-ledger-hydrator", guard), "captured": 0, "evaluated": 0}
-
-    ensure_price_cache_volume_columns(engine)
-    ensure_outcome_ledger_schema(engine)
-    symbol_limit = int(os.getenv("OUTCOME_LEDGER_HYDRATOR_SYMBOL_LIMIT", "75") or 75)
-    lookback_days = int(os.getenv("OUTCOME_LEDGER_HYDRATOR_EVENT_LOOKBACK_DAYS", "30") or 30)
-    price_lookback_days = int(os.getenv("OUTCOME_LEDGER_HYDRATOR_PRICE_LOOKBACK_DAYS", "10") or 10)
-    max_seconds = int(os.getenv("OUTCOME_LEDGER_HYDRATOR_MAX_SECONDS", "240") or 240)
-    min_score = int(os.getenv("OUTCOME_LEDGER_HYDRATOR_MIN_SCORE", "40") or 40)
-    min_active_sources = int(os.getenv("OUTCOME_LEDGER_HYDRATOR_MIN_ACTIVE_SOURCES", "1") or 1)
-    refresh_prices = os.getenv("OUTCOME_LEDGER_HYDRATOR_REFRESH_PRICES", "true").strip().lower() in {"1", "true", "yes", "on"}
-    started = time.monotonic()
-
-    with SessionLocal() as db:
-        if not outcome_ledger_enabled(db):
-            return {"job": "outcome-ledger-hydrator", "status": "skipped", "reason": "outcome_ledger_disabled"}
-
-        symbols = _outcome_ledger_hydrator_symbols(db, limit=max(1, symbol_limit), lookback_days=max(1, lookback_days))
-        if refresh_prices:
-            expected_date = get_expected_latest_market_date()
-            for symbol in symbols:
-                if time.monotonic() - started > max_seconds:
-                    break
-                try:
-                    ensure_fresh_price_history(
-                        db,
-                        symbol,
-                        expected_date=expected_date,
-                        lookback_days=max(1, price_lookback_days),
-                    )
-                except Exception as exc:
-                    logger.warning("outcome_ledger_hydrator_price_refresh_failed symbol=%s error=%s", symbol, exc)
-
-        bundles = get_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=lookback_days)
-        captured = 0
-        skipped_low_signal = 0
-        failed = 0
-        evaluated = 0
-        items: list[dict[str, object]] = []
-        for symbol in symbols:
-            if time.monotonic() - started > max_seconds:
-                logger.info("outcome_ledger_hydrator_time_budget_exhausted evaluated=%s captured=%s", evaluated, captured)
-                break
-            bundle = bundles.get(symbol)
-            if not isinstance(bundle, dict):
-                failed += 1
-                continue
-            evaluated += 1
-            score = int(bundle.get("score") or 0)
-            active_sources = confirmation_active_source_count(bundle)
-            if score < min_score or active_sources < min_active_sources:
-                skipped_low_signal += 1
-                continue
-            try:
-                snapshot = capture_live_confirmation_score_snapshot(db, symbol, bundle)
-            except Exception as exc:
-                failed += 1
-                logger.warning("outcome_ledger_hydrator_capture_failed symbol=%s error=%s", symbol, exc)
-                continue
-            if snapshot is not None:
-                captured += 1
-                if len(items) < 25:
-                    items.append({"symbol": symbol, "snapshot_id": snapshot.id, "score": score, "active_sources": active_sources})
-
-    result = {
-        "job": "outcome-ledger-hydrator",
-        "status": "ok",
-        "symbol_count": len(symbols),
-        "evaluated": evaluated,
-        "captured": captured,
-        "skipped_low_signal": skipped_low_signal,
-        "failed": failed,
-        "duration_seconds": round(time.monotonic() - started, 3),
-        "items": items,
-    }
+    from app.jobs.hydrate_outcomes_batch import run
+    result = run(compute=sys.modules[__name__])
+    if result['status'] == 'yielded':
+        print(_payload_json(result), flush=True)
+        raise SystemExit(75)
     logger.info("outcome_ledger_hydrator_finished result=%s", result)
     return result
 
@@ -1726,7 +1650,7 @@ def _run_job_payload(job: str, *, trading_days_only: bool = False) -> dict[str, 
 
 
 def _payload_exit_code(payload: dict[str, object]) -> int:
-    return 1 if payload.get("status") == "failed" else 0
+    return 1 if payload.get("status") == "failed" or (payload.get("job") == "outcome-ledger-hydrator" and payload.get("status") == "partial") else 0
 
 
 def main() -> None:
