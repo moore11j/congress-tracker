@@ -7,6 +7,9 @@ from copy import deepcopy
 VERSION = 'sec_arm_usd_reporting_v1'
 DOMESTIC_FORMS = frozenset({'10-K', '10-Q', '10-K/A', '10-Q/A'})
 PROFILES = {
+    'SHEL': {'cik': '0001306965', 'currency': 'USD', 'taxonomy': 'ifrs-full',
+        'forms': ['20-F', '20-F/A', '6-K', '6-K/A'],
+        'reviewed_at': '2026-10-16', 'version': 'sec_shell_ifrs_interim_v1'},
     'VALE': {'cik': '0000917851', 'currency': 'USD', 'taxonomy': 'ifrs-full',
         'forms': ['20-F', '20-F/A', '6-K', '6-K/A'],
         'reviewed_at': '2026-10-15', 'version': 'sec_vale_ifrs_interim_v1'},
@@ -44,7 +47,7 @@ def periodic_document(symbol, cik, form, report, filename):
     if symbol == 'VALE':
         from app.services.sec_vale_financials import periodic_document as vale_document
         return vale_document(form, report, filename)
-    if symbol == 'NVS':
+    if symbol in {'NVS', 'SHEL'}:
         return (form in profile['forms'] and len(report) == 10
             and report[4:] in ('-03-31', '-06-30', '-09-30', '-12-31')
             and (form not in ('20-F', '20-F/A') or report[4:] == '-12-31'))
