@@ -7,7 +7,7 @@ from decimal import Decimal, getcontext
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -384,14 +384,38 @@ def materialize_cached_outcome_horizons(db: Session, *, as_of: date) -> dict[str
     )]
     if not due_entries:
         return {"entries_checked": 0, "observations_created": 0}
-    symbols = {symbol for entry in due_entries for symbol in (entry.ticker_at_time, entry.benchmark_symbol)}
-    start_day = min(entry.entry_session_date for entry in due_entries) + timedelta(days=min(OUTCOME_HORIZONS))
-    prices = db.execute(select(PriceCache).where(
-        PriceCache.symbol.in_(symbols),
-        PriceCache.date >= start_day.isoformat(),
-        PriceCache.date <= as_of.isoformat(),
-    )).scalars().all()
-    prices_by_key = {(row.symbol, row.date): row for row in prices}
+    # Only exact target sessions can contribute an observation. A broad date
+    # window loads years of unrelated prices for older entries on every run.
+    # Resolve the same calendar rule as materialize_outcome_horizons; do not
+    # substitute a later cached session when the authoritative target is absent.
+    needed_keys: set[tuple[str, str]] = set()
+    session_by_target: dict[date, date] = {}
+    for entry in due_entries:
+        observed_days = {row.horizon_days for row in by_entry.get(entry.id, [])}
+        for days in OUTCOME_HORIZONS:
+            if days in observed_days:
+                continue
+            target = entry.entry_session_date + timedelta(days=days)
+            if target > as_of:
+                continue
+            session_day = session_by_target.get(target)
+            if session_day is None:
+                session_day = target
+                while not is_market_trading_day(session_day):
+                    session_day += timedelta(days=1)
+                session_by_target[target] = session_day
+            if session_day <= as_of:
+                needed_keys.update((symbol, session_day.isoformat())
+                                   for symbol in (entry.ticker_at_time, entry.benchmark_symbol))
+    prices_by_key: dict[tuple[str, str], PriceCache] = {}
+    ordered_keys = sorted(needed_keys)
+    # Composite primary-key lookups; each statement stays under SQLite's older
+    # 999-variable limit too. Batching never caps the complete required key set.
+    for offset in range(0, len(ordered_keys), 400):
+        prices = db.execute(select(PriceCache).where(
+            tuple_(PriceCache.symbol, PriceCache.date).in_(ordered_keys[offset:offset + 400]),
+        )).scalars().all()
+        prices_by_key.update(((row.symbol, row.date), row) for row in prices)
     created = 0
     for entry in due_entries:
         existing = by_entry.get(entry.id, [])
