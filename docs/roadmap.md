@@ -1,3 +1,5 @@
+October16,00:57UTC: [Shell PR698](shell-sec-financials-2026-10-16.md#reviewed-merge-and-deferred-deployment-october16-0053utc) merged55f32028/allCI, awaiting protected portfolio completion before deployment. [Ordinary issuer mixed collection](issuer-collection-fairness-2026-10-15.md#ordinary-mixed-collection-confirmed-october16-0055utc) verifies two successful discovery/static runs and MRNA/RDDT freshness recovery; broader reader/coverage and all FMP gates remain.
+
 October15,22:13UTC: [Issuer fairness](issuer-collection-fairness-2026-10-15.md#deployed-and-ordinary-source-hold-observed-october15-2213utc) deployed209c22bb,509 checks/five runtime hashes. Actual run615 uses reservation but UL index403 prevents collection; successful mixed operation and broader source/FMP gates remain.
 
 October15: [Issuer collection fairness](issuer-collection-fairness-2026-10-15.md) implemented locally,509 Linux checks/seven-day source parity verified. Exact release and ordinary recovery pending; broader FMP retirement gates remain.
