@@ -1,3 +1,5 @@
+October16: [BABA financial preparation](baba-sec-financials-2026-10-16.md) locally adds seven native CNY GAAP ratios with276Linuxchecks and full-original consumers. Cash/valuation/history gaps remain; review/release/ordinary operation pending. Core staysFMP and retirement incomplete.
+
 October16,02:26UTC: [NVO PR704](nvo-sec-financials-2026-10-16.md#reviewed-merge-and-pending-backend-release) merged9bf64c51/allCI/exacttestedparity. Nine ratios/275checks/full-original consumers verified locally; backend and ordinary acquisition await safe release. Core remainsFMP; full retirement incomplete.
 
 October16: [NVO financial preparation](nvo-sec-financials-2026-10-16.md) locally adds nine DKK IFRS ratios with275Linux checks and complete-original consumer proof. Review/release/ordinary source validation pending; core remainsFMP and full retirement gates remain.

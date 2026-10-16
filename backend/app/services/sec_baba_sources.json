@@ -1,0 +1,224 @@
+{
+  "sources": {
+    "current_cover": {
+      "form": "6-K",
+      "filingDate": "2026-08-20",
+      "reportDate": "2026-08-20",
+      "accessionNumber": "0001104659-26-099220",
+      "primaryDocument": "tm2623667d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926099220/tm2623667d1_6k.htm",
+      "file": "0001104659-26-099220-tm2623667d1_6k.htm",
+      "sha256": "5366b80d460025a719382e17d6030a96696efc63f8f6fa19d7b4e2f62e2f3f0e"
+    },
+    "current": {
+      "form": "6-K",
+      "filingDate": "2026-08-20",
+      "reportDate": "2026-08-20",
+      "accessionNumber": "0001104659-26-099220",
+      "primaryDocument": "tm2623667d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926099220/tm2623667d1_ex99-1.htm",
+      "file": "0001104659-26-099220-tm2623667d1_ex99-1.htm",
+      "sha256": "f066fab87e9246a3305b1559d58954f0212a196934c293f63ebeb350ecf28fbd",
+      "filename": "tm2623667d1_ex99-1.htm",
+      "year": 2026
+    },
+    "prior_cover": {
+      "form": "6-K",
+      "filingDate": "2025-08-29",
+      "reportDate": "2025-08-29",
+      "accessionNumber": "0001104659-25-085638",
+      "primaryDocument": "tm2524743d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465925085638/tm2524743d1_6k.htm",
+      "file": "0001104659-25-085638-tm2524743d1_6k.htm",
+      "sha256": "a4e81c042addd735e141e410441afb3a498e1c2e4830b620a529007cba29d84c"
+    },
+    "prior": {
+      "form": "6-K",
+      "filingDate": "2025-08-29",
+      "reportDate": "2025-08-29",
+      "accessionNumber": "0001104659-25-085638",
+      "primaryDocument": "tm2524743d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465925085638/tm2524743d1_ex99-1.htm",
+      "file": "0001104659-25-085638-tm2524743d1_ex99-1.htm",
+      "sha256": "12118c96d09e31633602e930d8440cd42e31da37b8b091b025d0547d1ef18e16",
+      "filename": "tm2524743d1_ex99-1.htm",
+      "year": 2025
+    },
+    "annual": {
+      "form": "20-F",
+      "filingDate": "2026-05-20",
+      "reportDate": "2026-03-31",
+      "accessionNumber": "0001193125-26-231755",
+      "primaryDocument": "baba-20260331.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526231755/baba-20260331.htm",
+      "file": "0001193125-26-231755-baba-20260331.htm",
+      "sha256": "8f0a001092d1b21aa6ad6b2ee0e840df547e65802637e84a8e9bc00be21ca4dd"
+    }
+  },
+  "reviewed_later": [
+    {
+      "form": "6-K",
+      "filingDate": "2026-10-07",
+      "reportDate": "2026-10-07",
+      "accessionNumber": "0001104659-26-114191",
+      "primaryDocument": "tm2627183d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926114191/tm2627183d1_6k.htm",
+      "file": "0001104659-26-114191-tm2627183d1_6k.htm",
+      "sha256": "8b0f3d3d0daaf81a275ab9c1b27796be51ff00959eb5a545fb60383667ed3d6e",
+      "review": "Share movements, shareholder votes, share grants or placing disclosures; no later quarterly financial statements.",
+      "linked_originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926114191/tm2627183d1_ex99-1.htm",
+          "sha256": "3738ee0421a23438ceee71e4929bd07a2b22e467054f64aee4f0f82166e0e69a",
+          "label": "Exhibit 99.1 \u2013Monthly Return with The Stock Exchange of Hong Kong Limited \u2013 Monthly Return for Equity Issuer and Hong Kong Depositary Receipts listed under Chapter 19B of the Exchange Listing Rules on Movements in Securities"
+        }
+      ]
+    },
+    {
+      "form": "6-K",
+      "filingDate": "2026-09-29",
+      "reportDate": "2026-09-29",
+      "accessionNumber": "0001104659-26-111915",
+      "primaryDocument": "tm2626567d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926111915/tm2626567d1_6k.htm",
+      "file": "0001104659-26-111915-tm2626567d1_6k.htm",
+      "sha256": "a79b8d7737196cf3ef6bca9ed274efe3b6fe0a65aa5023c8db78d07c8a55d735",
+      "review": "Share movements, shareholder votes, share grants or placing disclosures; no later quarterly financial statements.",
+      "linked_originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926111915/tm2626567d1_ex99-1.htm",
+          "sha256": "f8c9dfa1181687061e2eb907a6d21401526fda285970da6bf23dd47283bddb6e",
+          "label": "Exhibit 99.1 \u2013 Next Day Disclosure Return with The Stock Exchange of Hong Kong Limited \u2013 Next Day Disclosure Return dated September 29, 2026"
+        }
+      ]
+    },
+    {
+      "form": "6-K",
+      "filingDate": "2026-09-22",
+      "reportDate": "2026-09-22",
+      "accessionNumber": "0001104659-26-109625",
+      "primaryDocument": "tm2625915d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926109625/tm2625915d1_6k.htm",
+      "file": "0001104659-26-109625-tm2625915d1_6k.htm",
+      "sha256": "8b218fd919235fcc4936aeb5a185bc18f8e3df43d49aa973d7dce68d3d7dce66",
+      "review": "Share movements, shareholder votes, share grants or placing disclosures; no later quarterly financial statements.",
+      "linked_originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926109625/tm2625915d1_ex99-1.htm",
+          "sha256": "04f74ffcaca3603c3ba93201ff0625bfb7a5125550f34698276cc4c3cbbe1df3",
+          "label": "Exhibit 99.1 \u2013 Voting Results of Annual General Meeting"
+        }
+      ]
+    },
+    {
+      "form": "6-K",
+      "filingDate": "2026-09-04",
+      "reportDate": "2026-09-04",
+      "accessionNumber": "0001104659-26-105208",
+      "primaryDocument": "tm2624818d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926105208/tm2624818d1_6k.htm",
+      "file": "0001104659-26-105208-tm2624818d1_6k.htm",
+      "sha256": "627f1157897458c3c61726a9d266e772a8e023293d404197f86f3cbdf91ab4c9",
+      "review": "Share movements, shareholder votes, share grants or placing disclosures; no later quarterly financial statements.",
+      "linked_originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926105208/tm2624818d1_ex99-1.htm",
+          "sha256": "62429c28da93594eecc55acc3cd8748c13a8f41281d11f8e739f86b624a131f6",
+          "label": "Exhibit 99.1 \u2013 Monthly Return with The Stock Exchange of Hong Kong Limited \u2013 Monthly Return for Equity Issuer and Hong Kong Depositary Receipts listed under Chapter 19B of the Exchange Listing Rules on Movements in Securities"
+        }
+      ]
+    },
+    {
+      "form": "6-K",
+      "filingDate": "2026-08-26",
+      "reportDate": "2026-08-26",
+      "accessionNumber": "0001193125-26-365894",
+      "primaryDocument": "project_turing_closing.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526365894/project_turing_closing.htm",
+      "file": "0001193125-26-365894-project_turing_closing.htm",
+      "sha256": "469538f473e1e76513280f55148ab3154bb9d12b20dab82c8f9964f3b02239d9",
+      "review": "Share movements, shareholder votes, share grants or placing disclosures; no later quarterly financial statements.",
+      "linked_originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526365894/baba-ex99_1.htm",
+          "sha256": "2608f12de72c01ffe5aabac095aa55abe035cc4b9151768d37b0dcce355c607a",
+          "label": "Exhibit 99.1 \u2013 Press Release \u2013 Alibaba Group Announced Completion of HK$80 Billion Placing of New Shares in Hong Kong"
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526365894/baba-ex99_2.htm",
+          "sha256": "cd7f3a9c59a399945d76c7d9fe667acc1b7fac250c396b81b748c3c43951f12c",
+          "label": "Exhibit 99.2 \u2013 Announcement with The Stock Exchange of Hong Kong Limited \u2013 Completion of Placing of New Shares Under General Mandate"
+        }
+      ]
+    },
+    {
+      "form": "6-K",
+      "filingDate": "2026-08-26",
+      "reportDate": "2026-08-26",
+      "accessionNumber": "0001104659-26-101020",
+      "primaryDocument": "tm2624074d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926101020/tm2624074d1_6k.htm",
+      "file": "0001104659-26-101020-tm2624074d1_6k.htm",
+      "sha256": "1006c94a718a230e208af4e8b8a0397d35676b94f3a916ea95d1d80bfa662b94",
+      "review": "Share movements, shareholder votes, share grants or placing disclosures; no later quarterly financial statements.",
+      "linked_originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926101020/tm2624074d1_ex99-1.htm",
+          "sha256": "abc28c80d8ae39bee43c92512971fc4eb994d6ff8b80a69bfe803c1896eb69ee",
+          "label": "Exhibit 99.1 \u2013 Next Day Disclosure Return with The Stock Exchange of Hong Kong Limited \u2013 Next Day Disclosure Return dated August 26, 2026"
+        }
+      ]
+    },
+    {
+      "form": "6-K",
+      "filingDate": "2026-08-24",
+      "reportDate": "2026-08-24",
+      "accessionNumber": "0001104659-26-099873",
+      "primaryDocument": "tm2623867d1_6k.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926099873/tm2623867d1_6k.htm",
+      "file": "0001104659-26-099873-tm2623867d1_6k.htm",
+      "sha256": "d1a5090f2fe9b22153c5333fcb58244ff08fd5b7e999980c97e0fd0d3c77c147",
+      "review": "Share movements, shareholder votes, share grants or placing disclosures; no later quarterly financial statements.",
+      "linked_originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926099873/tm2623867d1_ex99-1.htm",
+          "sha256": "5de5a02e9f84b8e9fdbdb9fabaa03bc9c453a6f7f9075b1a79ffbcc5c58cd5d6",
+          "label": "Exhibit 99.1 \u2013 Announcement with The Stock Exchange of Hong Kong Limited \u2013 Grant of Awards Pursuant to the 2024 Plan"
+        }
+      ]
+    },
+    {
+      "form": "6-K",
+      "filingDate": "2026-08-24",
+      "reportDate": "2026-08-24",
+      "accessionNumber": "0001193125-26-361715",
+      "primaryDocument": "project_turing_launch__p.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526361715/project_turing_launch__p.htm",
+      "file": "0001193125-26-361715-project_turing_launch__p.htm",
+      "sha256": "817ef477d12adbe18e6abac060b2981b57903684b5511e059afa6e2ab811e62a",
+      "review": "Share movements, shareholder votes, share grants or placing disclosures; no later quarterly financial statements.",
+      "linked_originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526361715/baba-ex99_1.htm",
+          "sha256": "9a99f2a3385fd0cb005300c105f7b3153cdcfb36cd073b339e6eab5b870347b0",
+          "label": "Exhibit 99.1 \u2013 Press Release \u2013 Alibaba Group Announced Proposed Placing of New Shares in Hong Kong"
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526361715/baba-ex99_2.htm",
+          "sha256": "efe4de5b1885c742080062b3d5d114d6dd9307b8e994447bab15f8d9b729c0cc",
+          "label": "Exhibit 99.2 \u2013 Announcement with The Stock Exchange of Hong Kong Limited \u2013 Proposed Placing of New Shares Under General Mandate"
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526361715/baba-ex99_3.htm",
+          "sha256": "6a28a61233e6a9afd301009ef5697e70599f4f18ae0fab74ff31f2df5e007a28",
+          "label": "Exhibit 99.3 \u2013 Press Release \u2013 Alibaba Group Announced Pricing of HK$80 Billion Placing of New Shares in Hong Kong"
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526361715/baba-ex99_4.htm",
+          "sha256": "69216c131dca858a12da2abd961b30ed3379968cf774d7905bf3d8257d5ca202",
+          "label": "Exhibit 99.4 \u2013 Announcement with The Stock Exchange of Hong Kong Limited \u2013 Pricing of HK$80 Billion Placing of New Shares Under General Mandate"
+        }
+      ]
+    }
+  ]
+}

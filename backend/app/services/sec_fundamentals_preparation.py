@@ -43,6 +43,9 @@ def _base_version_for_symbol(symbol):
     if symbol == 'CNQ':
         from app.services.sec_cnq_financials import VERSION as cnq_version
         return VERSION+'_'+cnq_version
+    if symbol == 'BABA':
+        from app.services.sec_baba_financials import VERSION as baba_version
+        return VERSION+'_'+baba_version
     if symbol == 'NVO':
         from app.services.sec_nvo_financials import VERSION as nvo_version
         return VERSION+'_'+nvo_version
