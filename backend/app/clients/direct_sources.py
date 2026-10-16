@@ -486,44 +486,14 @@ def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
         raise DirectSourceError("Issuer material exceeds size limit or is empty")
     source_format = metadata.get("source_format", "html")
     if source_format == "pdf":
-        from pypdf import PdfReader
-        from pypdf.constants import UserAccessPermissions
         if not raw.startswith(b"%PDF-"):
             raise DirectSourceError("Reviewed issuer PDF format mismatch")
         if not all(metadata.get(key) for key in ("company_pattern", "publication_pattern",
                                                   "publisher_pattern", "transcript_publisher")):
             raise DirectSourceError("Reviewed issuer PDF identity or publisher missing")
-        try:
-            reader = PdfReader(io.BytesIO(raw), strict=True)
-            if reader.is_encrypted:
-                # Public PDFs can use an empty user password while reserving
-                # editing rights. Never try other passwords or ignore extraction
-                # permissions when reading those public documents.
-                permitted = int(reader.trailer['/Encrypt']['/P']) & int(UserAccessPermissions.EXTRACT)
-                if not reader.decrypt('') or not permitted:
-                    raise DirectSourceError("Issuer PDF requires a password or prohibits extraction")
-            # Reviewed Unilever originals contain 44-45 pages; byte and decoded
-            # limits still apply. Other issuer policies retain their existing cap.
-            max_pages = 60 if (metadata.get('symbol') == 'UL' and metadata.get('discovery_kind') == 'unilever_results_v1') else 40
-            if not 1 <= len(reader.pages) <= max_pages:
-                raise DirectSourceError("Issuer PDF exceeds page limit")
-            pieces, stream_bytes, text_chars = [], 0, 0
-            for page in reader.pages:
-                content = page.get_contents()
-                if content is not None:
-                    stream_bytes += len(content.get_data())
-                if stream_bytes > 5_000_000:
-                    raise DirectSourceError("Issuer PDF exceeds decoded content limit")
-                piece = page.extract_text() or ""
-                text_chars += len(piece)
-                if text_chars > 2_000_000:
-                    raise DirectSourceError("Issuer PDF exceeds extracted text limit")
-                pieces.append(piece)
-            text = " ".join(" ".join(pieces).split())
-        except DirectSourceError:
-            raise
-        except Exception as exc:
-            raise DirectSourceError("Issuer PDF could not be parsed") from exc
+        max_pages = 60 if (metadata.get('symbol') == 'UL' and metadata.get('discovery_kind') == 'unilever_results_v1') else 40
+        from app.clients.issuer_pdf_text import extract_text
+        text = extract_text(raw, max_pages=max_pages)
         for key in ("company_pattern", "publication_pattern", "publisher_pattern"):
             if not re.search(metadata[key], text, re.I):
                 raise DirectSourceError("Issuer PDF reviewed identity did not match")
