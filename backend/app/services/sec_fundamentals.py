@@ -273,6 +273,9 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     if symbol == 'CNQ':
         from app.services.sec_cnq_financials import project
         return project(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at, supplement=filing_supplement)
+    if symbol == 'NVO':
+        from app.services.sec_nvo_financials import project
+        return project(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at, supplement=filing_supplement)
     if symbol == 'SAP':
         from app.services.sec_sap_financials import project
         return project(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at, supplement=filing_supplement)

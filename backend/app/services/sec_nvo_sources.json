@@ -1,0 +1,196 @@
+{
+  "sources": {
+    "current": {
+      "form": "6-K",
+      "reportDate": "2026-06-30",
+      "filingDate": "2026-08-04",
+      "accessionNumber": "0000353278-26-000023",
+      "primaryDocument": "caq22026.htm",
+      "file": "caq22026.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000023/caq22026.htm",
+      "sha256": "7c3abe3be7e822bd611e1790952b5042fa6de121b4a483e24a4d4e999b4ba138"
+    },
+    "prior": {
+      "form": "6-K",
+      "reportDate": "2025-06-30",
+      "filingDate": "2025-08-06",
+      "accessionNumber": "0001628280-25-038087",
+      "primaryDocument": "caq22025.htm",
+      "file": "caq22025.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000162828025038087/caq22025.htm",
+      "sha256": "ae19cb82be5e1aecf2af5e896cf76b5c6aad5a09b4eaa552d4fc2efae35854ee"
+    },
+    "cover": {
+      "form": "20-F",
+      "reportDate": "2025-12-31",
+      "filingDate": "2026-02-04",
+      "accessionNumber": "0000353278-26-000012",
+      "primaryDocument": "nvo-20251231.htm",
+      "file": "nvo-20251231.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231.htm",
+      "sha256": "6fef428db44875467deb893b3e082d81780256b1cd328d05b150dca82da3b97e"
+    },
+    "annual": {
+      "form": "20-F",
+      "reportDate": "2025-12-31",
+      "filingDate": "2026-02-04",
+      "accessionNumber": "0000353278-26-000012",
+      "primaryDocument": "nvo-20251231.htm",
+      "file": "nvo-20251231_d2.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231_d2.htm",
+      "sha256": "f56865a71f48243e70a2fcc4768d4b18f9e9528a42f30d4b20fee00a439cdf6c"
+    }
+  },
+  "reviewed_later": [
+    {
+      "form": "6-K",
+      "reportDate": "2023-10-12",
+      "filingDate": "2026-10-13",
+      "accessionNumber": "0001171843-26-006585",
+      "primaryDocument": "f6k_101226.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326006585/f6k_101226.htm",
+      "sha256": "eb67c454b998eb4803579509f5b5cfb4dd65bd039638cd0ab828a76a50ed5b32",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-10-05",
+      "filingDate": "2026-10-06",
+      "accessionNumber": "0001171843-26-006440",
+      "primaryDocument": "f6k_100526.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326006440/f6k_100526.htm",
+      "sha256": "291c778a03b654a95d0970733d7f88efd2cbec4d16fd734e9234782f4c772d42",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-10-02",
+      "filingDate": "2026-10-05",
+      "accessionNumber": "0001171843-26-006374",
+      "primaryDocument": "f6k_100226.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326006374/f6k_100226.htm",
+      "sha256": "adac30b4ee5face6ab8234407dbb1080cb60c6713399ac480197bfae86d7194f",
+      "review": "regulatory drug update without financial statements"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-09-28",
+      "filingDate": "2026-09-28",
+      "accessionNumber": "0001171843-26-006248",
+      "primaryDocument": "f6k_092826.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326006248/f6k_092826.htm",
+      "sha256": "956296ea896c7b8ad41cdc77b8019103ad94d5c7c7e60b3f8bc6f02e0fee7742",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-09-21",
+      "filingDate": "2026-09-21",
+      "accessionNumber": "0001171843-26-006128",
+      "primaryDocument": "f6k_092126.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326006128/f6k_092126.htm",
+      "sha256": "4ef3570ce19ff08c762e9b079698f3063dca40e206c43516bd49a21c1725d31a",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-09-17",
+      "filingDate": "2026-09-17",
+      "accessionNumber": "0001171843-26-006088",
+      "primaryDocument": "f6k_091726.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326006088/f6k_091726.htm",
+      "sha256": "df194775f4ae63f36e74138baa280dc82e33fb7872db991cfbb35603f8faded5",
+      "review": "regulatory drug update without financial statements"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-09-14",
+      "filingDate": "2026-09-15",
+      "accessionNumber": "0001171843-26-006038",
+      "primaryDocument": "f6k_091426.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326006038/f6k_091426.htm",
+      "sha256": "2127682ccbaee857f35b41f52b29ebede33360c6e3d4f8d1fc86b5f94ca11c23",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-09-07",
+      "filingDate": "2026-09-09",
+      "accessionNumber": "0001171843-26-005925",
+      "primaryDocument": "f6k_090726.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326005925/f6k_090726.htm",
+      "sha256": "9922c33b2b249269140f74217176a82dd01c7566d31fce48141378e9c80eb38a",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-08-31",
+      "filingDate": "2026-08-31",
+      "accessionNumber": "0001171843-26-005795",
+      "primaryDocument": "f6k_083126.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326005795/f6k_083126.htm",
+      "sha256": "73a9e28eedba79a1c244babcb8dcea511e7b39c6b11f56f819faa1ee7b9f3190",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-08-24",
+      "filingDate": "2026-08-24",
+      "accessionNumber": "0001171843-26-005715",
+      "primaryDocument": "f6k_082426.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326005715/f6k_082426.htm",
+      "sha256": "dd5efea37f8acb38ae79dccd1ee272a7bd5251c25b464f179a98f8dc8455e9fc",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-08-17",
+      "filingDate": "2026-08-18",
+      "accessionNumber": "0001171843-26-005599",
+      "primaryDocument": "f6k_081726.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326005599/f6k_081726.htm",
+      "sha256": "9ed2a9766973ebbf3c8d6c49de2fda58210afd9c29de861403b726abc95b42c9",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-08-10",
+      "filingDate": "2026-08-10",
+      "accessionNumber": "0001171843-26-005376",
+      "primaryDocument": "f6k_081026.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326005376/f6k_081026.htm",
+      "sha256": "243d5c5bbfe36d1cfa1442f8575333eaa0d5a3aae02cb3f5d5b95af6b434147b",
+      "review": "share repurchase programme"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-08-06",
+      "filingDate": "2026-08-10",
+      "accessionNumber": "0001171843-26-005375",
+      "primaryDocument": "f6k_080626.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326005375/f6k_080626.htm",
+      "sha256": "457bc00dd6b130e18798064c34624f4960c3363e0aed8128f4130826bda58d6c",
+      "review": "director/executive share transactions"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-08-04",
+      "filingDate": "2026-08-04",
+      "accessionNumber": "0001171843-26-005184",
+      "primaryDocument": "f6k_080426.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326005184/f6k_080426.htm",
+      "sha256": "7b698754793352b1b681a8e48d17f60de1ebdf66be451be43bef3bd119cc2e82",
+      "review": "adjusted outlook, same-day preliminary Q2 figures"
+    },
+    {
+      "form": "6-K",
+      "reportDate": "2026-08-04",
+      "filingDate": "2026-08-04",
+      "accessionNumber": "0001171843-26-005172",
+      "primaryDocument": "f6k_080426.htm",
+      "url": "https://www.sec.gov/Archives/edgar/data/353278/000117184326005172/f6k_080426.htm",
+      "sha256": "42dd62647d607646ea41c9b2f66730a10791056da66a608f7c5beb12fef6ffe2",
+      "review": "share repurchase programme"
+    }
+  ]
+}

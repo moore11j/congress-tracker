@@ -1,0 +1,30 @@
+{
+  "current": {
+    "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000023/caq22026.htm",
+    "original_sha256": "7c3abe3be7e822bd611e1790952b5042fa6de121b4a483e24a4d4e999b4ba138",
+    "original_bytes": 1730161,
+    "gzip_bytes": 85412,
+    "complete_original": true
+  },
+  "prior": {
+    "url": "https://www.sec.gov/Archives/edgar/data/353278/000162828025038087/caq22025.htm",
+    "original_sha256": "ae19cb82be5e1aecf2af5e896cf76b5c6aad5a09b4eaa552d4fc2efae35854ee",
+    "original_bytes": 1855682,
+    "gzip_bytes": 85597,
+    "complete_original": true
+  },
+  "cover": {
+    "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231.htm",
+    "original_sha256": "6fef428db44875467deb893b3e082d81780256b1cd328d05b150dca82da3b97e",
+    "original_bytes": 1425860,
+    "gzip_bytes": 88323,
+    "complete_original": true
+  },
+  "annual": {
+    "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231_d2.htm",
+    "original_sha256": "f56865a71f48243e70a2fcc4768d4b18f9e9528a42f30d4b20fee00a439cdf6c",
+    "original_bytes": 10592960,
+    "gzip_bytes": 596949,
+    "complete_original": true
+  }
+}
