@@ -313,6 +313,12 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
             return cnq.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
         except cnq.CnqFinancialError as exc:
             return {'cnq_error': str(exc)}
+    if symbol == 'NVO':
+        from app.services import sec_nvo_financials as nvo
+        try:
+            return nvo.acquire(company_raw, symbol=symbol, cik=cik, observed_at=observed_at, client=client)
+        except nvo.NvoFinancialError as exc:
+            return {'nvo_error': str(exc)}
     if symbol == 'SAP':
         from app.services import sec_sap_financials as sap
         try:
