@@ -1,0 +1,177 @@
+{
+  "CGNT": {
+    "symbol": "CGNT",
+    "cik": "0001824814",
+    "company_name": "Cognyte Software Ltd.",
+    "files": {
+      "company": {
+        "file": "CGNT-company.gz",
+        "url": "https://data.sec.gov/submissions/CIK0001824814.json",
+        "sha256": "f573cad86029ff8ee50d0e60dda87ebfa5013ac06427cab42c13bb960fda65ca",
+        "bytes": 32031
+      },
+      "cover": {
+        "file": "CGNT-cover.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1824814/000182481426000040/a6-kearningspressreleasefo.htm",
+        "sha256": "a05dd36b8327d0919a96d555330c62ad1302143edd275facd8dc391f97a1dd13",
+        "bytes": 15939
+      },
+      "statement": {
+        "file": "CGNT-statement.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1824814/000182481426000040/july312026earningspressrel.htm",
+        "sha256": "56151fa5f2c6ca371d7aa9d6fe27d06907a10e4328a7a7abc381d73282f473f1",
+        "bytes": 357902
+      }
+    }
+  },
+  "NIVF": {
+    "symbol": "NIVF",
+    "cik": "0001981662",
+    "company_name": "NewGenIvf Group Ltd",
+    "files": {
+      "company": {
+        "file": "NIVF-company.gz",
+        "url": "https://data.sec.gov/submissions/CIK0001981662.json",
+        "sha256": "5a7529757befb754cab070d5533213f5db14b41d4525402897a453bb10b8f133",
+        "bytes": 32616
+      },
+      "cover": {
+        "file": "NIVF-cover.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1981662/000121390026107570/ea0307980-6k_newgen.htm",
+        "sha256": "7501eeb2ca80fa4670e712e9ab7fffc84fd583a2b9318e2602878ae28db744bc",
+        "bytes": 10910
+      },
+      "statement": {
+        "file": "NIVF-statement.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1981662/000121390026107570/ea030798001ex99-1.htm",
+        "sha256": "291fba8e408d3b0b4183fff548b444bdb42831c441c4f707d1499beeb1aa3d14",
+        "bytes": 58434
+      }
+    }
+  },
+  "NTB": {
+    "symbol": "NTB",
+    "cik": "0001653242",
+    "company_name": "Bank of N.T. Butterfield & Son Ltd",
+    "files": {
+      "company": {
+        "file": "NTB-company.gz",
+        "url": "https://data.sec.gov/submissions/CIK0001653242.json",
+        "sha256": "521d45b27de2543991238308c53bda7bbccfadfb7a91fb80fe84cc9ca5246aad",
+        "bytes": 66373
+      },
+      "cover": {
+        "file": "NTB-cover.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1653242/000165324226000059/q220266-kxbntbquarterlyres.htm",
+        "sha256": "a330a482de649bd25f4841630c43a6a1da7fad6461161365e274ba57ccb428c2",
+        "bytes": 21112
+      },
+      "statement": {
+        "file": "NTB-statement.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1653242/000165324226000059/currentquarterlyfs.htm",
+        "sha256": "f2037635a2421cf0c7d664a84ca0b7825680363fde8417d4ec66456ee320b965",
+        "bytes": 1908169
+      }
+    }
+  },
+  "WB": {
+    "symbol": "WB",
+    "cik": "0001595761",
+    "company_name": "WEIBO Corp",
+    "files": {
+      "company": {
+        "file": "WB-company.gz",
+        "url": "https://data.sec.gov/submissions/CIK0001595761.json",
+        "sha256": "470e6dc3201572bbc3ddd5c27e9e8262e1f9f86e47d6f05cf722e2fc9cd9625f",
+        "bytes": 42398
+      },
+      "cover": {
+        "file": "WB-cover.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1595761/000110465926098504/tm2623262d1_6k.htm",
+        "sha256": "f90fbc863ca056779c797eea7534811101e1ecdcca51e1b06337f3b6fcedab91",
+        "bytes": 11203
+      },
+      "statement": {
+        "file": "WB-statement.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1595761/000110465926098504/tm2623262d1_ex99-1.htm",
+        "sha256": "821029d5e88f74525ae9daf6bd2dfeda8251a3e6d0ab86e267b7bef781414af2",
+        "bytes": 198136
+      }
+    }
+  },
+  "YI": {
+    "symbol": "YI",
+    "cik": "0001738906",
+    "company_name": "111, Inc.",
+    "files": {
+      "company": {
+        "file": "YI-company.gz",
+        "url": "https://data.sec.gov/submissions/CIK0001738906.json",
+        "sha256": "2c1863988c60193e3824baa26abb188e64818ec9dcf7b598c32f0dea92463a93",
+        "bytes": 22049
+      },
+      "cover": {
+        "file": "YI-cover.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1738906/000095010326014069/dp253438_6k.htm",
+        "sha256": "a263d467ce704daa5f1852bc44c068a9ceac379cf4d00f34b464ade851d15a6f",
+        "bytes": 7519
+      },
+      "statement": {
+        "file": "YI-statement.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1738906/000095010326014069/dp253438_ex9901.htm",
+        "sha256": "09668c330acce6f04cc8e5347c4d345ff160808000c0e21f669dff8167a07698",
+        "bytes": 213112
+      }
+    }
+  },
+  "YQ": {
+    "symbol": "YQ",
+    "cik": "0001821468",
+    "company_name": "17 Education & Technology Group Inc.",
+    "files": {
+      "company": {
+        "file": "YQ-company.gz",
+        "url": "https://data.sec.gov/submissions/CIK0001821468.json",
+        "sha256": "a7e533c3493b651e286b756a96d86f79a0f0371b6a921512d36922af019f976f",
+        "bytes": 20233
+      },
+      "cover": {
+        "file": "YQ-cover.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1821468/000119312526385892/yq-6k-09-09-2026-q2.htm",
+        "sha256": "d43f75a34ae3ad89cb7306928bcffa874e0e29a02c51bd6b0dab30decc3c6a6a",
+        "bytes": 28522
+      },
+      "statement": {
+        "file": "YQ-statement.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1821468/000119312526385892/yq-ex99_1.htm",
+        "sha256": "c30fcb0e49bc84c59dd5950a8d533ea5b21a3ce033665d820382822ea200faf4",
+        "bytes": 728433
+      }
+    }
+  },
+  "ZEPP": {
+    "symbol": "ZEPP",
+    "cik": "0001720446",
+    "company_name": "Zepp Health Corp",
+    "files": {
+      "company": {
+        "file": "ZEPP-company.gz",
+        "url": "https://data.sec.gov/submissions/CIK0001720446.json",
+        "sha256": "9834874f26af5d527940ae06ecb11c84741cedfa9104822935bc419482e405f0",
+        "bytes": 33290
+      },
+      "cover": {
+        "file": "ZEPP-cover.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1720446/000110465926104424/tm2624658d1_6k.htm",
+        "sha256": "652d24085b0bdafd791ef086d39f8fa8476d0beca0cd867363e4019a1302b771",
+        "bytes": 10413
+      },
+      "statement": {
+        "file": "ZEPP-statement.gz",
+        "url": "https://www.sec.gov/Archives/edgar/data/1720446/000110465926104424/tm2624658d1_ex99-1.htm",
+        "sha256": "c8a0bc5f86d1ea271bea8170ba3e3a8d8b001f3585fbf54f4370855cda232683",
+        "bytes": 226765
+      }
+    }
+  }
+}
