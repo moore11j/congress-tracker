@@ -5,12 +5,13 @@ import json
 import re
 from zoneinfo import ZoneInfo
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
+from app.services.sec_original_integrity import verified_original
 
-VERSION = 'sec_sap_eur_statements_v2'
+VERSION = 'sec_sap_eur_statements_v3'
 CIK = '0001000184'
 END = date(2026,6,30)
 MAX_BYTES = 15_000_000
-SOURCES = {'current': {'accession': '0001104659-26-087251', 'filed': '2026-07-28', 'report': '2026-07-28', 'year': 2026, 'end': '2026-06-30', 'form': '6-K', 'cover': 'tm2621275d1_6k.htm', 'filename': 'tm2621275d1_ex99-2.htm', 'sha256': 'f2afc72d4c46b140350ebf7e6476d00f1c393fba172451995972cb26eaf14329', 'cover_sha256': 'e4063183fe3a970fb5ef37b09acffff9fea121d63e380ec2511f59c9a1edc8b7'}, 'prior': {'accession': '0001104659-25-070485', 'filed': '2025-07-25', 'report': '2025-07-25', 'year': 2025, 'end': '2025-06-30', 'form': '6-K', 'cover': 'tm2521516d1_6k.htm', 'filename': 'tm2521516d1_ex99-2.htm', 'sha256': 'df76b849c9b76ad1eda631efb47a9d2d9d8aa54bb615789cfc098d37206dca9d', 'cover_sha256': 'aa7d096f54849eea5fca23089ebfca64a00f6f5f5f5dddd20b22bad5c9d24a43'}, 'annual': {'accession': '0001104659-26-020058', 'filed': '2026-02-26', 'report': '2025-12-31', 'year': 2025, 'end': '2025-12-31', 'form': '20-F', 'cover': 'sap-20251231x20f.htm', 'filename': 'sap-20251231x20f.htm', 'sha256': '4628dc2d12f68bfbbe7c07a2099a6916db30d9547b8f3d1424b451272790fc15'}}
+SOURCES = {'current': {'accession': '0001104659-26-087251', 'filed': '2026-07-28', 'report': '2026-07-28', 'year': 2026, 'end': '2026-06-30', 'form': '6-K', 'cover': 'tm2621275d1_6k.htm', 'filename': 'tm2621275d1_ex99-2.htm', 'sha256': 'f2afc72d4c46b140350ebf7e6476d00f1c393fba172451995972cb26eaf14329', 'cover_sha256': 'e4063183fe3a970fb5ef37b09acffff9fea121d63e380ec2511f59c9a1edc8b7', 'document_sha256': 'd7b27e4aa50ee2a0ba64dc134ae59beee251c4c8ef4fad0f7004122699d3c1eb', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'prior': {'accession': '0001104659-25-070485', 'filed': '2025-07-25', 'report': '2025-07-25', 'year': 2025, 'end': '2025-06-30', 'form': '6-K', 'cover': 'tm2521516d1_6k.htm', 'filename': 'tm2521516d1_ex99-2.htm', 'sha256': 'df76b849c9b76ad1eda631efb47a9d2d9d8aa54bb615789cfc098d37206dca9d', 'cover_sha256': 'aa7d096f54849eea5fca23089ebfca64a00f6f5f5f5dddd20b22bad5c9d24a43', 'document_sha256': '180f2da59e7e76bc060e2958035a2179f633de04ac735a6d54be355024711c66', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'annual': {'accession': '0001104659-26-020058', 'filed': '2026-02-26', 'report': '2025-12-31', 'year': 2025, 'end': '2025-12-31', 'form': '20-F', 'cover': 'sap-20251231x20f.htm', 'filename': 'sap-20251231x20f.htm', 'sha256': '4628dc2d12f68bfbbe7c07a2099a6916db30d9547b8f3d1424b451272790fc15', 'document_sha256': '17081192f81698cf7076e1cf8a6cb02073c110e9382fbeb60af8b4c40151b767', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}}
 TAGS = {'revenue':('Revenue',), 'gross_profit':('GrossProfit',),
     'operating_income':('ProfitLossFromOperatingActivities',),
     'net_income':('ProfitLossAttributableToOwnersOfParent',),
@@ -80,9 +81,10 @@ def _reconciles(total, *components):
 def parse(raw, *, source_key):
     source=SOURCES[source_key]
     if not isinstance(raw,bytes) or not raw or len(raw)>MAX_BYTES:raise SapFinancialError('sap_document_size')
-    digest=hashlib.sha256(raw).hexdigest()
-    if digest!=source['sha256']:raise SapFinancialError('sap_reviewed_original_changed')
-    evidence={'url':url_for(source),'sha256':digest,'accession':source['accession'],'filed':source['filed'],
+    try: receipt = verified_original(raw, source)
+    except ValueError as exc: raise SapFinancialError('sap_reviewed_original_changed') from exc
+    digest = receipt['source_sha256']
+    evidence={**receipt,'url':url_for(source),'sha256':digest,'accession':source['accession'],'filed':source['filed'],
         'cover_url':url_for(source,cover=True),'accounting_basis':'IFRS','currency':'EUR','scale':1_000_000}
     if 'cover_sha256' in source:evidence['cover_sha256']=source['cover_sha256']
     if source_key=='annual':

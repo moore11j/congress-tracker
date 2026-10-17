@@ -6,12 +6,13 @@ import json
 import re
 from zoneinfo import ZoneInfo
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
+from app.services.sec_original_integrity import verified_original
 
-VERSION = 'sec_mga_usd_statements_v2'
+VERSION = 'sec_mga_usd_statements_v3'
 CIK = '0000749098'
 END = date(2026, 6, 30)
 MAX_BYTES = 4_000_000
-SOURCES = {'current': {'accession': '0001104659-26-088923', 'filed': '2026-07-31', 'end': '2026-06-30', 'report': '2026-06-30', 'year': 2026, 'cover': 'tm2618646d1_6k.htm', 'filename': 'tm2618646d1_ex99-2.htm', 'form': '6-K', 'sha256': '6fe6b3979c762cff19a0e1a5a5258fb36e064400040d624713b39fc00a8d85ab', 'cover_sha256': '9bbf3f5f7a65c08dc8f5a39c4a9c862a655bb369cb3cdfd3b8294683da74213b'}, 'prior': {'accession': '0001104659-25-072844', 'filed': '2025-08-01', 'end': '2025-06-30', 'report': '2025-08-01', 'year': 2025, 'cover': 'tm2519795d1_6k.htm', 'filename': 'tm2519795d1_ex99-2.htm', 'form': '6-K', 'sha256': 'c56fdd9b85ecdcb2902837577e2ac9d400307aa25505b2f42970316e3c6a42d8', 'cover_sha256': '126105640351ffb3c3484fc0c4752d39790b2d460cb83f99b25f252f834f8e5f'}, 'annual': {'accession': '0001193125-26-128771', 'filed': '2026-03-27', 'end': '2025-12-31', 'report': '2025-12-31', 'year': 2025, 'cover': 'd20215d40f.htm', 'filename': 'd20215dex993.htm', 'form': '40-F', 'sha256': 'e15ff384e3db06c25fc0c5897143e06c2397d5dd12d7b214375aa94e585cebe0', 'cover_sha256': 'c15b6db1d6b1e331481e629012d091f7344d7a7bbf93fd3ed7c3e88f67464930'}}
+SOURCES = {'current': {'accession': '0001104659-26-088923', 'filed': '2026-07-31', 'end': '2026-06-30', 'report': '2026-06-30', 'year': 2026, 'cover': 'tm2618646d1_6k.htm', 'filename': 'tm2618646d1_ex99-2.htm', 'form': '6-K', 'sha256': '6fe6b3979c762cff19a0e1a5a5258fb36e064400040d624713b39fc00a8d85ab', 'cover_sha256': '9bbf3f5f7a65c08dc8f5a39c4a9c862a655bb369cb3cdfd3b8294683da74213b', 'document_sha256': '98391704f07eb7b18fe9b92f77de29e003564f17675112a8e9e5e27675fb0c24', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'prior': {'accession': '0001104659-25-072844', 'filed': '2025-08-01', 'end': '2025-06-30', 'report': '2025-08-01', 'year': 2025, 'cover': 'tm2519795d1_6k.htm', 'filename': 'tm2519795d1_ex99-2.htm', 'form': '6-K', 'sha256': 'c56fdd9b85ecdcb2902837577e2ac9d400307aa25505b2f42970316e3c6a42d8', 'cover_sha256': '126105640351ffb3c3484fc0c4752d39790b2d460cb83f99b25f252f834f8e5f', 'document_sha256': '8f1b8d8e25e5bb258a05b06dd2949b6035ac7841548edec9c7bd5b73a49c753e', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'annual': {'accession': '0001193125-26-128771', 'filed': '2026-03-27', 'end': '2025-12-31', 'report': '2025-12-31', 'year': 2025, 'cover': 'd20215d40f.htm', 'filename': 'd20215dex993.htm', 'form': '40-F', 'sha256': 'e15ff384e3db06c25fc0c5897143e06c2397d5dd12d7b214375aa94e585cebe0', 'cover_sha256': 'c15b6db1d6b1e331481e629012d091f7344d7a7bbf93fd3ed7c3e88f67464930', 'document_sha256': '15c645d748151dcfb61c910e8c8322a2f867d06340de78c91f4c0b4e26b40e3b', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}}
 # Reviewed same-day companion: financial review, webcast slides and transcript.
 # It is not substituted for the audited/interim statement bundle.
 COMPANION = ('0001104659-26-089231', '6-K', '2026-07-31', '2026-07-31', 'tm2618646d2_6k.htm')
@@ -101,9 +102,9 @@ def parse(raw, *, source_key):
     source = SOURCES[source_key]
     if not isinstance(raw, bytes) or not raw or len(raw) > MAX_BYTES:
         raise MgaFinancialError('mga_document_size')
-    digest = hashlib.sha256(raw).hexdigest()
-    if digest != source['sha256']:
-        raise MgaFinancialError('mga_reviewed_original_changed')
+    try: receipt = verified_original(raw, source)
+    except ValueError as exc: raise MgaFinancialError('mga_reviewed_original_changed') from exc
+    digest = receipt['source_sha256']
     from lxml import html
     try:
         tree = html.fromstring(raw)
@@ -193,7 +194,7 @@ def parse(raw, *, source_key):
                 'source_kind':'reviewed_sec_html_table','label':label}
     facts = {k:[fact(v,*periods[i],(INCOME|CASH)[k]) for i,v in enumerate(values)] for k,values in extracted.items()}
     facts.update({k:[fact(v,None,instants[i],k) for i,v in enumerate(values)] for k,values in balances.items()})
-    return {'facts':facts,'evidence':{'url':url_for(source),'sha256':digest,'accession':source['accession'],
+    return {'facts':facts,'evidence':{**receipt,'url':url_for(source),'sha256':digest,'accession':source['accession'],
         'filed':source['filed'],'cover_url':url_for(source,cover=True),'cover_sha256':source['cover_sha256'],
         'accounting_basis':'US GAAP','currency':'USD','scale':1_000_000}}
 

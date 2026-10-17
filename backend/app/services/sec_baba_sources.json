@@ -8,7 +8,9 @@
       "primaryDocument": "tm2623667d1_6k.htm",
       "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926099220/tm2623667d1_6k.htm",
       "file": "0001104659-26-099220-tm2623667d1_6k.htm",
-      "sha256": "5366b80d460025a719382e17d6030a96696efc63f8f6fa19d7b4e2f62e2f3f0e"
+      "sha256": "5366b80d460025a719382e17d6030a96696efc63f8f6fa19d7b4e2f62e2f3f0e",
+      "document_sha256": "77a1bb677a9b0bd22f197a995f38e40d0276158941e5c7315522546d631df4dd",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     },
     "current": {
       "form": "6-K",
@@ -20,7 +22,9 @@
       "file": "0001104659-26-099220-tm2623667d1_ex99-1.htm",
       "sha256": "f066fab87e9246a3305b1559d58954f0212a196934c293f63ebeb350ecf28fbd",
       "filename": "tm2623667d1_ex99-1.htm",
-      "year": 2026
+      "year": 2026,
+      "document_sha256": "750ad5a5736ead00ebca03d1c055b10a649c5c6fe77d591663f20c13bbc6fe07",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     },
     "prior_cover": {
       "form": "6-K",
@@ -30,7 +34,9 @@
       "primaryDocument": "tm2524743d1_6k.htm",
       "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465925085638/tm2524743d1_6k.htm",
       "file": "0001104659-25-085638-tm2524743d1_6k.htm",
-      "sha256": "a4e81c042addd735e141e410441afb3a498e1c2e4830b620a529007cba29d84c"
+      "sha256": "a4e81c042addd735e141e410441afb3a498e1c2e4830b620a529007cba29d84c",
+      "document_sha256": "3a12c2c70067c466c28a613c6419ff4998f5d8936dd7ba48d884dca60f3614b0",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     },
     "prior": {
       "form": "6-K",
@@ -42,7 +48,9 @@
       "file": "0001104659-25-085638-tm2524743d1_ex99-1.htm",
       "sha256": "12118c96d09e31633602e930d8440cd42e31da37b8b091b025d0547d1ef18e16",
       "filename": "tm2524743d1_ex99-1.htm",
-      "year": 2025
+      "year": 2025,
+      "document_sha256": "554a1b84a3991d283ffba0ae987bcbc74e705c4ae1f55e4157e2d61156090804",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     },
     "annual": {
       "form": "20-F",
@@ -52,7 +60,9 @@
       "primaryDocument": "baba-20260331.htm",
       "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526231755/baba-20260331.htm",
       "file": "0001193125-26-231755-baba-20260331.htm",
-      "sha256": "8f0a001092d1b21aa6ad6b2ee0e840df547e65802637e84a8e9bc00be21ca4dd"
+      "sha256": "8f0a001092d1b21aa6ad6b2ee0e840df547e65802637e84a8e9bc00be21ca4dd",
+      "document_sha256": "14ace8c6bb2699b570e3fba0afc0749080daa5ae88574308b73defdea7a2a74f",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     }
   },
   "reviewed_later": [

@@ -40,3 +40,8 @@ The preceding percentage-only turn was no migration progress. This turn adds a c
 [PR704](https://github.com/moore11j/congress-tracker/pull/704), tested head `3ecd3a0b7f4d5b4a4ae7f29976b6395cef36c9e1`, merged as `9bf64c51a955512a21cc4810c826f3576f3fcdb9` at 02:26:06 UTC. Backend dependency audit116778408982, frontend audit116778408704 and secret scan116778408988 pass in workflow38840237599; Vercel preview succeeds. Fetched merged application/test content exactly matches the tested head. Native PR attachment hit the existing100-item limit; the ordinary link remains usable.
 
 Final aggregate guard receipt release-blocker-1792117589.json has one continuing protected portfolio cycle at984/1135, zero failed scopes and three queued jobs. A prior983scope observation confirmed a live PID; the final observation does not. This is observed checkpoint advancement, not terminal completion. PR694-704 backend deployment remains deferred without retry/bypass. The other nineteen controls and the full NVO consumer replay are local isolated evidence, not production cutover acceptance. Installed eleven-hash/four-original verification and ordinary source preparation remain next after safe release. Public core staysFMP; no subscription or activation change.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.

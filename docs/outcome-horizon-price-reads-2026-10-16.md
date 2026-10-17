@@ -35,3 +35,8 @@ Financial/institutional/transcript coverage, all alert/ranking consumers, sustai
 ## Merge verified October16
 
 PR696 merged7914518f0b1bfd8623943a96a9b0fbb115a76bdc at00:22:06UTC, testedhead dddc732ed36627707a7ac64af18207e7d565054d. Production rollout remains deferred behind the protected portfolio cycle; no installed or ordinary savings claim.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.

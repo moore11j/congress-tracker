@@ -46,3 +46,8 @@ A final portability check found the fixture manifest hashed the working file's W
 [PR703](https://github.com/moore11j/congress-tracker/pull/703), tested `65f17a14a978b0310da2e0c80d4a699fa996a23d`, merged `5158db650317856a46d1cad1c0cc65b1e793d26e` at02:01:02UTC. All checks in38838023629 and Vercel preview succeed. The additional Linux checksum test passes, for206 distinct checks across the IPO work. Fetched merged application/test/provenance content exactly matches the tested revision. Original public rows and provider hashes remain unchanged; the fixture digest is explicitly UTF-8/LF.
 
 Final guard `release-blocker-1792116074.json` has one continuing protected cycle at765/1135, zero failures and two pending jobs. No live portfolio PID was confirmed at this instant, and no terminal completion is inferred. Backend remains18de6ae1 in the latest deployed receipt; PR694–703 await safe guarded rollout. No retry or bypass. The seven-hash IPO verifier is a local rehearsal only; actual preparation, selected ordinary operation and wider cutover gates remain open. All new local test/probe handles are terminal. Previous goal turn was status-only/no progress; this continuation provides source evidence, tested implementation and reviewed merges, and the goal remains active.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.

@@ -1,3 +1,9 @@
+October17,01:02UTC: [Nine-issuer SEC delivery repair](sec-delivery-script-integrity-2026-10-17.md) now locally covers28complete originals with742distinct Linuxchecks, seven cache/score/alert replays and nine runtime-verifier rehearsals. Review/release/ordinary recovery pending; FMP retirement remains incomplete.
+
+October17,00:50UTC: [SEC delivery-source recovery](sec-delivery-script-integrity-2026-10-17.md) is the next financial gate. Nine pinned issuers are held;28live originals verify unchanged financial bytes with rotated delivery scripts. BABA/NVO local repair passes268checks and source consumers; seven-adapter expansion and deployment remain pending. IPO33/0monthly caches prepared but unselected; FMP retirement incomplete.
+
+October17,00:33UTC: [Guarded migration release](migration-release-verification-2026-10-17.md) deploysPR694-705/f4f9ff0f with eleven installed proofs. OrdinaryShellfourmetric equality passes; NVO/BABA scheduled refresh remains pending. Terminalfailedportfolio and sustained capacity remain reliability gates; coreFMP/institutionsoff/IPOandpaid preparationoff/finalMassive and full retirement remain incomplete.
+
 October16: [BABA financial preparation](baba-sec-financials-2026-10-16.md) locally adds seven native CNY GAAP ratios with276Linuxchecks and full-original consumers. Cash/valuation/history gaps remain; review/release/ordinary operation pending. Core staysFMP and retirement incomplete.
 
 October16,02:26UTC: [NVO PR704](nvo-sec-financials-2026-10-16.md#reviewed-merge-and-pending-backend-release) merged9bf64c51/allCI/exacttestedparity. Nine ratios/275checks/full-original consumers verified locally; backend and ordinary acquisition await safe release. Core remainsFMP; full retirement incomplete.
