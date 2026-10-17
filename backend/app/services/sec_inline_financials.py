@@ -449,10 +449,32 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
         raise InlineFactsError('company_identity')
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
     from app.services.sec_reporting_policy import forms_for, periodic_document
-    from app.services.sec_tagged_foreign import acquire as acquire_standard_foreign
-    standard_foreign = acquire_standard_foreign(payload, company, symbol=symbol, cik=cik, available_by=available, client=client, company_raw=company_raw)
+    from app.services.sec_tagged_foreign import acquire as acquire_standard_foreign, TaggedCurrencyError
+    # Both foreign readers share the same bounded originals. A native-currency
+    # retry must not fetch every cover and exhibit again.
+    originals = {}
+    class RetainedClient:
+        def get(self, url):
+            if url not in originals:
+                if len(originals) >= 6:
+                    raise InlineFactsError('foreign_acquisition_source_bound')
+                originals[url] = client.get(url)
+            return originals[url]
+    retained = RetainedClient()
+    currency_hold = None
+    try:
+        standard_foreign = acquire_standard_foreign(payload, company, symbol=symbol, cik=cik, available_by=available, client=retained, company_raw=company_raw)
+    except TaggedCurrencyError as exc:
+        standard_foreign = None
+        currency_hold = exc
     if standard_foreign is not None:
         return standard_foreign
+    from app.services import sec_statement_currency as native
+    native_statement = native.acquire(payload,company_raw,symbol=symbol,cik=cik,available_by=available,client=retained)
+    if native_statement is not None:
+        return native_statement
+    if currency_hold is not None:
+        raise currency_hold
     forms = forms_for(symbol, cik)
     from app.services.sec_currency_ratios import basis as currency_basis
     native_basis = currency_basis(symbol, cik)

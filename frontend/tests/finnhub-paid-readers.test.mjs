@@ -7,6 +7,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as financialCurrency from "../lib/financialCurrency.mjs";
+import * as financialPeriods from "../lib/financialPeriods.mjs";
 
 // Render the actual panels. Stub only navigation/network integrations that are
 // outside this source-label/access contract; hooks use the real React server renderer.
@@ -28,6 +29,7 @@ function load(relative) {
     };
     if (id === "@/lib/api") return { getTickerAnalystConsensusEvents: () => { throw new Error("Unexpected network request"); } };
     if (id === "@/lib/financialCurrency.mjs") return financialCurrency;
+    if (id === "@/lib/financialPeriods.mjs") return financialPeriods;
     if (id === "@/lib/format") return load("lib/format.ts");
     if (id === "@/lib/styles") return load("lib/styles.ts");
     if (id === "@/components/ui/LoadingSkeleton") return load("components/ui/LoadingSkeleton.tsx");
@@ -76,4 +78,31 @@ test("financial panel labels proprietary averages and renders zero EPS forecast"
   assert.match(html, /Q1 FY 2027/);
   assert.match(html, /Forecast/);
   assert.doesNotMatch(html, /Analyst estimates are not available for this ticker/);
+});
+
+
+test("native half-year statements render with their currency and actual period", () => {
+  const html = render(FinancialPanel, {
+    status: "partial", annual: [], quarterly: [], earnings: [], summary: {}, reportingCurrency: "CNY",
+    semiannual: [
+      { period: "Half-year ended 2025-06-30", date: "2025-06-30", periodStart: "2025-01-01", revenue: 1000000, netIncome: -100000 },
+      { period: "Half-year ended 2026-06-30", date: "2026-06-30", periodStart: "2026-01-01", revenue: 1100000, netIncome: -50000 },
+    ],
+  });
+  assert.match(html, /Half-year/);
+  assert.match(html, /CNY/);
+  assert.match(html, /Revenue Trend chart/);
+  assert.doesNotMatch(html, /Quarterly|Forecast|Financial data is temporarily unavailable/);
+});
+
+test("annual history remains the default when half-year history is also present", () => {
+  const html = render(FinancialPanel, {
+    status: "partial", annual: [{period:"Year ended 2025-12-31",date:"2025-12-31",revenue:2000000}],
+    quarterly: [], earnings: [], summary: {}, reportingCurrency:"EUR",
+    semiannual: [{period:"Half-year ended 2026-06-30",date:"2026-06-30",periodStart:"2026-01-01",revenue:1000000}],
+  });
+  assert.match(html, /Annual/);
+  assert.match(html, /Half-year/);
+  assert.match(html, /Year ended &#x27;25-12-31/);
+  assert.doesNotMatch(html, /Half-year ended 2026-06-30/);
 });

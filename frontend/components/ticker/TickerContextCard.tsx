@@ -322,7 +322,7 @@ function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsR
     : Object.entries(sections)
         .filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value && typeof value === "object" && Object.keys(value).length > 0))
         .map(([key]) => key);
-  const incomeSection = sections.income && typeof sections.income === "object" ? (sections.income as { annual?: unknown; quarterly?: unknown }) : null;
+  const incomeSection = sections.income && typeof sections.income === "object" ? (sections.income as { annual?: unknown; quarterly?: unknown; semiannual?: unknown }) : null;
   const earningsSection = Array.isArray(sections.earnings) ? sections.earnings : null;
   const estimatesSection = sections.analyst_estimates && typeof sections.analyst_estimates === "object" ? (sections.analyst_estimates as TickerFinancialsResponse["forecasts"]) : null;
   const valuationSection = sections.valuation && typeof sections.valuation === "object" ? (sections.valuation as TickerValuationSection) : null;
@@ -368,6 +368,7 @@ function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsR
     valuation_metrics: valuationMetrics,
     annual: Array.isArray(response.annual) ? response.annual : Array.isArray(incomeSection?.annual) ? (incomeSection.annual as TickerFinancialsResponse["annual"]) : [],
     quarterly: Array.isArray(response.quarterly) ? response.quarterly : Array.isArray(incomeSection?.quarterly) ? (incomeSection.quarterly as TickerFinancialsResponse["quarterly"]) : [],
+    semiannual: Array.isArray(response.semiannual) ? response.semiannual : Array.isArray(incomeSection?.semiannual) ? (incomeSection.semiannual as TickerFinancialsResponse["annual"]) : [],
     earnings: Array.isArray(response.earnings) ? response.earnings : (earningsSection as TickerFinancialsResponse["earnings"] | null) ?? [],
     forecasts: response.forecasts && typeof response.forecasts === "object" ? response.forecasts : estimatesSection ?? { nextQuarter: null, nextFiscalYear: null },
     message: status === "loading" ? FINANCIALS_LOADING_MESSAGE : response.message,

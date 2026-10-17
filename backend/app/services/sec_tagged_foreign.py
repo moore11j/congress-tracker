@@ -31,10 +31,17 @@ def _day(value):
     except (ValueError,TypeError):return None
 
 
-def plan(payload, company, *, symbol, cik, available_by):
+def plan(payload, company, *, symbol, cik, available_by, statement_basis=None):
     from app.services.sec_reporting_policy import reviewed
     from app.services.sec_currency_ratios import basis
-    if reviewed(symbol,cik) or basis(symbol,cik):return None
+    if statement_basis is None and (reviewed(symbol,cik) or basis(symbol,cik)):return None
+    namespace = statement_basis['namespace'] if statement_basis else 'us-gaap'
+    currency = statement_basis['currency'] if statement_basis else 'USD'
+    balance_tags, duration_tags = BALANCE, DURATION
+    if statement_basis:
+        from app.services.sec_statement_currency import INSTANT_METRICS
+        balance_tags = {t for k,ts in statement_basis['tags'].items() if k in INSTANT_METRICS for t in ts}
+        duration_tags = {t for k,ts in statement_basis['tags'].items() if k not in INSTANT_METRICS for t in ts}
     from app.utils.symbols import canonical_symbol
     cik=str(cik).zfill(10)
     if (not company.get('name') or not cik.isdigit() or len(cik)!=10 or any(str(x.get('cik','')).zfill(10)!=cik for x in (payload,company))
@@ -46,8 +53,8 @@ def plan(payload, company, *, symbol, cik, available_by):
     arrays=[recent.get(k,[]) for k in keys]
     if len({len(a) for a in arrays})!=1:raise TaggedForeignError('tagged_foreign_directory_shape')
     groups={}
-    for tag in BALANCE|DURATION:
-        for point in payload.get('facts',{}).get('us-gaap',{}).get(tag,{}).get('units',{}).get('USD',[]):
+    for tag in balance_tags|duration_tags:
+        for point in payload.get('facts',{}).get(namespace,{}).get(tag,{}).get('units',{}).get(currency,[]):
             value=point.get('val');end,filed=_day(point.get('end')),_day(point.get('filed'))
             if (point.get('form') not in FORMS or isinstance(value,bool) or not isinstance(value,(int,float))
                     or not math.isfinite(value) or not end or not filed or not end<=filed<=available_by):continue
@@ -60,8 +67,8 @@ def plan(payload, company, *, symbol, cik, available_by):
         if (not isinstance(acc,str) or not re.fullmatch(r'[0-9]{10}-[0-9]{2}-[0-9]{6}',acc)
                 or not isinstance(filename,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.html?',filename)):continue
         rows=[(tag,p) for tag,p in groups.get(acc,[]) if p.get('form')==form and p.get('filed')==filed and p.get('end')==report]
-        balance={tag for tag,p in rows if tag in BALANCE and not p.get('start')}
-        duration={tag for tag,p in rows if tag in DURATION and _day(p.get('start'))
+        balance={tag for tag,p in rows if tag in balance_tags and not p.get('start')}
+        duration={tag for tag,p in rows if tag in duration_tags and _day(p.get('start'))
             and 60<=(end-_day(p['start'])).days+1<=380}
         if not balance or not duration:continue
         item={'accession':acc,'form':form,'filed':filed,'report_date':report,
@@ -85,9 +92,9 @@ def plan(payload, company, *, symbol, cik, available_by):
     if any(p['end']>=current['report_date'] and p['filed']>=current['filed']
            for acc,rows in groups.items() if acc not in candidates for _,p in rows):
         raise TaggedForeignError('tagged_foreign_newer_unqualified_facts')
-    return {'methodology':VERSION,'currency_policy':CURRENCY_POLICY,'cik':cik,'namespace':'us-gaap','currency':'USD',
+    return {'methodology':VERSION,'currency_policy':(statement_basis['policy'] if statement_basis else CURRENCY_POLICY),'cik':cik,'namespace':namespace,'currency':currency,
         'current':current,'filings':sorted(candidates.values(),key=lambda x:(x['report_date'],x['filed'],x['accession'])),
-        'limitations':['Standard entity-wide USD GAAP facts only; no foreign exchange or ADS/per-share inference.',
+        'limitations':[(f'Standard entity-wide {currency} {namespace} facts with explicit statement-currency evidence; no foreign exchange or ADS/per-share inference.' if statement_basis else 'Standard entity-wide USD GAAP facts only; no foreign exchange or ADS/per-share inference.'),
             'A current tagged statement is required; event-only 6-Ks do not establish financial reporting periods.']}
 
 
@@ -106,6 +113,9 @@ def cached_currency_valid(evidence):
     proof = evidence.get('inline_filing_supplement') or {}
     if not isinstance(proof, dict):
         return False
+    if 'native_reporting' in proof:
+        from app.services.sec_statement_currency import cached_currency_valid as native_valid
+        return native_valid(evidence)
     if 'standard_foreign_reporting' not in proof:
         return True
     selection = proof['standard_foreign_reporting']

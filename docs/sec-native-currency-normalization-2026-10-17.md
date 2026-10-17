@@ -38,3 +38,22 @@ Connect the shared native records to historical/current financial normalization 
 
 
 Final retained-cohort replay after field-name alignment preserves the same three sources and 89 normalized points, with exact repeats and zero network/production writes. CPU 26.203 seconds is offline replay cost, not a production capacity estimate. The 04:31 aggregate scheduler read (`active-work-1792211507.json`) has zero active/pending scheduler jobs; it does not mean the separate enrichment queue is empty. The unrelated frontend buildinfo SHA256 remains A185B71626210F3E1B07F4EFC977408ADC8F7FB3103CAC7E726F2D5F95CC6DEA.
+
+
+## Shared financial integration, local candidate
+
+The source evidence layer is now connected to the existing acquisition, period calculation, separate preparation caches and public historical reader. Selection is based on the matched filing, explicit reporting currency and actual numeric taxonomy, without a ticker eligibility list. Standard USD GAAP and native readers share a six-original acquisition bound and reuse fetched cover/exhibit bytes. Parent income/equity stay separate from consolidated values. Native amounts are labelled, and non-USD cash does not enter canonical USD fields. Foreign forecasts remain withheld until accounting and listed-share basis can be verified, including USD IFRS reports.
+
+The complete 49-source retained replay now recovers nine sources and 60 current metrics. Six existing sources and all 42 prior metrics remain exactly unchanged. The three additions are ADSE (one EUR ratio), ALC (ten USD IFRS metrics), and NAMI (seven CNY ratios). This is offline source coverage, not three new live product completions or whole-universe coverage. Receipt: `artifacts/document-set-cohort-oct17/replay-native-integrated.json`; zero network or production writes, 34.844 local CPU seconds.
+
+ADSE exposes six annual and eight half-year rows; ALC six annual and nine quarterly rows; NAMI four annual and five half-year rows. Half-year periods are labelled separately in the backend and chart controls, never represented as quarters. Comparable prior-year half-years require matching duration and dates, not adjacent-row position. Existing annual history remains the default. Public response normalization preserves these rows and the native currency; the new frontend response field is additive.
+
+ADSE still lacks comparable current TTM revenue and therefore only admits its independently supported current ratio. Its reported half-year statements remain available. NAMI's current/prior-year capex combination produces an invalid negative TTM purchase amount, so TTM free cash flow and its margin stay withheld; reported half-year amounts remain available. EPS, ADS conversion and unsupported leverage are not inferred. These semantic holds are not formatting problems and are not claimed resolved.
+
+### Cache and operational acceptance
+
+No broad preparation version bump or mass cache invalidation is required. Existing truthful unavailable results remain cached until the ordinary 24-hour TTL (or an already configured shorter priority refresh). Normal preparation then replaces them with qualified native values. The current batch bounds, schedule and machines are unchanged. Native statement-proof failures now produce the existing explicit currency-verification hold in both caches, so repeats do not repeatedly fetch or crash. Transport failures retain their existing handling.
+
+The initial expanded Windows native/guard suite passed 40 cases, the frontend passed 13 executed checks, and TypeScript no-emit validation passed with the unrelated buildinfo hash preserved. Additional ordinary-TTL, public normalization and native proof-failure cases and the broader Linux regressions are running at this checkpoint; their final counts are not yet claimed. Local score/watchlist cases cover recovery rebaseline, genuine subsequent crossing, duplicate suppression and rollback without emails or new events. These cases do not replace live monitoring/daily/weekly/ranking acceptance.
+
+This integration is uncommitted and not deployed at this checkpoint. Production remains a5976245, core financials remain selected from FMP, and institutional publication remains disabled. The broader source, consumer, capacity, Massive, zero-egress and billing gates remain open.
