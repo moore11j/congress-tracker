@@ -1,0 +1,312 @@
+{
+  "EDU-0001193125-26-397192.htm": {
+    "form": "20-F",
+    "filed": "2026-09-22",
+    "end": "2026-05-31",
+    "accession": "0001193125-26-397192",
+    "url": "https://www.sec.gov/Archives/edgar/data/1372920/000119312526397192/d157159d20f.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "Revenues"
+    ],
+    "cik": "0001372920",
+    "sha256": "eb73325d75cdb3d3e6119a1f5e9fc0e9f2ce5e6ddd2a733ccdfce6803d68f3ed",
+    "bytes": 4054223
+  },
+  "ESEA-0001171843-26-006556.htm": {
+    "form": "6-K",
+    "filed": "2026-10-09",
+    "end": "2026-06-30",
+    "accession": "0001171843-26-006556",
+    "url": "https://www.sec.gov/Archives/edgar/data/1341170/000117184326006556/esea20260610_6k.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "Revenues"
+    ],
+    "cik": "0001341170",
+    "sha256": "7e67f8faeb457a576b7aac1d4415bd98d4600bb291993ced6e27feecc19dcac0",
+    "bytes": 888803
+  },
+  "ESEA-0001171843-26-002807.htm": {
+    "form": "20-F",
+    "filed": "2026-04-29",
+    "end": "2025-12-31",
+    "accession": "0001171843-26-002807",
+    "url": "https://www.sec.gov/Archives/edgar/data/1341170/000117184326002807/esea20251231_20f.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "Revenues"
+    ],
+    "cik": "0001341170",
+    "sha256": "43a6cace5dfe52cd17f0a10c5d73938d40b74640901ac87d9e6858927230221f",
+    "bytes": 2603298
+  },
+  "FLNG-0001628280-26-057822.htm": {
+    "form": "6-K",
+    "filed": "2026-08-19",
+    "end": "2026-06-30",
+    "accession": "0001628280-26-057822",
+    "url": "https://www.sec.gov/Archives/edgar/data/1772253/000162828026057822/flng-20260630.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "RevenueFromContractWithCustomerExcludingAssessedTax"
+    ],
+    "cik": "0001772253",
+    "sha256": "1a0699dc909a69590ba361e1ef40c822e6fe9d1fd25472205954dd216a3d2548",
+    "bytes": 781989
+  },
+  "FLNG-0001628280-26-012574.htm": {
+    "form": "20-F",
+    "filed": "2026-02-27",
+    "end": "2025-12-31",
+    "accession": "0001628280-26-012574",
+    "url": "https://www.sec.gov/Archives/edgar/data/1772253/000162828026012574/flng-20251231.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "RevenueFromContractWithCustomerExcludingAssessedTax"
+    ],
+    "cik": "0001772253",
+    "sha256": "c7117efa36e65e86359223d358c6dd5762ac2338a6923f518a7de6f4cc687032",
+    "bytes": 1896763
+  },
+  "ICLR-0001628280-26-050844.htm": {
+    "form": "6-K",
+    "filed": "2026-07-30",
+    "end": "2026-06-30",
+    "accession": "0001628280-26-050844",
+    "url": "https://www.sec.gov/Archives/edgar/data/1060955/000162828026050844/iclr-20260630.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "RevenueFromContractWithCustomerExcludingAssessedTax"
+    ],
+    "cik": "0001060955",
+    "sha256": "952e9b996f7a5b7cd16ce4560c37855b4dfe2afee667a8ad7a9f6ce7e781463c",
+    "bytes": 1276163
+  },
+  "ICLR-0001628280-26-038487.htm": {
+    "form": "20-F",
+    "filed": "2026-05-27",
+    "end": "2025-12-31",
+    "accession": "0001628280-26-038487",
+    "url": "https://www.sec.gov/Archives/edgar/data/1060955/000162828026038487/iclr-20251231.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "RevenueFromContractWithCustomerExcludingAssessedTax"
+    ],
+    "cik": "0001060955",
+    "sha256": "976803a059f60dbbdc9efe4cf96b15b4f194ba9a76f16372502e71d157daa9bb",
+    "bytes": 3738451
+  },
+  "NMM-0001193125-26-371239.htm": {
+    "form": "6-K",
+    "filed": "2026-08-27",
+    "end": "2026-06-30",
+    "accession": "0001193125-26-371239",
+    "url": "https://www.sec.gov/Archives/edgar/data/1415921/000119312526371239/nmm-20260630.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "Revenues"
+    ],
+    "cik": "0001415921",
+    "sha256": "7ddb283d216f720dd01a585db4f9d80ae6e518b52d36410c2ec96826028333a5",
+    "bytes": 3460319
+  },
+  "NMM-0001193125-26-104182.htm": {
+    "form": "20-F",
+    "filed": "2026-03-12",
+    "end": "2025-12-31",
+    "accession": "0001193125-26-104182",
+    "url": "https://www.sec.gov/Archives/edgar/data/1415921/000119312526104182/nmm-20251231.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "Revenues"
+    ],
+    "cik": "0001415921",
+    "sha256": "c22c9a33ef661c4e6ea2dd16d51dc586a5417c2f6eb7c5e4ac50c4ec4b1d2d1b",
+    "bytes": 7588659
+  },
+  "SBLK-0000950157-26-000860.htm": {
+    "form": "6-K",
+    "filed": "2026-08-07",
+    "end": "2026-06-30",
+    "accession": "0000950157-26-000860",
+    "url": "https://www.sec.gov/Archives/edgar/data/1386716/000095015726000860/sblk-20260630.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "Revenues"
+    ],
+    "cik": "0001386716",
+    "sha256": "867a14d06247cc3cc3e81bbff20537fa9e62feec119eef92c423f57503dbe004",
+    "bytes": 1008469
+  },
+  "SBLK-0000950157-26-000397.htm": {
+    "form": "20-F",
+    "filed": "2026-03-19",
+    "end": "2025-12-31",
+    "accession": "0000950157-26-000397",
+    "url": "https://www.sec.gov/Archives/edgar/data/1386716/000095015726000397/sblk-20251231.htm",
+    "balance_tags": [
+      "Assets",
+      "AssetsCurrent",
+      "LiabilitiesCurrent",
+      "StockholdersEquity"
+    ],
+    "duration_tags": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetIncomeLoss",
+      "OperatingIncomeLoss",
+      "Revenues"
+    ],
+    "cik": "0001386716",
+    "sha256": "111afd1ee76901a027218c527c42ca02698aa9b836facffa0dff012d46078714",
+    "bytes": 3293659
+  },
+  "EDU-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001372920.json",
+    "sha256": "55d0693624c324a5a87e3f616152d390bc9165455dffafac073baf405218b0dd",
+    "bytes": 72920,
+    "captured_at": "2026-10-17T02:06:46.004449+00:00"
+  },
+  "EDU-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001372920.json",
+    "sha256": "b1552a28f76eae4f54a04a4d65df2ae445ab0b3d6194b7452574b0746d7be2ec",
+    "bytes": 1266311,
+    "captured_at": "2026-10-17T02:06:46.689740+00:00"
+  },
+  "ESEA-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001341170.json",
+    "sha256": "91041e0a1c2734df3d4b07981289a9cd16579692a5be01129bdde10d662a3bbc",
+    "bytes": 110905,
+    "captured_at": "2026-10-17T02:06:51.587084+00:00"
+  },
+  "ESEA-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001341170.json",
+    "sha256": "91b7af5b29999bfd0cb682aca719273c5fc649e4cb10f755bc6b3e214739b2ff",
+    "bytes": 1333467,
+    "captured_at": "2026-10-17T02:06:52.263978+00:00"
+  },
+  "FLNG-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001772253.json",
+    "sha256": "c6e3278efe6d4dafc24218f82a2a1685aef0469abcf1a72647f4db0e96a2bfc0",
+    "bytes": 21128,
+    "captured_at": "2026-10-17T02:06:57.585020+00:00"
+  },
+  "FLNG-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001772253.json",
+    "sha256": "be6cdb023e24c47eb1ae7707a98eaf77f17db9a999a13fa6b0c358e40251dc74",
+    "bytes": 608476,
+    "captured_at": "2026-10-17T02:06:58.240251+00:00"
+  },
+  "ICLR-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001060955.json",
+    "sha256": "b31402e77a6def047e780840c5b1f7753ec90d24ca827857a8c2cad6b6050034",
+    "bytes": 135871,
+    "captured_at": "2026-10-17T02:07:29.608421+00:00"
+  },
+  "ICLR-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001060955.json",
+    "sha256": "8848318bc3c24ff470cd8cce19e1be9e2491595fdd0687365f8289c2eeaca80d",
+    "bytes": 3248318,
+    "captured_at": "2026-10-17T02:07:30.724686+00:00"
+  },
+  "NMM-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001415921.json",
+    "sha256": "11c02ba8c8c262dc21aa7ef6619114a509f7cfc08e7dd735ea75c0911e554207",
+    "bytes": 73331,
+    "captured_at": "2026-10-17T02:08:07.439811+00:00"
+  },
+  "NMM-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001415921.json",
+    "sha256": "6c544e97ccd2af28e58a2d6aa106c0ca6eac88f529779c31fb432f976882af83",
+    "bytes": 1435619,
+    "captured_at": "2026-10-17T02:08:07.883899+00:00"
+  },
+  "SBLK-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001386716.json",
+    "sha256": "0cedee604c749a6e83bac054456df46e46779f1fd2c0a3ed63ec164404d34d3d",
+    "bytes": 118213,
+    "captured_at": "2026-10-17T02:08:53.139453+00:00"
+  },
+  "SBLK-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001386716.json",
+    "sha256": "6ca0f41e63b60e989b55edced100849cb0be5cb07d4cd1d75a1b8b7208c50917",
+    "bytes": 1547918,
+    "captured_at": "2026-10-17T02:08:53.615945+00:00"
+  }
+}

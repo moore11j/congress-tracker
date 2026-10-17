@@ -60,6 +60,9 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     metrics['statement_assets']=(('Assets',),'USD')
     records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,instant_metrics={'statement_assets'},filing_supplement=filing_supplement,company=company)
     eps_records=records.pop('eps')
+    standard_foreign=(filing_supplement or {}).get('evidence',{}).get('standard_foreign_reporting')
+    if standard_foreign:
+        eps_records={}  # Listed ADS versus ordinary-share conversion is unverified.
     asset_records=records.pop('statement_assets')
     from app.services.sec_reporting_policy import reviewed
     reporting_policy = reviewed(symbol, cik)
@@ -119,6 +122,11 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             'Free cash flow subtracts property and equipment purchases only, excluding separately reported intangible purchases and financing payments. '
             'Diluted EPS is reported per ordinary share without an inferred ADS conversion. Analyst estimates remain unavailable.')
         payload['message'] = payload['reportingBasis']
+    if standard_foreign:
+        payload['sourceEvidence']['standardForeignReporting']=standard_foreign
+        payload['reportingCurrency']='USD'
+        payload['reportingBasis']='Reported entity-wide USD US GAAP statements from matched SEC financial filings. Per-share values are unavailable without a verified listed-share basis. Analyst estimates remain unavailable.'
+        payload['message']=payload['reportingBasis']
     from app.services.sec_bank_revenue import basis
     revenue_basis = basis(records)
     if revenue_basis:

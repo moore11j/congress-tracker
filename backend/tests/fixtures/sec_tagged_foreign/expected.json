@@ -1,0 +1,80 @@
+{
+  "EDU": {
+    "metrics": {
+      "current_ratio": 1.4992872173453635,
+      "fcf_growth": 19.179138903909546,
+      "fcf_margin": 13.781495891222043,
+      "free_cash_flow": 780211000.0,
+      "net_margin": 8.393346114863492,
+      "operating_margin": 11.362260995454395,
+      "operating_margin_expansion": 2.622932363638382,
+      "revenue_growth": 15.530434903276586,
+      "roe": 12.42572758334122
+    },
+    "annual": 6,
+    "quarterly": 0
+  },
+  "ESEA": {
+    "metrics": {
+      "current_ratio": 5.457281221284198,
+      "net_margin": 59.97614148086492,
+      "operating_margin": 63.21733019192665,
+      "operating_margin_expansion": 3.8816275808457092,
+      "revenue_growth": 2.5336282059958535,
+      "roe": 29.490167999815263
+    },
+    "annual": 6,
+    "quarterly": 6
+  },
+  "FLNG": {
+    "metrics": {
+      "current_ratio": 2.6854521547886487,
+      "net_margin": 28.498667029153363,
+      "operating_margin": 49.46001503580019,
+      "operating_margin_expansion": -4.650434411559132,
+      "revenue_growth": 1.3028437177696475,
+      "roe": 14.029313658881328
+    },
+    "annual": 6,
+    "quarterly": 0
+  },
+  "ICLR": {
+    "metrics": {
+      "current_ratio": 0.9527227858026033,
+      "fcf_growth": -10.691445126073262,
+      "fcf_margin": 10.655577118922283,
+      "free_cash_flow": 883818000.0,
+      "net_margin": 0.5105120709508576,
+      "operating_margin": 3.574693676481421,
+      "operating_margin_expansion": -9.796817111781408,
+      "revenue_growth": 1.6694699749381527,
+      "roe": 0.4485876201194683
+    },
+    "annual": 6,
+    "quarterly": 12
+  },
+  "NMM": {
+    "metrics": {
+      "current_ratio": 1.5307223526780722,
+      "net_margin": 30.27230837646302,
+      "revenue_growth": 13.380576325682398
+    },
+    "annual": 6,
+    "quarterly": 8
+  },
+  "SBLK": {
+    "metrics": {
+      "current_ratio": 1.9145050215888033,
+      "fcf_growth": 1.5754217225601792,
+      "fcf_margin": 23.86049933292048,
+      "free_cash_flow": 287043000.0,
+      "net_margin": 23.869726227239287,
+      "operating_margin": 27.74202933487392,
+      "operating_margin_expansion": 10.993314858599422,
+      "revenue_growth": 6.342889420650238,
+      "roe": 11.680759110631294
+    },
+    "annual": 6,
+    "quarterly": 0
+  }
+}
