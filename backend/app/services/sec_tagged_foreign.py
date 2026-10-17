@@ -9,6 +9,7 @@ import math
 import re
 
 VERSION = 'sec_tagged_foreign_v1'
+CURRENCY_POLICY = 'single_current_statement_currency_v1'
 FORMS = frozenset({'20-F','20-F/A','40-F','40-F/A','6-K','6-K/A'})
 BALANCE = frozenset({'Assets','StockholdersEquity','AssetsCurrent','LiabilitiesCurrent'})
 DURATION = frozenset({'Revenues','RevenuesNetOfInterestExpense','RegulatedAndUnregulatedOperatingRevenue',
@@ -19,6 +20,10 @@ DURATION = frozenset({'Revenues','RevenuesNetOfInterestExpense','RegulatedAndUnr
 
 class TaggedForeignError(ValueError):
     pass
+
+
+class TaggedCurrencyError(TaggedForeignError):
+    """Verified filing has no reviewed unambiguous USD statement basis."""
 
 
 def _day(value):
@@ -80,10 +85,35 @@ def plan(payload, company, *, symbol, cik, available_by):
     if any(p['end']>=current['report_date'] and p['filed']>=current['filed']
            for acc,rows in groups.items() if acc not in candidates for _,p in rows):
         raise TaggedForeignError('tagged_foreign_newer_unqualified_facts')
-    return {'methodology':VERSION,'cik':cik,'namespace':'us-gaap','currency':'USD',
+    return {'methodology':VERSION,'currency_policy':CURRENCY_POLICY,'cik':cik,'namespace':'us-gaap','currency':'USD',
         'current':current,'filings':sorted(candidates.values(),key=lambda x:(x['report_date'],x['filed'],x['accession'])),
         'limitations':['Standard entity-wide USD GAAP facts only; no foreign exchange or ADS/per-share inference.',
             'A current tagged statement is required; event-only 6-Ks do not establish financial reporting periods.']}
+
+
+def verify_currency(proof):
+    observation = proof.get('currency_observation') if isinstance(proof, dict) else None
+    if (not isinstance(observation, dict)
+            or observation.get('methodology') != 'entity_wide_statement_currencies_v1'
+            or observation.get('current_statement_currencies') != ['USD']):
+        raise TaggedCurrencyError('unreviewed_foreign_statement_currency')
+
+
+def cached_currency_valid(evidence):
+    """Reject old generic admissions without invalidating unrelated readers."""
+    if not isinstance(evidence, dict):
+        return False
+    proof = evidence.get('inline_filing_supplement') or {}
+    if not isinstance(proof, dict):
+        return False
+    if 'standard_foreign_reporting' not in proof:
+        return True
+    selection = proof['standard_foreign_reporting']
+    try:
+        verify_currency(proof)
+        return isinstance(selection, dict) and selection.get('currency_policy') == CURRENCY_POLICY
+    except TaggedForeignError:
+        return False
 
 
 def acquire(payload,company,*,symbol,cik,available_by,client,company_raw=None):
@@ -97,6 +127,7 @@ def acquire(payload,company,*,symbol,cik,available_by,client,company_raw=None):
     current=selection['current'];raw=client.get(current['url'])
     parsed=parse(raw,cik=selection['cik'],accession=current['accession'],filed=current['filed'],
         report_date=current['report_date'],form=current['form'],url=current['url'])
+    verify_currency(parsed['evidence'])
     parsed['evidence']['standard_foreign_reporting']=selection
     return parsed
 
@@ -109,6 +140,7 @@ def authorized(payload,company,*,symbol,cik,available_by,supplement):
         payload=merge(payload,supplement,available_by=available_by)
     selection=plan(payload,company,symbol=symbol,cik=cik,available_by=available_by)
     if selection is None:return None
+    verify_currency(proof)
     current=selection['current']
     expected_url=current['url']
     primary=proof.get('unindexed_primary_discovery')
@@ -182,6 +214,7 @@ def _document_set(payload,company,company_raw,*,symbol,cik,available_by,client):
             if str(exc) in {'filing_namespaces','latest_reported_revenue_unavailable'}:continue
             raise
         if supplement is None:continue
+        verify_currency(supplement['evidence'])
         effective=inline.merge(payload,supplement,available_by=available_by)
         selection=plan(effective,company,symbol=symbol,cik=cik,available_by=available_by)
         if selection is None:continue

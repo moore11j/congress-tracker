@@ -17,6 +17,9 @@ def combine(values, metrics):
     result = deepcopy(values)
     result['provider'] = 'free_direct'
     evidence = json.loads(result['source_evidence_json'])
+    from app.services.sec_tagged_foreign import cached_currency_valid
+    if not cached_currency_valid(evidence):
+        raise ValueError('Unreviewed foreign statement currency')
     from app.services.finnhub_metric_identity import verify_combination
     verify_combination(metrics, evidence)
     evidence['methodology'] = VERSION

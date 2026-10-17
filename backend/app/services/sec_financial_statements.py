@@ -188,6 +188,18 @@ def cached_row_payload(row, symbol, *, now=None):
         return None
     if not isinstance(payload, dict) or payload.get('source') != 'sec_edgar' or payload.get('symbol') != symbol:
         return None
+    from app.services.sec_tagged_foreign import CURRENCY_POLICY, cached_currency_valid
+    evidence = payload.get('sourceEvidence') or {}
+    if not isinstance(evidence, dict):
+        return None
+    generic = evidence.get('standardForeignReporting')
+    proof = evidence.get('inlineFilingSupplement') or {}
+    if 'standardForeignReporting' in evidence:
+        if (not isinstance(generic, dict) or generic.get('currency_policy') != CURRENCY_POLICY
+                or not isinstance(proof, dict) or proof.get('standard_foreign_reporting') != generic):
+            return None
+    if not cached_currency_valid({'inline_filing_supplement': proof}):
+        return None
     from app.services.sec_reporting_policy import PROFILES, VERSION as reporting_version
     if symbol in PROFILES and payload.get('preparationVersion') != reporting_version:
         return None
@@ -277,11 +289,20 @@ def prepared(symbol):
                 history=fetch_history(symbol,cik,client=client,observed_at=now)
                 from app.services.sec_inline_financials import acquire
                 from app.services import sec_foreign_statements as foreign
-                if foreign.profile(symbol,cik):
-                    filing=foreign.acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
-                else:
-                    filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
-                payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
+                from app.services.sec_tagged_foreign import TaggedCurrencyError
+                try:
+                    if foreign.profile(symbol,cik):
+                        filing=foreign.acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
+                    else:
+                        filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
+                    payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
+                except TaggedCurrencyError:
+                    from app.services.ticker_financials import _unavailable
+                    payload = _unavailable(symbol, message='Financial statements require verification of their reporting currency.',
+                                           reason='unreviewed_foreign_statement_currency')
+                    payload.update(source='sec_edgar', updatedAt=now.isoformat(),
+                                   sourceEvidence={'factsUrl': facts_url, 'factsSha256': hashlib.sha256(raw).hexdigest(),
+                                                   'companySha256': hashlib.sha256(company).hexdigest()})
         from app.services.sec_reporting_policy import PROFILES, VERSION as reporting_version
         if symbol in PROFILES:
             payload['preparationVersion'] = reporting_version

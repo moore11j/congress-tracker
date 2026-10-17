@@ -127,6 +127,9 @@ def _cached(symbol, now, max_cache_age=TTL):
                 return None
         except (ValueError, TypeError, KeyError, AttributeError):
             return None
+        from app.services.sec_tagged_foreign import cached_currency_valid
+        if not cached_currency_valid(payload.get('calculation_evidence') or {}):
+            return None
         if symbol in ISSUER_PROFILES and payload.get('issuer_dependency') != _issuer_dependency(db, symbol):
             return None
         if (payload.get('version') == version_for_symbol(symbol) and payload.get('symbol') == symbol
@@ -179,10 +182,13 @@ def prepare(symbol, *, max_cache_age=TTL):
             from app.services.sec_financial_continuity import fetch_history
             history = fetch_history(symbol,cik,client=client,observed_at=now)
             from app.services.sec_inline_financials import acquire
-            filing = acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client,include_debt_precision=True)
+            from app.services.sec_tagged_foreign import TaggedCurrencyError
             try:
+                filing = acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client,include_debt_precision=True)
                 values = sec_fundamentals.project_fundamentals(raw, company,
                     symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
+            except TaggedCurrencyError:
+                payload.update(reason='unreviewed_foreign_statement_currency')
             except sec_fundamentals.SecFundamentalsCoverageError as exc:
                 payload.update(reason='unsupported_current_financial_coverage', detail=str(exc))
             else:
