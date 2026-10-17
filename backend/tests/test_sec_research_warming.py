@@ -192,3 +192,41 @@ def test_demand_is_bounded_excludes_fresh_future_other_jobs_and_keeps_watch_rota
     assert seen[:10]==requests[10:20] and seen[10:]==watches[10:20]
     assert not set(seen)&{'CACHED','FUTURE','FINISHED','OTHER'}
     assert first['canonical_writes']==second['emails']==0
+
+
+@pytest.mark.parametrize('stale_watches', [0, 21])
+def test_fresh_watched_caches_do_not_displace_pending_demand(factory, monkeypatch, stale_watches):
+    from datetime import datetime, timedelta, timezone
+    from app.models import DataEnrichmentJob
+    now = datetime.now(timezone.utc)
+    watches = ['W'+chr(65+i) for i in range(21)]
+    requests = ['R'+chr(65+i) for i in range(13)]
+    monkeypatch.setattr(queue, 'DEFAULT_PREWARM_SYMBOLS', watches)
+    with factory() as db:
+        for i, symbol in enumerate(watches):
+            stamp = now-timedelta(days=2) if i < stale_watches else now
+            payload = {'symbol': symbol, 'source': 'sec_edgar', 'status': 'partial',
+                       'annual': [], 'quarterly': [], 'updatedAt': stamp.isoformat()}
+            db.add(InsightsSnapshot(kind=f'sec-financials:{symbol}:v1', source='sec_edgar',
+                                   fetched_at=stamp, payload_json=json.dumps(payload)))
+        for symbol in requests:
+            db.add(DataEnrichmentJob(symbol=symbol, job_type='ticker_financials', dedupe_key=symbol,
+                                    status='queued', next_run_at=now, priority=45))
+        db.commit()
+    seen = []
+    def prepare(symbol):
+        seen.append(symbol)
+        return {'symbol': symbol, 'source': 'sec_edgar', 'status': 'partial', 'annual': [],
+                'quarterly': [], 'updatedAt': now.isoformat()}
+    monkeypatch.setattr(sec_financial_statements, 'prepared', prepare)
+    result = job.run()
+    assert result['planned_scopes'] == result['completed_scopes'] == 20
+    assert result['requested_cache_misses'] == 13
+    assert seen[:10] == requests[:10]
+    if stale_watches:
+        assert seen[10:] == watches[:10]
+    else:
+        assert seen[:13] == requests
+        assert seen[13:] == watches[:7]
+    assert len(set(seen)) == 20
+    assert result['canonical_writes'] == result['emails'] == 0
