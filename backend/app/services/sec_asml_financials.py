@@ -8,10 +8,11 @@ import math
 import json
 import re
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
+from app.services.sec_original_integrity import verified_original
 
-VERSION = 'sec_asml_eur_ratios_v1'
+VERSION = 'sec_asml_eur_ratios_v2'
 CIK = '0000937966'
-SOURCES = {'2026-06-28': {'url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828026048235/financialstatementsusgaa.htm', 'sha256': 'daa7cbe7b386c29820b61c4293592af55fa2afc97a25a8d5e778cb3fdcece163', 'accession': '0001628280-26-048235', 'filed': '2026-07-15'}, '2025-06-29': {'url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828025034992/financialstatementsusgaa.htm', 'sha256': 'ba04996957cfcbb6f093e7b10e7b4a318db184794e1296aa47460af10b3320f8', 'accession': '0001628280-25-034992', 'filed': '2025-07-16'}, '2026-09-27': {'url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828026065813/financial_statementsxusx.htm', 'sha256': '6a0fa26a4bf3bf07da45bd64a124f34292ef00385f5d97f9b7ba255c017b6148', 'accession': '0001628280-26-065813', 'filed': '2026-10-14'}, '2025-09-28': {'url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828025045043/financialstatementsusgaa.htm', 'sha256': 'c780fba12d84dcb34986da375ec66672137a8b8df38b0ad2426147bbe9db073c', 'accession': '0001628280-25-045043', 'filed': '2025-10-15'}}
+SOURCES = {'2026-06-28': {'url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828026048235/financialstatementsusgaa.htm', 'sha256': 'daa7cbe7b386c29820b61c4293592af55fa2afc97a25a8d5e778cb3fdcece163', 'accession': '0001628280-26-048235', 'filed': '2026-07-15', 'document_sha256': '082cbaf7ece5656692784d5b2824f37f8b973db9cf1d01734d5b36b9fae515de', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, '2025-06-29': {'url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828025034992/financialstatementsusgaa.htm', 'sha256': 'ba04996957cfcbb6f093e7b10e7b4a318db184794e1296aa47460af10b3320f8', 'accession': '0001628280-25-034992', 'filed': '2025-07-16', 'document_sha256': '79e5c301141bab3ddfc862cbd5886c0f1dec9a91650d276b045ba5eb806714ed', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, '2026-09-27': {'url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828026065813/financial_statementsxusx.htm', 'sha256': '6a0fa26a4bf3bf07da45bd64a124f34292ef00385f5d97f9b7ba255c017b6148', 'accession': '0001628280-26-065813', 'filed': '2026-10-14', 'document_sha256': '7b13cd56c67395e2d7273966d605948fafef47b41c52bc6d2fedc29dc35c4bbc', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, '2025-09-28': {'url': 'https://www.sec.gov/Archives/edgar/data/937966/000162828025045043/financialstatementsusgaa.htm', 'sha256': 'c780fba12d84dcb34986da375ec66672137a8b8df38b0ad2426147bbe9db073c', 'accession': '0001628280-25-045043', 'filed': '2025-10-15', 'document_sha256': 'c2cd7b0d1e090ef95e3856a95a80875fe15ab85ace8f7aec3091dcfbad5d48f5', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}}
 PAIRS = {'2026-06-28':'2025-06-29','2026-09-27':'2025-09-28'}
 COMPARATIVES = {'2025-06-29':'2024-06-30','2026-06-28':'2025-06-29',
                 '2025-09-28':'2024-09-29','2026-09-27':'2025-09-28'}
@@ -114,8 +115,10 @@ def parse(raw, *, end):
         'equity':'Total shareholders’ equity','assets':'Total assets','liabilities':'Total liabilities'}.items()}
     if any(abs(inst['assets'][i]-inst['liabilities'][i]-inst['equity'][i])>100_000 for i in range(2)):
         raise AsmlFinancialError('asml_balance_reconciliation')
-    source=SOURCES[end];digest=hashlib.sha256(raw).hexdigest()
-    if digest!=source['sha256']:raise AsmlFinancialError('asml_reviewed_original_changed')
+    source=SOURCES[end]
+    try: receipt = verified_original(raw, source)
+    except ValueError as exc: raise AsmlFinancialError('asml_reviewed_original_changed') from exc
+    digest = receipt['source_sha256']
     def fact(value,start,end,label):
         return dict(value=value,start=start,end=end,unit='EUR',filed=source['filed'],
             accession=source['accession'],source_url=source['url'],source_sha256=digest,
@@ -123,7 +126,7 @@ def parse(raw, *, end):
     facts={k:[fact(nums[k][i],f'{y}-01-01',d,k) for i,y,d in [(2,year-1,old),(3,year,end)]] for k in TAGS}
     for k in ('current_assets','current_liabilities','equity'):
         facts[k]=[fact(v,None,d,k) for v,d in zip(inst[k],[f'{year-1}-12-31',end])]
-    return {'facts':facts,'source':dict(source,end=end,accounting_basis='US GAAP',currency='EUR',scale=1_000_000)}
+    return {'facts':facts,'_original':raw,'source':dict(source,**{**receipt,'sha256':digest},end=end,accounting_basis='US GAAP',currency='EUR',scale=1_000_000)}
 
 def acquire(company_raw, *, symbol, cik, observed_at, client):
     end=selected_period(json.loads(company_raw),symbol=symbol,cik=cik,observed_at=observed_at)
@@ -149,7 +152,9 @@ def project(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
             selected[period]={**row,'source_url':ANNUAL['url'],'reviewed_original_sha256':ANNUAL['sha256']}
         series[key]=selected
     for d,doc in docs.items():
-        if doc['source']!=dict(SOURCES[d],end=d,accounting_basis='US GAAP',currency='EUR',scale=1_000_000):
+        try: receipt = verified_original(doc.get('_original',b''), SOURCES[d])
+        except ValueError as exc: raise AsmlFinancialError('asml_source_bundle_identity') from exc
+        if doc['source']!=dict(SOURCES[d],**{**receipt,'sha256':receipt['source_sha256']},end=d,accounting_basis='US GAAP',currency='EUR',scale=1_000_000):
             raise AsmlFinancialError('asml_source_bundle_identity')
         if set(doc['facts'])!=set(TAGS)|{'current_assets','current_liabilities','equity'}:
             raise AsmlFinancialError('asml_bundle_metric_shape')
@@ -161,7 +166,7 @@ def project(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
             for r in rows:
                 if (r.get('unit')!='EUR' or r.get('accession')!=SOURCES[d]['accession']
                     or r.get('filed')!=SOURCES[d]['filed'] or r.get('source_url')!=SOURCES[d]['url']
-                    or r.get('source_sha256')!=SOURCES[d]['sha256']
+                    or r.get('source_sha256')!=receipt['source_sha256']
                     or type(r.get('value')) not in (int,float) or not math.isfinite(r['value']) or abs(r['value'])>1e15):
                     raise AsmlFinancialError('asml_bundle_fact_identity')
                 period=(date.fromisoformat(r['start']) if r['start'] else None,date.fromisoformat(r['end']))

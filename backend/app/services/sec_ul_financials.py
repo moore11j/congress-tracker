@@ -7,12 +7,13 @@ import json
 import re
 from zoneinfo import ZoneInfo
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
+from app.services.sec_original_integrity import verified_original
 
-VERSION = 'sec_ul_archived_restatement_v2'
+VERSION = 'sec_ul_archived_restatement_v3'
 RESTATEMENT_FILE = Path(__file__).resolve().parents[2]/'config/financial_continuity/ul-half-year-restatement-2026-03-12.pdf'
 CIK = '0000217410'
 END = date(2026, 6, 30)
-SOURCES = {'current': {'period': '2026-06-30', 'form': '6-K', 'filed': '2026-07-28', 'accession': '0000217410-26-000057', 'document': 'ul-20260630.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000021741026000057/ul-20260630.htm', 'sha256': '4f6be2d563061a80c34c691eee64a0874c4ca1a6ff034f17cde9e58194774188', 'bytes': 2092905, 'tables': 9, 'inline_facts': 0}, 'annual': {'period': '2025-12-31', 'form': '20-F', 'filed': '2026-03-12', 'accession': '0000217410-26-000007', 'document': 'ul-20251231.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000021741026000007/ul-20251231.htm', 'sha256': '6b7a85d845cd8874ef8ddc674016ab8f693f7443d41fd19e0e4ddb2a01d5659c', 'bytes': 13935127, 'tables': 17, 'inline_facts': 0}}
+SOURCES = {'current': {'period': '2026-06-30', 'form': '6-K', 'filed': '2026-07-28', 'accession': '0000217410-26-000057', 'document': 'ul-20260630.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000021741026000057/ul-20260630.htm', 'sha256': '4f6be2d563061a80c34c691eee64a0874c4ca1a6ff034f17cde9e58194774188', 'bytes': 2092905, 'tables': 9, 'inline_facts': 0, 'document_sha256': '0b3c696aa0c855b983bfc6c45fdaca35fff9199b361897e56803a14134698014', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'annual': {'period': '2025-12-31', 'form': '20-F', 'filed': '2026-03-12', 'accession': '0000217410-26-000007', 'document': 'ul-20251231.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000021741026000007/ul-20251231.htm', 'sha256': '6b7a85d845cd8874ef8ddc674016ab8f693f7443d41fd19e0e4ddb2a01d5659c', 'bytes': 13935127, 'tables': 17, 'inline_facts': 0, 'document_sha256': '25d63bb6a0b999f87f19f188dacf19099ef9fd74fb7cb09e67187f7898a99e6b', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}}
 NONFINANCIAL = [{'accessionNumber': '0001654954-26-008570', 'form': '6-K', 'filingDate': '2026-09-25', 'reportDate': '2026-09-25', 'primaryDocument': 'a4269w.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000165495426008570/a4269w.htm', 'sha256': 'e68f513ed0f1d4a0e61bd7a9de4fec93f0e1ee6b6490c8c620d0ec1eccc7e650', 'bytes': 240094, 'reason': 'managerial shareholding notification'}, {'accessionNumber': '0001654954-26-008542', 'form': '6-K', 'filingDate': '2026-09-24', 'reportDate': '2026-09-24', 'primaryDocument': 'a1711w.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000165495426008542/a1711w.htm', 'sha256': '7269b53aa8370e696833237f11d25fd3d31261dc65b61175f885d640ca4cf9a8', 'bytes': 35748, 'reason': 'managerial shareholding notification'}, {'accessionNumber': '0001654954-26-008017', 'form': '6-K', 'filingDate': '2026-09-01', 'reportDate': '2026-09-01', 'primaryDocument': 'a9452s.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000165495426008017/a9452s.htm', 'sha256': '324794bf17fffc3941eb064392d41c36747ae0ad68cfb73e15ed3b7eff0c3dd0', 'bytes': 15054, 'reason': 'voting rights and capital notice'}, {'accessionNumber': '0001654954-26-007828', 'form': '6-K', 'filingDate': '2026-08-24', 'reportDate': '2026-08-24', 'primaryDocument': 'a9537r.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000165495426007828/a9537r.htm', 'sha256': '9923ca6c148df5f819708debb72b0c7afa350f7bda1be57d4878fc651b4d43b3', 'bytes': 36916, 'reason': 'managerial shareholding notification'}, {'accessionNumber': '0001654954-26-007194', 'form': '6-K', 'filingDate': '2026-08-03', 'reportDate': '2026-08-03', 'primaryDocument': 'a0776p.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000165495426007194/a0776p.htm', 'sha256': 'cef5f3dc562f2607d62c35b9b752bf4ff35d876ef28c2751dfbdd13bf6b700e0', 'bytes': 15777, 'reason': 'voting rights and capital notice'}, {'accessionNumber': '0001654954-26-007138', 'form': '6-K', 'filingDate': '2026-08-03', 'reportDate': '2026-08-03', 'primaryDocument': 'a9740o.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/217410/000165495426007138/a9740o.htm', 'sha256': '65507a680da0093b0d8316d2f13c5564d73cb11ab14af6e42a4fe1d584bb7f2c', 'bytes': 35389, 'reason': 'managerial shareholding notification'}]
 RESTATEMENT = {'url': 'https://www.unilever.com/files/unilever-half-year-historical-financials-excluding-ice-cream-pdf.pdf', 'sha256': 'edddb9fb8ac446e216ccf7dbcc193ca9484600999764f9651afc7917d1e4de93', 'bytes': 179697, 'observed_at': '2026-10-15T20:42:20.679876+00:00', 'pages': 7, 'published': '2026-03-12', 'source_kind': 'issuer_restatement_pdf'}
 INCOME = {'revenue':'Turnover','operating_income':'Operating profit','net_income':'Shareholders’ equity',
@@ -102,7 +103,7 @@ def _income(rows, *, source_key):
 
 
 def _proof(source):
-    return {'url':source['url'],'sha256':source['sha256'],'published':source.get('filed',source.get('published')),
+    return {**{k:source[k] for k in ('source_sha256','reviewed_source_sha256','document_sha256','document_integrity_policy') if k in source},'url':source['url'],'sha256':source['sha256'],'published':source.get('filed',source.get('published')),
             'source_kind':source.get('source_kind','sec_filing'),'currency':'EUR','scale':1_000_000,
             **({'accession':source['accession']} if 'accession' in source else {}),
             **({'retrieval':'reviewed_historical_original', 'source_observed_at':source['observed_at']}
@@ -121,7 +122,9 @@ def _facts(income,source,*,annual=False):
 def parse_html(raw,*,source_key):
     source=SOURCES[source_key]
     if not isinstance(raw,bytes) or not raw or len(raw)>15_000_000:raise UnileverFinancialError('ul_source_size')
-    if hashlib.sha256(raw).hexdigest()!=source['sha256']:raise UnileverFinancialError('ul_reviewed_original_changed')
+    try: receipt = verified_original(raw, source)
+    except ValueError as exc: raise UnileverFinancialError('ul_reviewed_original_changed') from exc
+    source = {**source, **receipt, 'sha256':receipt['source_sha256']}
     from lxml import html
     try:tree=html.fromstring(raw)
     except (ValueError,html.etree.ParserError) as exc:raise UnileverFinancialError('ul_invalid_html') from exc

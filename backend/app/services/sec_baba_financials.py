@@ -5,9 +5,10 @@ import json
 from pathlib import Path
 import re
 from zoneinfo import ZoneInfo
+from app.services.sec_original_integrity import verified_original
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
 
-VERSION = 'sec_baba_cny_statements_v1'
+VERSION = 'sec_baba_cny_statements_v2'
 CIK = '0001577552'
 END = date(2026, 6, 30)
 MAX_BYTES = 15_000_000
@@ -70,8 +71,10 @@ def validate_company(company, *, symbol, cik, observed_at):
 def verify_original(raw, key):
     if not isinstance(raw,bytes) or not raw or len(raw) > MAX_BYTES:
         raise BabaFinancialError('baba_document_size')
-    if hashlib.sha256(raw).hexdigest() != SOURCES[key]['sha256']:
-        raise BabaFinancialError('baba_original_changed')
+    try:
+        verified_original(raw, SOURCES[key])
+    except ValueError as exc:
+        raise BabaFinancialError('baba_original_changed') from exc
 
 
 def original_tree(raw, key):
@@ -83,9 +86,9 @@ def original_tree(raw, key):
         raise BabaFinancialError('baba_invalid_html') from exc
 
 
-def proof(key):
+def proof(key, raw):
     s = SOURCES[key]
-    return {'source_url':s['url'],'source_sha256':s['sha256'],'accession':s['accessionNumber'],
+    return {'source_url':s['url'],**verified_original(raw,s),'accession':s['accessionNumber'],
         'filed':s['filingDate'],'currency':'CNY','accounting_basis':'US GAAP'}
 
 
@@ -124,6 +127,7 @@ def reconciles(total,*parts):
 
 def parse_interim(raw, cover_raw, *, key):
     tree,cover=original_tree(raw,key),original_tree(cover_raw,key+'_cover')
+    source_proof = proof(key, raw)
     s=SOURCES[key];year=s['year']
     links=[a for a in cover.xpath('//a[@href]') if a.get('href')==s['filename'] and ' '.join(a.text_content().split()).startswith('Exhibit 99.1 ')]
     if len(links)!=1:
@@ -181,7 +185,7 @@ def parse_interim(raw, cover_raw, *, key):
             raise BabaFinancialError('baba_equity_reconciliation')
     def fact(value,start,end,label):
         return {'value':value,'start':start,'end':end,'unit':'CNY','label':label,'source_kind':'reviewed_sec_html_table',
-            **proof(key),'cover_url':SOURCES[key+'_cover']['url'],'cover_sha256':SOURCES[key+'_cover']['sha256']}
+            **source_proof,'cover_url':SOURCES[key+'_cover']['url'],'cover_sha256':hashlib.sha256(cover_raw).hexdigest()}
     facts={k:[fact(inc[k][i],f'{y}-04-01',f'{y}-06-30',labels[k]) for i,y in enumerate((year-1,year))]
         for k in ('revenue','operating_income','net_income')}
     facts['gross_profit']=[]
@@ -198,6 +202,7 @@ def parse_interim(raw, cover_raw, *, key):
 def parse_annual(raw):
     from app.services import sec_inline_financials as inline
     verify_original(raw,'annual')
+    source_proof = proof('annual', raw)
     s=SOURCES['annual']
     try:
         parsed=inline.parse(raw,cik=CIK,accession=s['accessionNumber'],filed=s['filingDate'],report_date=s['reportDate'],form='20-F',url=s['url'],
@@ -207,7 +212,7 @@ def parse_annual(raw):
     facts={}
     for metric,tag in TAGS.items():
         facts[metric]=[{'value':r['val'],'start':r.get('start'),'end':r['end'],'unit':'CNY','tag':tag,
-            **parsed['provenance'][tag,'CNY',r.get('start'),r['end']],**proof('annual')}
+            **parsed['provenance'][tag,'CNY',r.get('start'),r['end']],**source_proof}
             for r in parsed['facts'].get(tag,{}).get('units',{}).get('CNY',[])]
     facts['gross_profit']=[]
     for rev in facts['revenue']:
@@ -278,7 +283,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, supplement):
         'available_by':str(available_day(observed_at)),'availability_basis':'after completed New York filing day',
         'company':{'sha256':hashlib.sha256(company_raw).hexdigest()},'facts':{'sha256':hashlib.sha256(facts_raw).hexdigest()},
         'period_start':current['revenue']['start'],'period_end':str(END),'current':current,'prior':prior,
-        'instant':instant,'beginning_equity':beginning,'sources':[proof(k) for k in SOURCES],
+        'instant':instant,'beginning_equity':beginning,'sources':[proof(k, originals[k]) for k in SOURCES],
         'calculations':{k:v for k,v in calculations.items() if k in values},
         'limitations':['Native RMB/CNY GAAP columns only; convenience USD translations and non-GAAP adjustments are excluded.',
             'Parent earnings reconcile separately from consolidated income, noncontrolling interests and mezzanine accretion; parent equity excludes NCI/mezzanine.',

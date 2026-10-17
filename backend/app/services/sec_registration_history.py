@@ -12,15 +12,17 @@ import re
 from zoneinfo import ZoneInfo
 
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
+from app.services.sec_original_integrity import verified_original
 
-VERSION = 'sec_spcx_registration_v1'
-PROJECTION_SHA256 = '49fad0fb434bf18ac7e4ff5efb1cfba2ae66f05e2b1a294950ea0934c53ec38d'
+VERSION = 'sec_spcx_registration_v2'
+PROJECTION_SHA256 = '337468b3abf8dae61232d30cea1af0a89ffcd9c1b00df7d50aa991b7faac1e31'
 SYMBOL = 'SPCX'
 CIK = '0001181412'
 ACCESSION = '0001628280-26-042639'
 FILED = '2026-06-12'
 URL = 'https://www.sec.gov/Archives/edgar/data/1181412/000162828026042639/spaceexplorationtechnologi.htm'
 SHA256 = '782a77c750517fde51c274def5753456d63e4aba186248e7341bc6970c3dce01'
+ORIGINAL = {'sha256':SHA256,'document_sha256':'414a2d3b1a163d43fbd10ec465909f1c4debca86c76139a9d8d2eac45d11b876','document_integrity_policy':'sec_terminal_delivery_script_path_v1'}
 CURRENT_ACCESSION = '0001628280-26-052535'
 CURRENT_FILED = '2026-08-04'
 CURRENT_END = '2026-06-30'
@@ -107,8 +109,10 @@ def _rows(tree, name, count):
 
 
 def parse(raw):
-    if not raw or len(raw)>15_000_000 or hashlib.sha256(raw).hexdigest() != SHA256:
+    if not isinstance(raw,bytes) or not raw or len(raw)>15_000_000:
         raise RegistrationHistoryError('registration_original_changed')
+    try: receipt = verified_original(raw, ORIGINAL)
+    except ValueError as exc: raise RegistrationHistoryError('registration_original_changed') from exc
     from lxml import html
     tree = html.fromstring(raw)
     annual, cash, balance, interim = (_rows(tree,n,c) for n,c in [('annual',3),('cash',3),('balance',2),('interim',2)])
@@ -137,7 +141,7 @@ def parse(raw):
             if start: fact['start'] = start
             records.append(fact)
             provenance[(TAGS[metric],'USD',start,end)] = {
-                'source_url':URL,'source_sha256':SHA256,'source_form':'424B4',
+                'source_url':URL,**receipt,'source_form':'424B4',
                 'source_label':original,'source_cik':CIK,'registration_history':VERSION,
                 'amount_basis':'reported USD millions; capex uses positive cash-purchase magnitude',
             }
@@ -152,16 +156,31 @@ def parse(raw):
     bridge = {m:interim(label)[1] for m,label in {
         'revenue':'Revenue','operating_income':'Income (loss) from operations',
         'net_income':'Net loss','common_income':'Net loss attributable to shareholders - basic and diluted'}.items()}
-    return {'facts':facts,'provenance':provenance,'registration_bridge':bridge,
+    return {'facts':facts,'_original':raw,'provenance':provenance,'registration_bridge':bridge,
         'evidence':{'cik':CIK,'accession':ACCESSION,'filed':FILED,'form':'424B4',
-                    'url':URL,'sha256':SHA256,'methodology':VERSION,'namespace':'us-gaap',
+                    'url':URL,**receipt,'sha256':receipt['source_sha256'],'methodology':VERSION,'namespace':'us-gaap',
                     'current_review_url':CURRENT_URL,'current_review_sha256':CURRENT_SHA256}}
 
 
 def projection_digest(supplement):
+    # Authenticate the received bytes before canonicalizing their delivery hash.
+    # No financial, period, issuer, accounting or source-location field is omitted.
+    try:
+        receipt = verified_original(supplement.get('_original', b''), ORIGINAL)
+        evidence = deepcopy(supplement['evidence'])
+        provenance = deepcopy(supplement['provenance'])
+        if any(evidence.get(k) != v for k,v in receipt.items()) or evidence.get('sha256') != receipt['source_sha256']:
+            raise ValueError('receipt mismatch')
+        for proof in provenance.values():
+            if any(proof.get(k) != v for k,v in receipt.items()):
+                raise ValueError('provenance mismatch')
+            proof['source_sha256'] = SHA256
+        evidence['sha256'] = evidence['source_sha256'] = SHA256
+    except (ValueError, TypeError, KeyError) as exc:
+        raise RegistrationHistoryError('registration_projection_changed') from exc
     return hashlib.sha256(json.dumps({'facts':supplement['facts'],
-        'bridge':supplement['registration_bridge'],'evidence':supplement['evidence'],
-        'provenance':sorted((list(k),v) for k,v in supplement['provenance'].items())},
+        'bridge':supplement['registration_bridge'],'evidence':evidence,
+        'provenance':sorted((list(k),v) for k,v in provenance.items())},
         sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
@@ -170,7 +189,7 @@ def validate_bridge(payload, supplement, *, available_by):
         raise RegistrationHistoryError('registration_projection_changed')
     from app.services import sec_fundamentals as sec
     if (str(payload.get('cik','')).zfill(10) != CIK
-        or supplement['evidence'].get('sha256') != SHA256
+        or supplement['evidence'].get('reviewed_source_sha256') != SHA256
         or supplement['evidence'].get('methodology') != VERSION
         or available_by < date.fromisoformat(CURRENT_FILED)):
         raise RegistrationHistoryError('registration_bridge_identity_or_availability')
@@ -201,7 +220,7 @@ def validate_bridge(payload, supplement, *, available_by):
         if not point or point['value']!=expected or point['accession']!=CURRENT_ACCESSION:
             raise RegistrationHistoryError('registration_balance_accounting_conflict:'+metric)
         proof.append({'metric':metric,'year':2025,'value':expected,'inputs':[deepcopy(point)]})
-    return {'methodology':VERSION,'original_url':URL,'original_sha256':SHA256,
+    return {'methodology':VERSION,'original_url':URL,'original_sha256':supplement['evidence']['sha256'],'reviewed_original_sha256':SHA256,
             'accounting_basis':'reviewed common-control combined historical statements',
             'overlap_checks':proof,'limitations':['Prior June 2024 interim history is unavailable; no prior TTM growth inferred.',
               'Per-share, pro-forma, adjusted free-cash-flow and unreviewed newer periods are not substituted.']}

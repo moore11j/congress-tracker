@@ -51,7 +51,7 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
     native_basis = reporting_basis(symbol, cik)
     namespace = native_basis['namespace'] if native_basis else 'us-gaap'
     registration_proof = None
-    if filing_supplement and filing_supplement.get('evidence', {}).get('methodology') == 'sec_spcx_registration_v1':
+    if filing_supplement and filing_supplement.get('evidence', {}).get('methodology') == 'sec_spcx_registration_v2':
         from app.services import sec_registration_history as registration
         if symbol != registration.SYMBOL or str(cik).zfill(10) != registration.CIK:
             raise registration.RegistrationHistoryError('registration_supplement_wrong_issuer')

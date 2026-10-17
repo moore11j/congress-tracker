@@ -5,12 +5,13 @@ import json
 import re
 from zoneinfo import ZoneInfo
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
+from app.services.sec_original_integrity import verified_original
 
-VERSION = 'sec_cnq_cad_statements_v1'
+VERSION = 'sec_cnq_cad_statements_v2'
 CIK = '0001017413'
 END = date(2026, 6, 30)
 MAX_BYTES = 10_000_000
-SOURCES = {'current': {'accession': '0001017413-26-000043', 'form': '6-K', 'filed': '2026-08-06', 'end': '2026-06-30', 'cover': 'a063020266-kcover.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/1017413/000101741326000043/a06302026q2fs.htm', 'sha256': '8a212e3907e172c591a44d28a815b6d3f855788bb94ad009a568d86c11a66aba', 'cover_sha256': '8e687ac63512c02b41ac83591a5b19b6d4ef0fa60558eea03d26d7f71559a5e6'}, 'annual': {'accession': '0001017413-26-000018', 'form': '40-F', 'filed': '2026-03-26', 'end': '2025-12-31', 'cover': 'cnq-20251231.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/1017413/000101741326000018/cnq-20251231.htm', 'sha256': '506ecaff6f6018648b34ece6ed34413bbaac4f27f1b32bf7c85ec2e541a1e322', 'cover_sha256': '506ecaff6f6018648b34ece6ed34413bbaac4f27f1b32bf7c85ec2e541a1e322'}, 'prior': {'accession': '0001017413-25-000043', 'form': '6-K', 'filed': '2025-08-07', 'end': '2025-06-30', 'cover': 'a063020256-kcover.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/1017413/000101741325000043/a06302025q2fs.htm', 'sha256': '53c328d16d5ca0337cc3ea3328e02a5ab2dfaa5eca1091f255d5ab7e1cf2c0c8', 'cover_sha256': 'a42d54e38e24d0dca3e1f6afcda12257cb76cc1bec3733ac01833c4546579bdd'}}
+SOURCES = {'current': {'accession': '0001017413-26-000043', 'form': '6-K', 'filed': '2026-08-06', 'end': '2026-06-30', 'cover': 'a063020266-kcover.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/1017413/000101741326000043/a06302026q2fs.htm', 'sha256': '8a212e3907e172c591a44d28a815b6d3f855788bb94ad009a568d86c11a66aba', 'cover_sha256': '8e687ac63512c02b41ac83591a5b19b6d4ef0fa60558eea03d26d7f71559a5e6', 'document_sha256': '21b1bf8c938e36fa234b0a11b1ba298b2080d7ce0a899126ecac9ec22df3ddf6', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'annual': {'accession': '0001017413-26-000018', 'form': '40-F', 'filed': '2026-03-26', 'end': '2025-12-31', 'cover': 'cnq-20251231.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/1017413/000101741326000018/cnq-20251231.htm', 'sha256': '506ecaff6f6018648b34ece6ed34413bbaac4f27f1b32bf7c85ec2e541a1e322', 'cover_sha256': '506ecaff6f6018648b34ece6ed34413bbaac4f27f1b32bf7c85ec2e541a1e322', 'document_sha256': 'c66a78e29809dd1d9d6446c68cbe959e88638ffeed4ae115568613a9c2992c5d', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'prior': {'accession': '0001017413-25-000043', 'form': '6-K', 'filed': '2025-08-07', 'end': '2025-06-30', 'cover': 'a063020256-kcover.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/1017413/000101741325000043/a06302025q2fs.htm', 'sha256': '53c328d16d5ca0337cc3ea3328e02a5ab2dfaa5eca1091f255d5ab7e1cf2c0c8', 'cover_sha256': 'a42d54e38e24d0dca3e1f6afcda12257cb76cc1bec3733ac01833c4546579bdd', 'document_sha256': '3f9d18f22fa3a1bcab63a69d74f5233e65edfcce54eff3afaaa01e8eae9c1bb7', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}}
 REVIEWED_DIVIDEND = {'form': '6-K', 'filingDate': '2026-08-06', 'reportDate': '2026-08-06', 'accessionNumber': '0001017413-26-000045', 'primaryDocument': 'a08062026dividendcover.htm', 'url': 'https://www.sec.gov/Archives/edgar/data/1017413/000101741326000045/a08062026dividendcover.htm', 'sha256': '582402ababab6fc1dd3b732cf3fb74ae05ebf3138bfa99789c82b94335cbc5fc'}
 TAGS = {'revenue': ('Revenue',), 'net_income': ('ProfitLoss',),
         'equity': ('Equity',), 'current_assets': ('CurrentAssets',),
@@ -72,10 +73,10 @@ def parse(raw, *, source_key):
     s = SOURCES[source_key]
     if not isinstance(raw, bytes) or not raw or len(raw) > MAX_BYTES:
         raise CnqFinancialError('cnq_document_size')
-    digest = hashlib.sha256(raw).hexdigest()
-    if digest != s['sha256']:
-        raise CnqFinancialError('cnq_reviewed_original_changed')
-    proof = {'url': s['url'], 'sha256': digest, 'accession': s['accession'], 'filed': s['filed'],
+    try: receipt = verified_original(raw, s)
+    except ValueError as exc: raise CnqFinancialError('cnq_reviewed_original_changed') from exc
+    digest = receipt['source_sha256']
+    proof = {**receipt, 'url': s['url'], 'sha256': digest, 'accession': s['accession'], 'filed': s['filed'],
              'cover_sha256': s['cover_sha256'], 'currency': 'CAD', 'accounting_basis': 'IFRS'}
     if source_key == 'annual':
         from app.services import sec_inline_financials as inline

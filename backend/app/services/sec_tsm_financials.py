@@ -10,21 +10,11 @@ import json
 import re
 from zoneinfo import ZoneInfo
 
-VERSION = 'sec_tsm_taiwan_ifrs_v1'
+VERSION = 'sec_tsm_taiwan_ifrs_v2'
 CIK = '0001046179'
 END = date(2026, 6, 30)
 MAX_BYTES = 8_000_000
-SOURCES = {
- 'current': dict(accession='0001046179-26-000541', filed='2026-08-14', end='2026-06-30', year=2026,
-  cover='tsm-fsx20260814x6k.htm', filename='a2026q2consolidatedreport-.htm',
-  sha256='87a317c976eae5fdffa37421e16f1d0d4248abc15a2ea7e0c3883cd0510a48c4'),
- 'prior': dict(accession='0001046179-25-000097', filed='2025-08-14', end='2025-06-30', year=2025,
-  cover='tsm-fsx20250814x6k.htm', filename='tsmc2025q2consolidatedfina.htm',
-  sha256='8510c495d472da69ff9cdf3d8a5d64212c6c296d3514cd5cce8dde5ed9a274f1'),
- 'annual': dict(accession='0001046179-26-000024', filed='2026-02-26', end='2025-12-31', year=2025,
-  cover='tsm-fsx20260226x6k.htm', filename='a2025q4consolidatedreport-.htm',
-  sha256='ba24f40bf0bccb828bd54627d294b9e49c84d288cb0afb49f7cffeb0f7734b01'),
-}
+SOURCES = {'current': {'accession': '0001046179-26-000541', 'filed': '2026-08-14', 'end': '2026-06-30', 'year': 2026, 'cover': 'tsm-fsx20260814x6k.htm', 'filename': 'a2026q2consolidatedreport-.htm', 'sha256': '87a317c976eae5fdffa37421e16f1d0d4248abc15a2ea7e0c3883cd0510a48c4', 'document_sha256': '1efacd09635cd31077ecf231e7c66906ad3807bd5fb6c4b90541e2b6319f423c', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'prior': {'accession': '0001046179-25-000097', 'filed': '2025-08-14', 'end': '2025-06-30', 'year': 2025, 'cover': 'tsm-fsx20250814x6k.htm', 'filename': 'tsmc2025q2consolidatedfina.htm', 'sha256': '8510c495d472da69ff9cdf3d8a5d64212c6c296d3514cd5cce8dde5ed9a274f1', 'document_sha256': '11dc19569753d1128e9e03a26c1f86ab93561dd01bd3118799960634fbd7cec7', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}, 'annual': {'accession': '0001046179-26-000024', 'filed': '2026-02-26', 'end': '2025-12-31', 'year': 2025, 'cover': 'tsm-fsx20260226x6k.htm', 'filename': 'a2025q4consolidatedreport-.htm', 'sha256': 'ba24f40bf0bccb828bd54627d294b9e49c84d288cb0afb49f7cffeb0f7734b01', 'document_sha256': 'fc1b394c2abe29b22668cb3099c5265ed16cd62a046e344f032a88e2dc1ee130', 'document_integrity_policy': 'sec_terminal_delivery_script_path_v1'}}
 INCOME = {
  'revenue':'NET REVENUE', 'cost':'COST OF REVENUE', 'gross_profit':'GROSS PROFIT',
  'expenses':'Total operating expenses', 'other_operating':'OTHER OPERATING INCOME AND EXPENSES, NET',
@@ -34,6 +24,7 @@ INCOME = {
 
 
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
+from app.services.sec_original_integrity import verified_original
 
 
 class TsmFinancialError(SecFundamentalsCoverageError):
@@ -152,9 +143,9 @@ def parse(raw, *, source_key):
             raise TsmFinancialError('tsm_income_reconciliation')
     instant={key:row_values(balance,label,len(expected_balance)) for key,label in
         [('current_assets','Total current assets'),('current_liabilities','Total current liabilities')]}
-    digest=hashlib.sha256(raw).hexdigest()
-    if digest != source['sha256']:
-        raise TsmFinancialError('tsm_reviewed_original_changed')
+    try: receipt = verified_original(raw, source)
+    except ValueError as exc: raise TsmFinancialError('tsm_reviewed_original_changed') from exc
+    digest = receipt['source_sha256']
     periods=([(f'{y}-01-01',f'{y}-12-31') for y in (year,year-1)] if annual else
         [(f'{y}-{month}-01',f'{y}-06-30') for month in ('04','01') for y in (year,year-1)])
     facts={key:[{'start':start,'end':end,'value':numbers[i],'unit':'TWD',
@@ -166,7 +157,7 @@ def parse(raw, *, source_key):
         facts[key]=[{'start':None,'end':end,'value':numbers[i],'unit':'TWD','filed':source['filed'],
             'accession':source['accession'],'source_url':url_for(source),'source_sha256':digest,
             'source_kind':'reviewed_sec_html_table','label':key} for i,end in enumerate(instant_dates)]
-    return {'facts':facts,'evidence':{'url':url_for(source),'sha256':digest,'accession':source['accession'],
+    return {'facts':facts,'_original':raw,'evidence':{**receipt,'url':url_for(source),'sha256':digest,'accession':source['accession'],
         'filed':source['filed'],'accounting_basis':'Taiwan-IFRS','currency':'TWD','scale':1000}}
 
 
@@ -186,7 +177,9 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, supplement):
     series={};sources=[]
     for key,document in documents.items():
         proof=document['evidence'];source=SOURCES[key]
-        if proof!={'url':url_for(source),'sha256':source['sha256'],'accession':source['accession'],
+        try: receipt = verified_original(document.get('_original',b''), source)
+        except ValueError as exc: raise TsmFinancialError('tsm_source_bundle_identity') from exc
+        if proof!={**receipt,'url':url_for(source),'sha256':receipt['source_sha256'],'accession':source['accession'],
             'filed':source['filed'],'accounting_basis':'Taiwan-IFRS','currency':'TWD','scale':1000}:
             raise TsmFinancialError('tsm_source_bundle_identity')
         sources.append(proof)

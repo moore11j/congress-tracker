@@ -8,7 +8,9 @@
       "primaryDocument": "caq22026.htm",
       "file": "caq22026.htm",
       "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000023/caq22026.htm",
-      "sha256": "7c3abe3be7e822bd611e1790952b5042fa6de121b4a483e24a4d4e999b4ba138"
+      "sha256": "7c3abe3be7e822bd611e1790952b5042fa6de121b4a483e24a4d4e999b4ba138",
+      "document_sha256": "cdc91abc74e6696003d1853d391c6e10a8bbdd04fe339d3484ce9fff0785e571",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     },
     "prior": {
       "form": "6-K",
@@ -18,7 +20,9 @@
       "primaryDocument": "caq22025.htm",
       "file": "caq22025.htm",
       "url": "https://www.sec.gov/Archives/edgar/data/353278/000162828025038087/caq22025.htm",
-      "sha256": "ae19cb82be5e1aecf2af5e896cf76b5c6aad5a09b4eaa552d4fc2efae35854ee"
+      "sha256": "ae19cb82be5e1aecf2af5e896cf76b5c6aad5a09b4eaa552d4fc2efae35854ee",
+      "document_sha256": "5cbdfbab050704a381d5f1f87e2903c2d985e10b67347e01bf1f5982764a859e",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     },
     "cover": {
       "form": "20-F",
@@ -28,7 +32,9 @@
       "primaryDocument": "nvo-20251231.htm",
       "file": "nvo-20251231.htm",
       "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231.htm",
-      "sha256": "6fef428db44875467deb893b3e082d81780256b1cd328d05b150dca82da3b97e"
+      "sha256": "6fef428db44875467deb893b3e082d81780256b1cd328d05b150dca82da3b97e",
+      "document_sha256": "35bd5f6fe19551528d8cc8a4dc7847faa9e5b146c45c4df51bbcaffa9bf3f116",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     },
     "annual": {
       "form": "20-F",
@@ -38,7 +44,9 @@
       "primaryDocument": "nvo-20251231.htm",
       "file": "nvo-20251231_d2.htm",
       "url": "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231_d2.htm",
-      "sha256": "f56865a71f48243e70a2fcc4768d4b18f9e9528a42f30d4b20fee00a439cdf6c"
+      "sha256": "f56865a71f48243e70a2fcc4768d4b18f9e9528a42f30d4b20fee00a439cdf6c",
+      "document_sha256": "2c35da68b38e1a58989258bcd242d97b552a3c72d98a53d4deb375be1cfdcf36",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
     }
   },
   "reviewed_later": [

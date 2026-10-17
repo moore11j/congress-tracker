@@ -6,10 +6,11 @@ import json
 from pathlib import Path
 import re
 from zoneinfo import ZoneInfo
+from app.services.sec_original_integrity import verified_original
 
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
 
-VERSION = 'sec_nvo_dkk_statements_v1'
+VERSION = 'sec_nvo_dkk_statements_v2'
 CIK = '0000353278'
 END = date(2026, 6, 30)
 MAX_BYTES = 15_000_000
@@ -97,22 +98,25 @@ def original_tree(raw, key):
     from lxml import html
     if not isinstance(raw, bytes) or not raw or len(raw) > MAX_BYTES:
         raise NvoFinancialError('nvo_document_size')
-    if hashlib.sha256(raw).hexdigest() != SOURCES[key]['sha256']:
-        raise NvoFinancialError('nvo_original_changed')
+    try:
+        verified_original(raw, SOURCES[key])
+    except ValueError as exc:
+        raise NvoFinancialError('nvo_original_changed') from exc
     try:
         return html.fromstring(raw)
     except (ValueError, html.etree.ParserError) as exc:
         raise NvoFinancialError('nvo_invalid_html') from exc
 
 
-def proof(key):
+def proof(key, raw):
     s = SOURCES[key]
-    return {'source_url': s['url'], 'source_sha256': s['sha256'], 'accession': s['accessionNumber'],
+    return {'source_url': s['url'], **verified_original(raw,s), 'accession': s['accessionNumber'],
         'filed': s['filingDate'], 'currency': 'DKK', 'accounting_basis': 'IFRS'}
 
 
 def parse_interim(raw, *, key):
     tree = original_tree(raw, key)
+    source_proof = proof(key, raw)
     year = int(SOURCES[key]['reportDate'][:4])
     candidates = {'income': [], 'balance': [], 'cash': []}
     for table in tree.xpath('//table[not(.//table)]'):
@@ -184,7 +188,7 @@ def parse_interim(raw, *, key):
             raise NvoFinancialError('nvo_cash_reconciliation')
     def fact(value, start, end, label):
         return {'value': value, 'start': start, 'end': end, 'unit': 'DKK', 'label': label,
-            'source_kind': 'reviewed_sec_html_table', **proof(key)}
+            'source_kind': 'reviewed_sec_html_table', **source_proof}
     facts = {k: [fact(income[k][i], f'{y}-01-01', f'{y}-06-30', INCOME[k]) for i,y in enumerate((year,year-1))]
         for k in ('revenue','gross_profit','operating_income','net_income')}
     for k in ('equity','current_assets','current_liabilities'):
@@ -199,6 +203,7 @@ def parse_annual(raw, cover_raw):
     from lxml import etree
     from app.services import sec_inline_financials as inline
     tree, cover = original_tree(raw, 'annual'), original_tree(cover_raw, 'cover')
+    source_proof = proof('annual', raw)
     if not any(a.get('href') == SOURCES['annual']['file'] and a.text_content().strip() == '15.1' for a in cover.xpath('//a[@href]')):
         raise NvoFinancialError('nvo_annual_exhibit_link')
     if list(tree.iter('xbrli:context')) or list(tree.iter('xbrli:unit')):
@@ -221,8 +226,8 @@ def parse_annual(raw, cover_raw):
         facts[metric] = []
         for row in parsed['facts'].get(tag, {}).get('units', {}).get('DKK', []):
             point = {'value':row['val'], 'start':row.get('start'), 'end':row['end'], 'unit':'DKK', 'tag':tag,
-                **parsed['provenance'][tag,'DKK',row.get('start'),row['end']], **proof('annual'),
-                'cover_url':SOURCES['cover']['url'], 'cover_sha256':SOURCES['cover']['sha256']}
+                **parsed['provenance'][tag,'DKK',row.get('start'),row['end']], **source_proof,
+                'cover_url':SOURCES['cover']['url'], 'cover_sha256':hashlib.sha256(cover_raw).hexdigest()}
             facts[metric].append(point)
     return facts
 
@@ -311,7 +316,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, supplement):
         'available_by':str(available_day(observed_at)),'availability_basis':'after completed New York filing day',
         'company':{'sha256':hashlib.sha256(company_raw).hexdigest()},'facts':{'sha256':hashlib.sha256(facts_raw).hexdigest()},
         'period_start':current['revenue']['start'],'period_end':str(END),'current':current,'prior':prior,
-        'instant':instant,'beginning_equity':beginning,'sources':[proof(k) for k in SOURCES],
+        'instant':instant,'beginning_equity':beginning,'sources':[proof(k, originals[k]) for k in SOURCES],
         'reclassifications':reclassifications,'unused_balance_revisions':unused,
         'calculations':{k:v for k,v in calculations.items() if k in values},
         'native_cash_flow':{'currency':'DKK','value':cash,'prior_value':old_cash,'formula':'TTM CFO excluding interest received/paid minus PPE purchases'},
