@@ -44,10 +44,17 @@ def _run_locked():
             .order_by(DataEnrichmentJob.priority, DataEnrichmentJob.created_at, DataEnrichmentJob.id)
             .limit(1001)))
         requested = list(dict.fromkeys(s for raw in requested_rows[:1000] if (s := normalize_symbol(raw))))
-        cache_rows = {r.kind: r for r in db.scalars(select(InsightsSnapshot).where(
-            InsightsSnapshot.kind.in_([f'sec-financials:{s}:v1' for s in requested])))} if requested else {}
-        missing = [s for s in requested if sec_financial_statements.cached_row_payload(
-            cache_rows.get(f'sec-financials:{s}:v1'), s, now=now) is None]
+        cache_scopes = sorted(set(symbols) | set(requested))
+        cache_symbols = {f'sec-financials:{s}:v1': s for s in cache_scopes}
+        fresh = set()
+        if cache_symbols:
+            # Keep only freshness decisions, not every full financial payload.
+            for cached in db.scalars(select(InsightsSnapshot).where(
+                    InsightsSnapshot.kind.in_(cache_symbols)).execution_options(yield_per=100)):
+                symbol = cache_symbols[cached.kind]
+                if sec_financial_statements.cached_row_payload(cached, symbol, now=now) is not None:
+                    fresh.add(symbol)
+        missing = [s for s in requested if s not in fresh]
         retained = set(symbols) | set(requested)
         attempts = {key: value for key, value in state.get('attempted_at', {}).items() if key in retained}
         order = lambda s: (attempts.get(s, ''), s)
@@ -56,8 +63,11 @@ def _run_locked():
         request_order = {s: i for i, s in enumerate(requested)}
         missing.sort(key=lambda s: (attempts.get(s, ''), request_order[s]))
         selected = missing[:10]
-        selected.extend(s for s in sorted(symbols, key=order) if s not in selected)
+        # Preserve due watched/default work, then use unused source-work slots
+        # for demand. Fresh watched caches cannot displace pending requests.
+        selected.extend(s for s in sorted(symbols, key=order) if s not in selected and s not in fresh)
         selected.extend(s for s in missing if s not in selected)
+        selected.extend(s for s in sorted(symbols, key=order) if s not in selected)
         symbols = selected
         token = uuid.uuid4().hex
         if row is None:
