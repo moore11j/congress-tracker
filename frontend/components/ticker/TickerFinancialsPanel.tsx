@@ -241,7 +241,10 @@ function FinancialChart({
   positiveNegative?: boolean;
   currency?: string;
 }) {
-  const [mode, setMode] = useState<PeriodMode>(defaultMode(annual, quarterly, semiannual));
+  const [preferredMode, setMode] = useState<PeriodMode>(defaultMode(annual, quarterly, semiannual));
+  const available = { annual, quarterly, semiannual };
+  const mode = available[preferredMode].length > 0 || !Object.values(available).some(rows => rows.length > 0)
+    ? preferredMode : defaultMode(annual, quarterly, semiannual);
   const [hover, setHover] = useState<HoverPoint | null>(null);
   const points = mode === "semiannual" ? semiannual : mode === "quarterly" && quarterly.length > 0 ? quarterly : annual;
   const selectedForecast = mode === "semiannual" ? null : mode === "quarterly" ? forecasts?.nextQuarter : forecasts?.nextFiscalYear;

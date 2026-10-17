@@ -14,6 +14,7 @@ import * as financialPeriods from "../lib/financialPeriods.mjs";
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, "..");
 const loaded = new Map();
+let retainedPeriodMode = null;
 function load(relative) {
   const path = resolve(root, relative);
   if (loaded.has(path)) return loaded.get(path);
@@ -23,6 +24,12 @@ function load(relative) {
   }).outputText;
   const module = { exports: {} };
   const localRequire = (id) => {
+    if (id === "react") return { ...React, useState(initial) {
+      const state = React.useState(initial);
+      // Model the existing chart selection surviving a ticker/data update.
+      return retainedPeriodMode && ["annual", "quarterly", "semiannual"].includes(initial)
+        ? [retainedPeriodMode, state[1]] : state;
+    } };
     if (id === "@/components/billing/UpgradeLink") return {
       UpgradeLink: ({ children }) => React.createElement("a", { href: "/pricing" }, children),
       UpgradeImpression: ({ children }) => React.createElement(React.Fragment, null, children),
@@ -105,4 +112,18 @@ test("annual history remains the default when half-year history is also present"
   assert.match(html, /Half-year/);
   assert.match(html, /Year ended &#x27;25-12-31/);
   assert.doesNotMatch(html, /Half-year ended 2026-06-30/);
+});
+
+
+test("a retained half-year selection falls back when the next ticker has quarterly history", () => {
+  retainedPeriodMode = "semiannual";
+  try {
+    const html = render(FinancialPanel, {
+      status:"partial", annual:[], quarterly:[{period:"Quarter ended 2026-06-30",date:"2026-06-30",revenue:1230000,netIncome:120000}],
+      semiannual:[], earnings:[], summary:{}, reportingCurrency:"USD",
+    });
+    assert.match(html, /Quarterly/);
+    assert.match(html, /Revenue Trend chart/);
+    assert.doesNotMatch(html, /Revenue Trend data is not available|Half-year/);
+  } finally { retainedPeriodMode = null; }
 });
