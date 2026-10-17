@@ -1,0 +1,66 @@
+{
+  "AEVA-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001789029.json",
+    "sha256": "3c26fec72a719c9a491f4c239e60639e5cfddaf1e795cccd25ac674f23f3f480",
+    "bytes": 1227037,
+    "captured_at": "2026-10-17T01:42:21.517918+00:00"
+  },
+  "AEVA-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001789029.json",
+    "sha256": "540d0a13c716317b8499721399d3b4cd168ed42043b9ec5c9108cd535990eaac",
+    "bytes": 67425,
+    "captured_at": "2026-10-17T01:42:20.718159+00:00"
+  },
+  "AEVA-10-Q.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1789029/000119312526338179/aeva-20260630.htm",
+    "sha256": "4be9690bb3c4aa264119aba8ddbb8b6563a31dc12f953f74b14d7ccea9cb7bb8",
+    "bytes": 2971723,
+    "cik": "0001789029",
+    "form": "10-Q",
+    "accession": "0001193125-26-338179",
+    "report_date": "2026-06-30",
+    "filed_at": "2026-08-06"
+  },
+  "AEVA-10-K.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1789029/000119312526116518/aeva-20251231.htm",
+    "sha256": "2c1cff9e52a44d5e93e62c17420a650c47afd993983203aa6b4732a42ab298db",
+    "bytes": 3607780,
+    "cik": "0001789029",
+    "form": "10-K",
+    "accession": "0001193125-26-116518",
+    "report_date": "2025-12-31",
+    "filed_at": "2026-03-20"
+  },
+  "ALLE-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001579241.json",
+    "sha256": "838a936033f9e2ceb5a60bbb42a6e41e4d4977a2cd263d0a55e2327b0094b80c",
+    "bytes": 2913178,
+    "captured_at": "2026-10-17T01:42:23.148237+00:00"
+  },
+  "ALLE-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001579241.json",
+    "sha256": "5b27579bbd1b8b7b19f9d6c6ac51e1d835435c8cb97a3a2651b2924c24e797a7",
+    "bytes": 159678,
+    "captured_at": "2026-10-17T01:42:22.224831+00:00"
+  },
+  "ALLE-10-Q.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1579241/000157924126000028/alle-20260630.htm",
+    "sha256": "cb84bc1ca8144ffa4d5601b64c655463abef52e181ae53c744123a2ec9654d62",
+    "bytes": 1300637,
+    "cik": "0001579241",
+    "form": "10-Q",
+    "accession": "0001579241-26-000028",
+    "report_date": "2026-06-30",
+    "filed_at": "2026-07-23"
+  },
+  "ALLE-10-K.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1579241/000157924126000007/alle-20251231.htm",
+    "sha256": "f5cc54e82671e5bce0e3de5f2ca5d45c7cbc7dffcadbdf6973f0edd02ddddd71",
+    "bytes": 2495120,
+    "cik": "0001579241",
+    "form": "10-K",
+    "accession": "0001579241-26-000007",
+    "report_date": "2025-12-31",
+    "filed_at": "2026-02-17"
+  }
+}
