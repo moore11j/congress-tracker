@@ -37,12 +37,13 @@ def test_current_entity_currency_observation_excludes_irrelevant_columns(variant
         tagged.verify_currency(result)
 
 
-def test_complete_nami_original_is_held_before_projection():
+def test_complete_nami_original_is_held_by_usd_only_reader():
     from app.services import sec_inline_financials as inline
     facts, company, cik, urls = originals('NAMI')
     assert any(b'convenience' in raw.lower() and b'renminbi' in raw.lower() for raw in urls.values())
     with pytest.raises(tagged.TaggedForeignError, match='unreviewed_foreign_statement_currency'):
-        inline.acquire(facts, company, symbol='NAMI', cik=cik, observed_at=NOW, client=Client(urls))
+        from datetime import date
+        tagged.acquire(json.loads(facts),json.loads(company),symbol='NAMI',cik=cik,available_by=date(2026,10,16),client=Client(urls),company_raw=company)
 
 
 @pytest.mark.parametrize('defect', ['old', 'dual', 'absent', 'empty', 'malformed', 'selection'])
@@ -93,7 +94,8 @@ def test_prepared_generic_cache_requires_current_currency_proof(monkeypatch):
     assert prep._cached('GENERIC', NOW) is None
 
 
-def test_nami_public_and_prepared_hold_is_cached_without_repeated_fetch(monkeypatch):
+@pytest.mark.parametrize('native_failure', [None, 'statement_currency_basis_mismatch', 'native_reporting_selection_mismatch'])
+def test_missing_native_proof_keeps_ambiguous_currency_hold_cached_without_repeated_fetch(monkeypatch, native_failure):
     from datetime import datetime
     from unittest.mock import patch
     from sqlalchemy import create_engine
@@ -102,6 +104,12 @@ def test_nami_public_and_prepared_hold_is_cached_without_repeated_fetch(monkeypa
     from app.services import sec_fundamentals_preparation as prep, sec_directory
     from app.services import sec_financial_continuity
     from app.request_priority import set_request_context, reset_request_context
+    from app.services import sec_statement_currency as native
+    def unavailable(*args, **kwargs):
+        if native_failure:
+            raise native.StatementCurrencyError(native_failure)
+        return None
+    monkeypatch.setattr(native,'acquire',unavailable)
     facts, company, cik, urls = originals('NAMI')
     client = Client(urls)
     class Clock(datetime):
@@ -130,3 +138,17 @@ def test_nami_public_and_prepared_hold_is_cached_without_repeated_fetch(monkeypa
         finally:
             reset_request_context(token)
     engine.dispose()
+
+
+@pytest.mark.parametrize('mode',['wrong_namespace','invalid_boolean','content'])
+def test_malformed_optional_fact_cannot_hide_a_second_statement_currency(mode):
+    from test_sec_inline_financials import document,fact,parse,TAG
+    optional=fact('1' if mode=='content' else '',tag='ProfitLoss',
+        attrs='xs:nil="maybe"' if mode=='invalid_boolean' else 'xs:nil="true"').replace('unitRef="usd"','unitRef="cny"')
+    units='<xbrli:unit id="cny"><xbrli:measure>iso4217:CNY</xbrli:measure></xbrli:unit>'
+    raw=document(units+optional).replace(b'<html ',b'<html xmlns:xs="http://www.w3.org/2001/XMLSchema-instance" ',1)
+    if mode=='wrong_namespace':raw=raw.replace(b'http://www.w3.org/2001/XMLSchema-instance',b'https://example.test/spoof')
+    result=parse(raw)
+    assert result['facts'][TAG]['units']['USD'][0]['val']==70
+    assert result['evidence']['currency_observation']['current_statement_currencies']==['CNY','USD']
+    with pytest.raises(tagged.TaggedCurrencyError):tagged.verify_currency(result['evidence'])

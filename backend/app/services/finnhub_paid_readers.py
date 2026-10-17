@@ -142,7 +142,8 @@ def attach_financials(db, symbol, payload, *, now=None):
     evidence = payload.get('sourceEvidence') or {}
     if (payload.get('symbol') != symbol or payload.get('source') != 'sec_edgar'
             or evidence.get('methodology') != 'sec_statements_v1'
-            or evidence.get('reviewedReportingPolicy') or payload.get('reportingCurrency', 'USD') != 'USD'):
+            or evidence.get('reviewedReportingPolicy') or evidence.get('nativeReporting')
+            or evidence.get('standardForeignReporting') or payload.get('reportingCurrency', 'USD') != 'USD'):
         return payload
     now = preparation._now(now)
     forecasts = {'nextQuarter': forecast(db, symbol, 'quarterly', now=now),

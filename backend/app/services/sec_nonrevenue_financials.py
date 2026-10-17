@@ -12,9 +12,9 @@ VERSION = 'sec_independent_financials_v2'
 PROFILES = {'ANIX': '0000715446', 'BCDA': '0000925741'}
 
 
-def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_at, available_by, filing_supplement=None, currency="USD", namespace="us-gaap", source_context=None):
+def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_at, available_by, filing_supplement=None, currency="USD", namespace="us-gaap", source_context=None, native_selection=None):
     from app.services.sec_fundamentals import _ttm, SecFundamentalsCoverageError
-    if currency != 'USD' or namespace != 'us-gaap':
+    if native_selection is None and (currency != 'USD' or namespace != 'us-gaap'):
         raise SecFundamentalsCoverageError('Independent financial metrics require supported reporting currency and taxonomy')
     recent = company.get('filings', {}).get('recent', {})
     filings = []
@@ -29,10 +29,18 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
             raise SecFundamentalsCoverageError('Incomplete partial-financial filing identity') from None
         if end <= filed <= available_by and accession:
             filings.append((end, filed, accession, form))
+    if native_selection is not None:
+        from app.services.sec_statement_currency import REPORTING_POLICY
+        if (native_selection.get('currency') != currency or native_selection.get('namespace') != namespace
+                or native_selection.get('currency_policy') != REPORTING_POLICY):
+            raise SecFundamentalsCoverageError('Unverified native partial-financial basis')
+        current_filing = native_selection['current']
+        filings = [(date.fromisoformat(current_filing['report_date']),date.fromisoformat(current_filing['filed']),
+                    current_filing['accession'],current_filing['form'])]
     if not filings:
         raise SecFundamentalsCoverageError('No completed partial-financial filing')
     end, filed, accession, form = max(filings)
-    if form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}:
+    if native_selection is None and form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}:
         raise SecFundamentalsCoverageError('Latest partial-financial reporting form requires supported period rules')
     if (available_by-end).days > 180:
         raise SecFundamentalsCoverageError('Stale partial-financial filing')
@@ -77,7 +85,7 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
         if old and min(old['value'], balance['equity']['value']) > 0:
             save('roe', income['value']/((old['value']+balance['equity']['value'])/2)*100,
                  'TTM net income / average beginning and ending equity * 100')
-    if cash and capex and cash['start'] == capex['start'] and capex['value'] >= 0:
+    if currency == 'USD' and cash and capex and cash['start'] == capex['start'] and capex['value'] >= 0:
         save('free_cash_flow', cash['value']-capex['value'],
              'TTM operating cash flow minus TTM cash paid for property, plant and equipment')
     if not calculations:
@@ -86,14 +94,19 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
         'available_by': str(available_by), 'availability_basis': 'filed date, available after completed New York filing day',
         'facts': {'url': f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json', 'sha256': hashlib.sha256(facts_raw).hexdigest()},
         'company': {'url': f'https://data.sec.gov/submissions/CIK{cik}.json', 'sha256': hashlib.sha256(company_raw).hexdigest()},
-        'reporting_currency': 'USD', 'period_end': str(end),
+        'reporting_currency': currency, 'period_end': str(end),
         'period_start': (income or cash or {}).get('start'),
         'current': current, 'prior': {}, 'instant': balance, 'calculations': calculations,
         'partial_financial_basis': {'accession': accession, 'filed': str(filed), 'form': form,
             'reason': 'current_revenue_unavailable', 'eligibility': 'verified_identity_and_current_filing_inputs'},
         'limitations': ['Current revenue and revenue-dependent ratios are unavailable, not zero.',
-            'Only independently aligned USD US GAAP balance-sheet and cash-flow metrics are included.',
+            f'Only independently aligned {currency} {namespace} balance-sheet and cash-flow metrics are included.',
             'Negative income and cash flow remain negative; missing capital expenditure is not zero.']}
+    if native_selection is not None:
+        evidence['native_reporting'] = native_selection
+        evidence['partial_financial_basis']['reason'] = 'current_ttm_revenue_unavailable'
+        evidence['limitations'][0] = 'Current trailing-twelve-month revenue is unavailable; reported shorter periods may remain available in the financial statements.'
+        evidence['limitations'].append('No inferred foreign-exchange, ADS or per-share mapping; native cash amounts do not populate USD caches.')
     if source_context:
         evidence.update({key: value for key, value in source_context.items() if value is not None})
     if filing_supplement is not None:

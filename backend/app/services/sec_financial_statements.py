@@ -55,9 +55,15 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
         return foreign.project(facts_raw,company_raw,symbol=symbol,cik=cik,observed_at=observed_at,supplement=filing_supplement)
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
     from app.services.sec_financial_continuity import record_sets
-    metrics={name:(tags,'USD') for name,tags in facts.TAGS.items()}
-    metrics['eps']=(('EarningsPerShareDiluted',),'USD/shares')
-    metrics['statement_assets']=(('Assets',),'USD')
+    from app.services import sec_statement_currency as native
+    native_selection=native.authorized(data,company,symbol=matches[0],cik=cik,
+        available_by=available,supplement=filing_supplement)
+    native_basis=native.reporting_basis(filing_supplement) if native_selection else None
+    currency=native_basis['currency'] if native_basis else 'USD'
+    metric_tags=native_basis['tags'] if native_basis else facts.TAGS
+    metrics={name:(metric_tags[name],currency) for name in facts.TAGS}
+    metrics['eps']=(('EarningsPerShareDiluted',),currency+'/shares')
+    metrics['statement_assets']=(('Assets',),currency)
     records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,instant_metrics={'statement_assets'},filing_supplement=filing_supplement,company=company)
     eps_records=records.pop('eps')
     standard_foreign=(filing_supplement or {}).get('evidence',{}).get('standard_foreign_reporting')
@@ -66,7 +72,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     asset_records=records.pop('statement_assets')
     from app.services.sec_reporting_policy import reviewed
     reporting_policy = reviewed(symbol, cik)
-    annual, quarters = set(), set()
+    annual, quarters, halves = set(), set(), set()
     for (start, end), value in records['revenue'].items():
         if not value or not start:
             continue
@@ -75,11 +81,15 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             annual.add((start, end))
         if 70 <= days <= 110:
             quarters.add((start, end))
+        if native_selection and 160 <= days <= 200:
+            halves.add((start, end))
     # Fourth quarters may only appear as annual totals less nine-month YTD.
     for start, end in annual:
         for (ytd_start, ytd_end), value in records['revenue'].items():
             if value and ytd_start == start and 70 <= (end-ytd_end).days <= 110:
                 quarters.add((ytd_end+timedelta(days=1), end))
+            if native_selection and value and ytd_start == start and 160 <= (end-ytd_end).days <= 200:
+                halves.add((ytd_end+timedelta(days=1), end))
     evidence = {}
     def rows(periods, count, kind):
         result = []
@@ -94,22 +104,23 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             value = lambda name: values[name]['value'] if values.get(name) else None
             revenue, income, cash, capex = value('revenue'), value('net_income'), value('operating_cash_flow'), value('capex')
             margin = lambda name: value(name)/revenue*100 if value(name) is not None and revenue > 0 else None
-            row = {'period': f'{"Year" if kind == "annual" else "Quarter"} ended {end}', 'date': str(end),
+            row = {'period': f'{"Year" if kind == "annual" else "Half-year" if kind == "semiannual" else "Quarter"} ended {end}', 'date': str(end),
                 'revenue': revenue, 'netIncome': income,
                 'eps': eps_records[start, end]['value'] if eps_records.get((start, end)) else None,
                 'grossMargin': margin('gross_profit'),
                 'operatingMargin': margin('operating_income'), 'operatingCashFlow': cash,
                 'capex': capex, 'freeCashFlow': cash-capex if cash is not None and capex is not None and capex >= 0 else None,
-                'source': 'sec_edgar', 'periodStart': str(start), 'currency': 'USD'}
+                'source': 'sec_edgar', 'periodStart': str(start), 'currency': currency}
             evidence[f'{kind}:{end}'] = values
             evidence[f'{kind}:{end}']['reportedDilutedEps'] = eps_records.get((start, end))
             result.append(row)
         return result
     annual_rows, quarterly_rows = rows(annual, 6, 'annual'), rows(quarters, 12, 'quarterly')
+    semiannual_rows = rows(halves, 12, 'semiannual') if native_selection and not quarterly_rows else []
     payload = _unavailable(symbol, message='SEC reported USD financials with partial coverage. Diluted EPS is shown only when directly reported. Analyst forecasts and valuation inputs are unavailable.', reason='partial_sec_coverage')
     payload.update(source='sec_edgar', companyName=company['name'], annual=annual_rows, quarterly=quarterly_rows,
         updatedAt=observed_at.isoformat(),
-        status='partial' if annual_rows or quarterly_rows else 'unavailable', unavailable=not bool(annual_rows or quarterly_rows),
+        status='partial' if annual_rows or quarterly_rows or semiannual_rows else 'unavailable', unavailable=not bool(annual_rows or quarterly_rows or semiannual_rows),
         sourceEvidence={'methodology': 'sec_statements_v1', 'availableBy': str(available), 'periods': evidence,
             'factsSha256': hashlib.sha256(facts_raw).hexdigest(), 'companySha256': hashlib.sha256(company_raw).hexdigest(),
             'factsUrl': f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',
@@ -122,6 +133,13 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             'Free cash flow subtracts property and equipment purchases only, excluding separately reported intangible purchases and financing payments. '
             'Diluted EPS is reported per ordinary share without an inferred ADS conversion. Analyst estimates remain unavailable.')
         payload['message'] = payload['reportingBasis']
+    if native_selection:
+        payload['semiannual']=semiannual_rows
+        payload['sourceEvidence']['nativeReporting']=native_selection
+        payload['reportingCurrency']=currency
+        payload['reportingBasis']=f'Reported {currency} {native_basis["namespace"]} statements from matched SEC financial filings. Net income and equity refer to parent holders. Per-share values and analyst estimates remain unavailable.'
+        payload['message']=payload['reportingBasis']
+        payload['preparationVersion']=native.REPORTING_POLICY
     if standard_foreign:
         payload['sourceEvidence']['standardForeignReporting']=standard_foreign
         payload['reportingCurrency']='USD'
@@ -137,12 +155,12 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
         payload['sourceEvidence']['financialContinuity']=continuity
     if filing_supplement is not None:
         payload['sourceEvidence']['inlineFilingSupplement']=filing_supplement['evidence']
-    if annual_rows or quarterly_rows:
+    if annual_rows or quarterly_rows or semiannual_rows:
         payload['sections']['income'] = 'partial'
-        payload['subsections']['income'] = _subsection(status='limited', reason_code='partial_sec_coverage', data={'annual': annual_rows, 'quarterly': quarterly_rows})
-    if any(row['operatingCashFlow'] is not None for row in annual_rows+quarterly_rows):
+        payload['subsections']['income'] = _subsection(status='limited', reason_code='partial_sec_coverage', data={'annual': annual_rows, 'quarterly': quarterly_rows, **({'semiannual':semiannual_rows} if native_selection else {})})
+    if any(row['operatingCashFlow'] is not None for row in annual_rows+quarterly_rows+semiannual_rows):
         payload['sections']['cashFlow'] = 'partial'
-        payload['subsections']['cash_flow'] = _subsection(status='limited', reason_code='partial_sec_coverage', data={'annual': annual_rows, 'quarterly': quarterly_rows})
+        payload['subsections']['cash_flow'] = _subsection(status='limited', reason_code='partial_sec_coverage', data={'annual': annual_rows, 'quarterly': quarterly_rows, **({'semiannual':semiannual_rows} if native_selection else {})})
     try:
         current = facts.project_fundamentals(facts_raw, company_raw, symbol=matches[0], cik=cik, observed_at=observed_at, history_raw=history_raw,filing_supplement=filing_supplement)
     except facts.SecFundamentalsCoverageError:
@@ -153,7 +171,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             item = source['current'].get(name)
             return item['value'] if item else None
         payload['summary'].update(revenueTtm=ttm('revenue'), netIncomeTtm=ttm('net_income'),
-            operatingCashFlowTtm=ttm('operating_cash_flow'), freeCashFlowTtm=current.get('free_cash_flow'),
+            operatingCashFlowTtm=ttm('operating_cash_flow'), freeCashFlowTtm=(source.get('native_cash_flow',{}).get('current') if native_selection and currency != 'USD' else current.get('free_cash_flow')),
             grossMargin=current.get('gross_margin'), operatingMargin=current.get('operating_margin'), currentRatio=current.get('current_ratio'))
         from app.services.sec_asset_turnover import derive
         turnover = derive(source, asset_records)
@@ -199,6 +217,14 @@ def cached_row_payload(row, symbol, *, now=None):
                 or not isinstance(proof, dict) or proof.get('standard_foreign_reporting') != generic):
             return None
     if not cached_currency_valid({'inline_filing_supplement': proof}):
+        return None
+    if 'nativeReporting' in evidence:
+        from app.services.sec_statement_currency import REPORTING_POLICY
+        if (evidence['nativeReporting'] != proof.get('native_reporting')
+                or payload.get('reportingCurrency') != proof.get('currency')
+                or payload.get('preparationVersion') != REPORTING_POLICY):
+            return None
+    elif isinstance(proof,dict) and 'native_reporting' in proof:
         return None
     from app.services.sec_reporting_policy import PROFILES, VERSION as reporting_version
     if symbol in PROFILES and payload.get('preparationVersion') != reporting_version:
@@ -290,13 +316,14 @@ def prepared(symbol):
                 from app.services.sec_inline_financials import acquire
                 from app.services import sec_foreign_statements as foreign
                 from app.services.sec_tagged_foreign import TaggedCurrencyError
+                from app.services.sec_statement_currency import StatementCurrencyError
                 try:
                     if foreign.profile(symbol,cik):
                         filing=foreign.acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
                     else:
                         filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
                     payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
-                except TaggedCurrencyError:
+                except (TaggedCurrencyError, StatementCurrencyError):
                     from app.services.ticker_financials import _unavailable
                     payload = _unavailable(symbol, message='Financial statements require verification of their reporting currency.',
                                            reason='unreviewed_foreign_statement_currency')

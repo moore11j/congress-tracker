@@ -4249,6 +4249,7 @@ export type TickerHydrationStatus = {
 };
 
 export type TickerFinancialsPoint = {
+  periodStart?: string | null;
   currency?: string | null;
   period: string;
   date?: string | null;
@@ -4607,6 +4608,7 @@ export type TickerFinancialsResponse = {
   };
   annual: TickerFinancialsPoint[];
   quarterly: TickerFinancialsPoint[];
+  semiannual?: TickerFinancialsPoint[];
   earnings: TickerEarningsPoint[];
   forecasts?: TickerFinancialForecasts | null;
   forecastBasis?: string | null;

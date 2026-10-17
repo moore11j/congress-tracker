@@ -1,0 +1,12 @@
+{
+  "ADSE-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001879248.json",
+    "sha256": "4ffe713c154b1cdf4c9891e15775a0a180986cae484088d466794d9b63d25e2e",
+    "bytes": 333136
+  },
+  "ALC-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001167379.json",
+    "sha256": "a685bfd70b43b2e2ef5c35ae97eb5f81cd01d48b2a010b9cee81516fd35c17e5",
+    "bytes": 1270589
+  }
+}
