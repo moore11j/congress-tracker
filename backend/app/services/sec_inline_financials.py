@@ -236,13 +236,15 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
             forms = {form}
     if identity != {cik} or forms != {form} or dates != {report_date}:
         raise InlineFactsError('filing_identity')
-    units = {}; unit_ids = set()
+    units = {}; unit_ids = set(); monetary_units = {}
     for n in nodes(tree, 'unit'):
         key = n.get('id')
         if not key or key in unit_ids:
             raise InlineFactsError('duplicate_unit')
         unit_ids.add(key)
         measures = [x.text_content().strip() for x in nodes(n, 'measure')]
+        if len(measures) == 1 and re.fullmatch(r'iso4217:[A-Z]{3}', measures[0]) and not nodes(n, 'divide'):
+            monetary_units[key] = measures[0].split(':')[1]
         if measures == ['iso4217:'+currency] and not nodes(n, 'divide'):
             units[key] = currency
         elif measures == ['iso4217:'+currency, 'xbrli:shares'] and len(nodes(n, 'divide')) == 1 and len(nodes(n, 'unitnumerator')) == len(nodes(n, 'unitdenominator')) == 1:
@@ -269,6 +271,38 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
             if cik == profile[0]:
                 auxiliary |= {t for ts in tags_for(equity_symbol, cik).values() for t in ts} - wanted
         wanted |= auxiliary
+    # Alternate entity-wide monetary columns may be convenience translations.
+    # Observe current standard balance and duration facts before filtering USD.
+    # This is an ambiguity guard, not inference of a presentation currency.
+    currency_groups = {}
+    currency_balance = {'Assets','StockholdersEquity','AssetsCurrent','LiabilitiesCurrent',
+        'Equity','EquityAttributableToOwnersOfParent','CurrentAssets','CurrentLiabilities'}
+    currency_duration = {'Revenues','RevenuesNetOfInterestExpense','RevenueFromContractWithCustomerExcludingAssessedTax',
+        'RevenueFromContractWithCustomerIncludingAssessedTax','SalesRevenueNet',
+        'RegulatedAndUnregulatedOperatingRevenue','NetIncomeLoss','OperatingIncomeLoss',
+        'NetCashProvidedByUsedInOperatingActivities','Revenue','RevenueFromContractsWithCustomers',
+        'ProfitLoss','ProfitLossAttributableToOwnersOfParent','ProfitLossFromOperatingActivities',
+        'CashFlowsFromUsedInOperatingActivities'}
+    for n in nodes(tree, 'nonfraction'):
+        name = n.get('name', '')
+        if not name.startswith(namespace+':'):
+            continue
+        tag = name.split(':', 1)[1]
+        period = contexts.get(n.get('contextref'))
+        monetary = monetary_units.get(n.get('unitref'))
+        if not monetary or period is None or str(period[1]) != report_date or tag not in currency_balance | currency_duration:
+            continue
+        if _nil_fact(n):
+            continue
+        # Currency ambiguity does not depend on the numeric transform.
+        # Reviewed currency readers keep their existing fact validation.
+        group = currency_groups.setdefault(monetary, set())
+        if period[0] is None and tag in currency_balance:
+            group.add('balance')
+        elif period[0] is not None and tag in currency_duration:
+            group.add('duration')
+    currency_observation = {'methodology':'entity_wide_statement_currencies_v1',
+        'current_statement_currencies':sorted(k for k,v in currency_groups.items() if v)}
     records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}; nil_keys = set()
     for n in nodes(tree, 'nonfraction'):
         name = n.get('name', '')
@@ -339,7 +373,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
     return {'facts':gaap, 'provenance':provenance, 'evidence':{'methodology':VERSION,
         'cik':cik, 'accession':accession, 'filed':filed, 'report_date':report_date, 'form':form,
         'url':url, 'sha256':source_sha256, 'reported_facts':len(records),
-        'namespace':namespace, 'currency':currency,
+        'namespace':namespace, 'currency':currency, 'currency_observation':currency_observation,
         **({'nil_facts':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3]}
             for k in sorted(nil_keys, key=repr)]} if nil_keys else {}),
         **({'revenue_status':'unavailable', 'partial_financial_policy':partial_version} if not revenue_available else {}),
