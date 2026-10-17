@@ -72,6 +72,9 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
             for key,point in additions.items():
                 if key not in current[name] and point and (not present_tags or point['tag'] in present_tags):
                     current[name][key] = point
+    from app.services.sec_revenue_concept_parity import apply as select_revenue_concept
+    current = select_revenue_concept(current, effective, company or {}, symbol=symbol, cik=cik,
+        available_by=available_by, supplement=filing_supplement)
     inline.annotate(current,filing_supplement,metrics=metrics,expected_cik=cik,available_by=available_by)
     from app.services.sec_bank_revenue import apply
     current = apply(current,effective,company,available_by=available_by)

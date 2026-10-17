@@ -25,6 +25,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 def version_for_symbol(symbol):
     from app.services.sec_parent_equity import PROFILES, VERSION as equity_version
     base = _base_version_for_symbol(symbol)
+    from app.services.sec_revenue_concept_parity import PROFILES as revenue_profiles, VERSION as revenue_version
+    if symbol in revenue_profiles:
+        base += '_'+revenue_version
     from app.services.sec_nonrevenue_financials import PROFILES as partial_profiles, VERSION as partial_version
     if symbol in partial_profiles:
         base += '_'+partial_version
