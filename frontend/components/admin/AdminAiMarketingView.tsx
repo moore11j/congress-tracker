@@ -1122,7 +1122,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       {activeTab === "drafts" ? (
         <>
         <div className="flex flex-wrap gap-2" aria-label="Content to review">
-          {(["videos", "posts"] as const).map(type => <button key={type} type="button" aria-pressed={reviewType === type} onClick={() => setReviewType(type)} className={`rounded-lg border px-4 py-2 text-sm ${reviewType === type ? "border-emerald-300 text-emerald-200" : "border-white/10 text-slate-400"}`}>{type === "videos" ? "Videos · Instagram & TikTok" : "Posts · X & Reddit"}</button>)}
+          {(["videos", "posts"] as const).map(type => <button key={type} type="button" aria-pressed={reviewType === type} onClick={() => setReviewType(type)} className={`rounded-lg border px-4 py-2 text-sm ${reviewType === type ? "border-emerald-300 text-emerald-200" : "border-white/10 text-slate-400"}`}>{type === "videos" ? "Videos · Instagram" : "Posts · X & Reddit"}</button>)}
         </div>
         <div hidden={reviewType !== "videos"}><GrowthVideoView view="queue" /></div>
         <div hidden={reviewType !== "posts"}><DraftsView

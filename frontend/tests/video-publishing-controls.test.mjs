@@ -17,7 +17,7 @@ vm.runInNewContext(compile("../lib/videoSchedule.ts"), {...schedule, module: sch
 
 // Execute the real component and its event handlers with isolated hook state.
 // No API requests or actual posts are made by these regression tests.
-function form(previewLoaded = true) {
+function form(previewLoaded = true, publications = []) {
   let cursor = 0;
   const values = [], calls = [], effects = [];
   const hooks = {
@@ -39,7 +39,7 @@ function form(previewLoaded = true) {
       return require(name);
     },
   });
-  const props = {item: {id: "test-video"}, caption: "Reviewed caption", publications: [], bufferReady: true,
+  const props = {item: {id: "test-video"}, caption: "Reviewed caption", publications, bufferReady: true,
     previewLoaded, busy: false, run: async fn => fn()};
   let nodes;
   function render() {
@@ -92,6 +92,7 @@ test("choosing a valid time preserves review and submits an explicit schedule wi
   assert.equal(payload.scheduled_at, "2099-07-15T16:30:00.000Z");
   assert.equal(payload.schedule_timezone, "America/Los_Angeles");
   assert.equal(payload.caption, "Reviewed caption");
+  assert.deepEqual(Array.from(payload.platforms), ["instagram"]);
   assert.equal(payload.reviewed_video_and_caption, true);
 });
 
@@ -108,5 +109,12 @@ test("switching to Now requires renewed approval; preview and content review gat
   f.change(f.find(n => n.type === "textarea"), {value: "Changed caption"});
   assert.equal(f.approval().props.checked, false);
   assert.equal(f.submit().props.disabled, true);
+  assert.equal(f.calls.length, 0);
+});
+
+test("historical TikTok failures remain visible without retry or reconciliation controls", () => {
+  const f = form(true, [{platform: "tiktok", status: "FAILED", caption: "Old caption"}]);
+  assert.equal(f.submit(), undefined);
+  assert.ok(f.find(n => n.props?.children === "TikTok posting is disabled. This record is retained as history; Walnut will not send or retry it."));
   assert.equal(f.calls.length, 0);
 });

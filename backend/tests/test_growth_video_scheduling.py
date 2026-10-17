@@ -24,22 +24,22 @@ class ScheduledBuffer(Buffer):
 def test_schedule_is_durable_idempotent_and_handed_to_buffer_once(db, monkeypatch):
     item=ready(db,monkeypatch);client=ScheduledBuffer();due=future()
     kwargs=dict(scheduled_at=due,schedule_timezone="America/Los_Angeles",client=client)
-    buffer.approve_publish(db,item,1,["instagram","tiktok"],"caption with links",**kwargs)
-    buffer.approve_publish(db,store.job(db,item['id']),1,["instagram","tiktok"],"caption with links",**kwargs)
+    buffer.approve_publish(db,item,1,["instagram"],"caption with links",**kwargs)
+    buffer.approve_publish(db,store.job(db,item['id']),1,["instagram"],"caption with links",**kwargs)
     assert not client.calls
     assert store.job(db,item['id'])['payload']['approval']['action']=='approve_and_schedule'
     # Re-running the additive migration preserves existing schedules.
     buffer.ensure_schema(db)
-    assert len(buffer.publications(db,item['id']))==2
+    assert len(buffer.publications(db,item['id']))==1
     buffer.run_pending(db,client=client)
     buffer.run_pending(db,client=client)
-    assert len(client.calls)==2 and all(call[3]==due for call in client.calls)
+    assert len(client.calls)==1 and all(call[3]==due for call in client.calls)
     assert all(p['status']=='SCHEDULED' and p['scheduled_at']==due and p['buffer_due_at']==due for p in buffer.publications(db))
     assert all('token' not in p for p in buffer.publications(db))
     db.execute(text("UPDATE growth_video_publications SET checked_at='2000-01-01T00:00:00+00:00'"));db.commit()
     buffer.run_pending(db,client=client)
     assert all(p['status']=='PUBLISHED' for p in buffer.publications(db))
-    assert len(client.calls)==2
+    assert len(client.calls)==1
 
 
 @pytest.mark.parametrize('due,zone',[
@@ -62,7 +62,7 @@ def test_changed_schedule_cannot_create_an_extra_or_immediate_post(db,monkeypatc
     item=ready(db,monkeypatch);due=future();client=ScheduledBuffer()
     buffer.approve_publish(db,item,1,['instagram'],'caption',scheduled_at=due,client=client)
     with pytest.raises(ValueError,match='different publishing time'):
-        buffer.approve_publish(db,store.job(db,item['id']),1,['tiktok'],'caption',client=client)
+        buffer.approve_publish(db,store.job(db,item['id']),1,['instagram'],'caption',client=client)
     assert len(buffer.publications(db))==1 and not client.calls
 
 

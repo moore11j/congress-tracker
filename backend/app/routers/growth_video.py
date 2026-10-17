@@ -34,12 +34,12 @@ MUTATION = [Depends(rate_limit_admin_mutation)]
 
 class Generate(Strict):
     opportunity_id: str = Field(max_length=100)
-    platform: Literal["tiktok", "instagram"] = "instagram"
+    platform: Literal["instagram"] = "instagram"
     format: Literal["research_finding", "product_investigation", "search_explanation"] = "research_finding"
 
 
 class ProductAd(Strict):
-    platform: Literal["tiktok", "instagram"] = "instagram"
+    platform: Literal["instagram"] = "instagram"
     hook: Literal["opinion", "score", "accountability", "ownership", "navigation"] = "navigation"
 
 
@@ -63,7 +63,7 @@ class AutomationEdit(Strict):
 
 
 class Publish(Strict):
-    platforms: list[Literal["instagram", "tiktok"]] = Field(min_length=1, max_length=2)
+    platforms: list[Literal["instagram"]] = Field(min_length=1, max_length=1)
     caption: str = Field(min_length=1, max_length=2200)
     reviewed_video_and_caption: bool = False
     confirm_buffer_channel_settings: bool = False
@@ -72,12 +72,12 @@ class Publish(Strict):
 
 
 class Reconcile(Strict):
-    platform: Literal["instagram", "tiktok"]
+    platform: Literal["instagram"]
     post_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,100}$")
 
 
 class RetryPublish(Strict):
-    platform: Literal["instagram", "tiktok"]
+    platform: Literal["instagram"]
     confirmed_no_buffer_post: bool = False
     scheduled_at: str | None = Field(default=None, max_length=50)
     schedule_timezone: str | None = Field(default=None, max_length=100)

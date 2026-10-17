@@ -100,5 +100,5 @@ def adapt(board, tutorial, version=None):
         narration=' '.join(s['narration'] for s in scenes),
         target_duration_seconds=sum(s['duration_seconds'] for s in scenes),
         caption=caption,first_comment='',cta='Explore Walnut Markets.',
-        posting_notes='Feature tutorial in the 3 research / 1 tutorial mix. Review the actual demo before scheduling to Instagram and TikTok.')
+        posting_notes='Feature tutorial in the 3 research / 1 tutorial mix. Review the actual demo before scheduling to Instagram.')
     return board

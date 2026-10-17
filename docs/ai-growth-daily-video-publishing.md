@@ -1,3 +1,5 @@
+> Current direction, October17UTC: Video generation/publishing remain paused. TikTok is retired by the owner; Instagram-only guards are prepared, with release status in [the retirement report](tiktok-publishing-retirement-2026-10-17.md). The workflow below is historical and does not authorize restarting it.
+
 # Daily research videos and Buffer publishing
 
 The existing two-minute video worker now runs daily discovery, the native video

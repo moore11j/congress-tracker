@@ -248,7 +248,7 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
                 )}
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            {view === "queue" ? "Watch the video, check its caption, then publish to your connected Instagram and TikTok accounts."
+            {view === "queue" ? "Watch the video, check its caption, then publish to your connected Walnut Instagram account."
               : view === "brief" ? "Keep the product, audience and brand guidance used in your content up to date."
               : view === "memory" ? "Review the feedback that guides future drafts."
               : view === "settings" ? "Manage daily drafts, connected accounts and generation settings."
@@ -328,7 +328,6 @@ export function GrowthVideoView({ view = "queue" }: { view?: View }) {
                 onChange={(e) => setPlatform(e.target.value)}
               >
                 <option value="instagram">Instagram Reel</option>
-                <option value="tiktok">TikTok</option>
               </select>
             </label>
             <label className="text-sm text-slate-300">
@@ -1195,7 +1194,7 @@ export function PublishVideo({item, caption, publications, bufferReady, previewL
   item: VideoJob; caption: string; publications: Publication[]; bufferReady: boolean; previewLoaded: boolean; run: Run; busy: boolean;
 }) {
   const [text, setText] = useState(caption);
-  const [platforms, setPlatforms] = useState(["instagram", "tiktok"]);
+  const [platforms, setPlatforms] = useState(["instagram"]);
   const [reviewed, setReviewed] = useState(false);
   const [postIds, setPostIds] = useState<Record<string,string>>({});
   const [noPost, setNoPost] = useState<Record<string,boolean>>({});
@@ -1213,9 +1212,10 @@ export function PublishVideo({item, caption, publications, bufferReady, previewL
     <details className="text-sm"><summary>Approved caption</summary><p className="mt-2 whitespace-pre-wrap">{publications[0].caption}</p></details>
     {publications.map(p => <div className="space-y-2 text-sm" key={p.platform}>
       <p>{p.platform}: {label(p.status)} {p.external_url && <a className="text-emerald-200 underline" href={p.external_url} target="_blank" rel="noreferrer">View post</a>}</p>
-      {p.scheduled_at && <p className="text-emerald-200">{p.status === "SCHEDULED" ? "Confirmed in Buffer" : p.status === "QUEUED" || p.status === "SUBMITTING" ? "Sending schedule to Buffer" : "Selected time"}: {formatVideoSchedule(p.buffer_due_at || p.scheduled_at, p.schedule_timezone)}</p>}
+      {p.scheduled_at && <p className="text-emerald-200">{p.platform === "tiktok" ? "Recorded schedule" : p.status === "SCHEDULED" ? "Confirmed in Buffer" : p.status === "QUEUED" || p.status === "SUBMITTING" ? "Sending schedule to Buffer" : "Selected time"}: {formatVideoSchedule(p.buffer_due_at || p.scheduled_at, p.schedule_timezone)}</p>}
       {p.error && <p className="text-rose-200">{p.error}</p>}
-      {["FAILED","UNCERTAIN"].includes(p.status) && <div>
+      {p.platform === "tiktok" && <p className="text-slate-400">TikTok posting is disabled. This record is retained as history; Walnut will not send or retry it.</p>}
+      {p.platform === "instagram" && ["FAILED","UNCERTAIN"].includes(p.status) && <div>
         <label className="text-xs">If the post exists in Buffer, paste its Buffer post ID to reconcile:
           <input className={input} value={postIds[p.platform] || ""} onChange={e => setPostIds({...postIds,[p.platform]:e.target.value})} />
         </label>
@@ -1236,7 +1236,7 @@ export function PublishVideo({item, caption, publications, bufferReady, previewL
     <h4 className="font-semibold text-emerald-100">Publish video</h4>
     <p className="text-sm text-slate-300">Your video and caption post directly through Buffer. No download needed.</p>
     <label className="block text-sm">Post caption<textarea className={`${input} mt-1`} rows={3} maxLength={2200} value={text} onChange={e => {setText(e.target.value);setReviewed(false);}} /></label>
-    <div className="flex gap-4">{["instagram","tiktok"].map(p => <label key={p} className="text-sm capitalize"><input type="checkbox" checked={platforms.includes(p)} onChange={e => {setPlatforms(e.target.checked ? [...platforms,p] : platforms.filter(x => x !== p));setReviewed(false);}} /> {p}</label>)}</div>
+    <div className="flex gap-4">{["instagram"].map(p => <label key={p} className="text-sm capitalize"><input type="checkbox" checked={platforms.includes(p)} onChange={e => {setPlatforms(e.target.checked ? [...platforms,p] : platforms.filter(x => x !== p));setReviewed(false);}} /> {p}</label>)}</div>
     <fieldset className="space-y-2"><legend className="text-sm font-medium">When to publish</legend>
       <div className="flex gap-4">{[["now","Now"],["schedule","Schedule"]].map(([value,title]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="radio" name={`publish-timing-${item.id}`} checked={timing === value} onChange={() => {setTiming(value);setReviewed(false);}} />{title}</label>)}</div>
       {scheduled && <div className="max-w-md space-y-2">
