@@ -1,0 +1,22 @@
+{
+  "RZLV-statement": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1920294/000119312526378541/rzlv-ex99_1.htm",
+    "sha256": "13fd52206f58781dfe1c84595ac087c99aa59b62b87b2cc5af8345998bf9cc59",
+    "bytes": 2867276,
+    "cik": "0001920294",
+    "accession": "0001193125-26-378541",
+    "filed": "2026-09-01",
+    "report_date": "2026-06-30",
+    "form": "6-K"
+  },
+  "RZLV-cover": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1920294/000119312526378541/rzlv-20260630.htm",
+    "sha256": "c9d36bd6341b1bbbc6c16ca41ee953f9656421fce8c187887416d26baeb8b53d",
+    "bytes": 264061,
+    "cik": "0001920294",
+    "accession": "0001193125-26-378541",
+    "filed": "2026-09-01",
+    "report_date": "2026-06-30",
+    "form": "6-K"
+  }
+}

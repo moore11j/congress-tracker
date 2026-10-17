@@ -69,12 +69,14 @@ def test_auxiliary_rounded_fact_keeps_finer_value_in_either_order():
         assert held['evidence']['auxiliary_holds'][0]['tag'] == 'IncomeTaxExpenseBenefit'
 
 
-def test_core_conflicting_facts_keep_existing_hold_even_with_rounding_metadata():
+def test_core_precision_accepts_containment_but_keeps_real_conflicts_held():
     import pytest
     from app.services.sec_inline_financials import InlineFactsError
     primary = fact('70.1', attrs='decimals="1"')
+    result = parse(document(fact('70', attrs='decimals="0"'), primary=primary))
+    assert result['facts']['RegulatedAndUnregulatedOperatingRevenue']['units']['USD'][0]['val'] == 70.1
     with pytest.raises(InlineFactsError, match='conflicting_reported_facts'):
-        parse(document(fact('70', attrs='decimals="0"'), primary=primary))
+        parse(document(fact('71', attrs='decimals="0"'), primary=primary))
 
 
 import pytest
