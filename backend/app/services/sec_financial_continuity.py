@@ -47,6 +47,11 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
         raise RegistrationHistoryError(filing_supplement['registration_error'])
     from app.services.sec_reporting_policy import forms_for
     forms = forms_for(symbol, cik)
+    from app.services import sec_tagged_foreign
+    generic_foreign = sec_tagged_foreign.authorized(payload, company, symbol=symbol, cik=cik, available_by=available_by, supplement=filing_supplement) if company else None
+    if generic_foreign is not None:
+        forms = sec_tagged_foreign.FORMS
+        payload = sec_tagged_foreign.filtered(payload, generic_foreign)
     from app.services.sec_currency_ratios import basis as reporting_basis
     native_basis = reporting_basis(symbol, cik)
     namespace = native_basis['namespace'] if native_basis else 'us-gaap'

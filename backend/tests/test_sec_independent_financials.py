@@ -101,7 +101,8 @@ def test_existing_complete_calculations_unchanged_and_no_universe_cache_reset():
 @pytest.mark.parametrize('form',['10-KT','10-QT','20-F','40-F'])
 def test_newer_reporting_basis_cannot_fall_back_to_old_domestic_report(form):
     facts,company=inputs();recent=company['filings']['recent']
-    for key,value in {'form':form,'reportDate':'2026-09-30','filingDate':'2026-10-06','accessionNumber':'0000000001-26-000999'}.items():recent[key].insert(0,value)
+    recent['primaryDocument']=['old.htm']
+    for key,value in {'form':form,'reportDate':'2026-09-30','filingDate':'2026-10-06','accessionNumber':'0000000001-26-000999','primaryDocument':'new.htm'}.items():recent[key].insert(0,value)
     with pytest.raises(sec.SecFundamentalsCoverageError,match='supported period rules'):project(facts,company)
 
 

@@ -188,7 +188,17 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
                 elif date_namespace not in TRR:
                     raise InlineFactsError('unsupported_report_date')
                 if local == 'date-monthname-day-year-en':
-                    value = str(datetime.strptime(value, '%B %d, %Y').date())
+                    # English month-name transform accepts nonnumeric separators,
+                    # including a space without a comma (XBRL TRR4/5).
+                    match = re.fullmatch(r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[^0-9]+([0-9]{1,2})[^0-9]+([0-9]{4}|[0-9]{1,2})', value, re.IGNORECASE)
+                    if match is None:
+                        raise InlineFactsError('unsupported_report_date')
+                    month, day, year = match.groups()
+                    months = ('jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec')
+                    try:
+                        value = str(date(int(year)+(2000 if len(year)<4 else 0), months.index(month[:3].lower())+1, int(day)))
+                    except ValueError as exc:
+                        raise InlineFactsError('unsupported_report_date') from exc
                 elif local == 'date-month-day-year':
                     # XBRL TRR 4/5: numeric M/D/Y, nonnumeric separators,
                     # and one/two-digit years in the 2000s (not strptime's pivot).
@@ -202,7 +212,10 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
                         raise InlineFactsError('unsupported_report_date') from exc
                 else:
                     raise InlineFactsError('unsupported_report_date')
-            dates.add(str(date.fromisoformat(value)))
+            try:
+                dates.add(str(date.fromisoformat(value)))
+            except ValueError as exc:
+                raise InlineFactsError('unsupported_report_date') from exc
     cover_evidence = None
     if cover_raw is not None or cover_url is not None:
         if cik == '0001306965':
@@ -396,6 +409,10 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
         raise InlineFactsError('company_identity')
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
     from app.services.sec_reporting_policy import forms_for, periodic_document
+    from app.services.sec_tagged_foreign import acquire as acquire_standard_foreign
+    standard_foreign = acquire_standard_foreign(payload, company, symbol=symbol, cik=cik, available_by=available, client=client)
+    if standard_foreign is not None:
+        return standard_foreign
     forms = forms_for(symbol, cik)
     from app.services.sec_currency_ratios import basis as currency_basis
     native_basis = currency_basis(symbol, cik)
