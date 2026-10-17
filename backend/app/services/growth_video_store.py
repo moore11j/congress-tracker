@@ -227,7 +227,7 @@ def discover(db):
         item = {"id": uid("co"), "topic": (source.get("article") or {}).get("title") or keyword or evidence[0]["ticker"],
                 "tickers": [evidence[0]["ticker"]], "opportunity_type": "approved_research", "detected_at": now(),
                 "freshness_days": round(age, 1), "source_ids": [source["id"]], "evidence_ids": [e["id"] for e in evidence],
-                "target_audience": "Self-directed investors researching a company", "platforms": ["tiktok", "instagram"],
+                "target_audience": "Self-directed investors researching a company", "platforms": ["instagram"],
                 "destination_url": evidence[0]["walnut_page_url"], "reason": f"Approved research retains {len(evidence)} dated quote metrics; {impressions:g} matching Google impressions in the synced period.",
                 "score": score, "component_scores": components, "scoring_weights": cfg["weights"], "confidence": "high for retained quote values; editorial score is a heuristic",
                 "factual_data_timestamp": evidence[0]["effective_date"], "search_signal": {"period": google.get("period"), "queries": matches},
@@ -322,7 +322,7 @@ def restore_job(db, job_id, actor):
 
 
 def create_job(db, opportunity_id, actor, platform, video_format, *, parent=None, feedback="", storyboard=None, reviewed_product=None):
-    if platform not in {"tiktok", "instagram"} or video_format not in FORMATS:
+    if platform not in {"instagram"} or video_format not in FORMATS:
         raise ValueError("Unsupported platform or video format.")
     if storyboard and storyboard.get("format") != video_format:
         raise ValueError("Edited storyboard must preserve the selected video format.")

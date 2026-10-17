@@ -194,16 +194,16 @@ def test_no_implicit_publishing_and_repeated_approval_is_idempotent(db, monkeypa
     item = ready(db, monkeypatch)
     client = Buffer()
     assert not buffer.run_pending(db, client=client)
-    buffer.approve_publish(db, item, 1, ["instagram", "tiktok"], "Reviewed caption", client=client)
+    buffer.approve_publish(db, item, 1, ["instagram"], "Reviewed caption", client=client)
     assert db.get(AiMarketingOpportunity, item["draft_id"]).status == "approved"
     item = store.job(db, item["id"])
-    buffer.approve_publish(db, item, 1, ["instagram", "tiktok"], "Reviewed caption", client=client)
+    buffer.approve_publish(db, item, 1, ["instagram"], "Reviewed caption", client=client)
     assert not client.calls  # Approval commits an outbox; no HTTP mutation here.
     buffer.run_pending(db, client=client)
     buffer.run_pending(db, client=client)
-    assert len(client.calls) == 2
+    assert len(client.calls) == 1
     assert all(call[2].startswith("https://congress-tracker-api.fly.dev/api/growth-video-media/") for call in client.calls)
-    assert len(buffer.publications(db, item["id"])) == 2
+    assert len(buffer.publications(db, item["id"])) == 1
     assert all("token" not in row for row in buffer.publications(db))
     assert all(p["status"] == "SUBMITTED" for p in buffer.publications(db))
 
@@ -211,7 +211,7 @@ def test_no_implicit_publishing_and_repeated_approval_is_idempotent(db, monkeypa
 def test_unknown_provider_outcome_is_not_replayed(db, monkeypatch):
     item = ready(db, monkeypatch)
     client = Buffer(uncertain=True)
-    buffer.approve_publish(db, item, 1, ["tiktok"], "caption", client=client)
+    buffer.approve_publish(db, item, 1, ["instagram"], "caption", client=client)
     buffer.run_pending(db, client=client)
     buffer.run_pending(db, client=client)
     assert len(client.calls) == 1

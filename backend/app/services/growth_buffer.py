@@ -13,8 +13,8 @@ from app.models import AiMarketingOpportunity
 from app.services import growth_video_store as store
 from app.services.growth_video_domain import digest
 
-# These are the two Walnut accounts explicitly connected by the owner.
-CHANNELS = {"instagram": "6aa61e05ea19ca0bde31a165", "tiktok": "6aa61e4cea19ca0bde31a20f"}
+# TikTok was disconnected by the owner. Never discover replacement accounts.
+CHANNELS = {"instagram": "6aa61e05ea19ca0bde31a165"}
 POST_FIELDS = "id channelId status externalLink sentAt dueAt schedulingType error { message }"
 
 
@@ -51,6 +51,8 @@ class BufferClient:
             raise BufferError("Buffer response could not be confirmed. Check Buffer before retrying.") from None
 
     def channel(self, platform):
+        if platform not in CHANNELS:
+            raise BufferError("Publishing to this platform is disabled.")
         data = self.query("query($input:ChannelInput!){channel(input:$input){id name service isDisconnected isLocked isQueuePaused}}",
                           {"input": {"id": CHANNELS[platform]}})["channel"]
         if data["id"] != CHANNELS[platform] or data["service"] != platform or data["isDisconnected"] or data["isLocked"]:
@@ -58,6 +60,8 @@ class BufferClient:
         return data
 
     def create(self, platform, caption, media_url, *, scheduled_at=None):
+        if platform not in CHANNELS:
+            raise BufferError("Publishing to this platform is disabled.")
         metadata = {platform: {"isAiGenerated": True}}
         if platform == "instagram":
             metadata[platform].update(type="reel", shouldShareToFeed=True)
@@ -144,7 +148,7 @@ def approve_publish(db, item, actor, platforms, caption, *, scheduled_at=None, s
         raise ValueError("Only a completed video can be approved for publishing.")
     platforms = list(dict.fromkeys(platforms))
     if not platforms or set(platforms) - set(CHANNELS):
-        raise ValueError("Select Instagram, TikTok, or both.")
+        raise ValueError("Only Instagram publishing is available. TikTok posting is disabled.")
     caption = caption.strip()
     if not 1 <= len(caption) <= 2200:
         raise ValueError("The caption must contain 1–2,200 characters.")
@@ -201,7 +205,7 @@ def approve_publish(db, item, actor, platforms, caption, *, scheduled_at=None, s
 
 def media_asset(db, token):
     row = db.execute(text("SELECT * FROM growth_video_publications WHERE token=:token"), {"token": token}).mappings().first()
-    if not row:
+    if not row or row["platform"] not in CHANNELS:
         raise ValueError("Media unavailable.")
     item = store.job(db, row["job_id"])
     p = item["payload"]
@@ -256,14 +260,14 @@ def run_pending(db, *, client=None, limit=2):
     client = client or BufferClient(db)
     before = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
     # A crashed request is NEVER automatically retried.
-    db.execute(text("UPDATE growth_video_publications SET status='UNCERTAIN',error='Worker interrupted. Inspect Buffer before reconciliation.' WHERE status='SUBMITTING' AND updated_at<:before"), {"before": before})
+    db.execute(text("UPDATE growth_video_publications SET status='UNCERTAIN',error='Worker interrupted. Inspect Buffer before reconciliation.' WHERE platform='instagram' AND status='SUBMITTING' AND updated_at<:before"), {"before": before})
     db.commit()
     now = datetime.now(timezone.utc)
     rows = db.execute(text("""SELECT p.*,s.scheduled_at,s.schedule_timezone FROM growth_video_publications p
        LEFT JOIN growth_video_publication_schedules s ON s.job_id=p.job_id AND s.platform=p.platform
-       WHERE p.status='QUEUED' OR (p.status='SUBMITTED' AND (p.checked_at IS NULL OR p.checked_at<:before))
+       WHERE p.platform='instagram' AND (p.status='QUEUED' OR (p.status='SUBMITTED' AND (p.checked_at IS NULL OR p.checked_at<:before))
        OR (p.status='SCHEDULED' AND (p.checked_at IS NULL OR p.checked_at<:scheduled_before
-           OR (COALESCE(s.buffer_due_at,s.scheduled_at)<=:now AND p.checked_at<:before)))
+           OR (COALESCE(s.buffer_due_at,s.scheduled_at)<=:now AND p.checked_at<:before))))
        ORDER BY CASE WHEN p.status='QUEUED' THEN 0 ELSE 1 END,p.updated_at LIMIT :limit"""),
        {"before": before, "scheduled_before": (now-timedelta(hours=6)).isoformat(), "now": now.isoformat(), "limit": limit}).mappings().all()
     output = []
