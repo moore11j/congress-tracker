@@ -1,0 +1,105 @@
+{
+  "AER": {
+    "metrics": {
+      "net_margin": 37.85381190257698,
+      "revenue_growth": 12.244553145307705,
+      "roe": 18.661845073534135
+    },
+    "annual": 6,
+    "quarterly": 9,
+    "document_set": true,
+    "primary": false
+  },
+  "ASC": {
+    "metrics": {
+      "current_ratio": 5.44771012458326,
+      "net_margin": 29.667241402718002,
+      "revenue_growth": 13.598087600246771,
+      "roe": 16.576282989283676
+    },
+    "annual": 6,
+    "quarterly": 12,
+    "document_set": false,
+    "primary": true
+  },
+  "BOSC": {
+    "metrics": {
+      "current_ratio": 2.732686084142395,
+      "fcf_growth": 77.45358090185675,
+      "fcf_margin": 6.655656810855984,
+      "free_cash_flow": 3345000.0,
+      "gross_margin": 24.0737792988181,
+      "net_margin": 7.216761510605277,
+      "operating_margin": 5.634923793226949,
+      "operating_margin_expansion": 1.903740077866018,
+      "revenue_growth": 7.462367430721855,
+      "roe": 13.16252653735189
+    },
+    "annual": 6,
+    "quarterly": 0,
+    "document_set": true,
+    "primary": false
+  },
+  "NAMI": {
+    "metrics": {
+      "current_ratio": 1.4979173608797067,
+      "gross_margin": 12.363943573421352,
+      "net_margin": -23.480293921175686,
+      "operating_margin": -26.932295964477976,
+      "roe": -84.82203059015579
+    },
+    "annual": 2,
+    "quarterly": 0,
+    "document_set": true,
+    "primary": false
+  },
+  "SLGL": {
+    "metrics": {
+      "current_ratio": 10.367566470468844,
+      "fcf_margin": -478.6629526462396,
+      "free_cash_flow": -8592000.0,
+      "net_margin": -910.1392757660167,
+      "operating_margin": -986.9637883008357,
+      "operating_margin_expansion": -967.048197644365,
+      "revenue_growth": -92.49926873093477,
+      "roe": -40.85373477706369
+    },
+    "annual": 6,
+    "quarterly": 9,
+    "document_set": true,
+    "primary": false
+  },
+  "TSEM": {
+    "metrics": {
+      "current_ratio": 4.913201273592257,
+      "fcf_margin": 17.58382014795421,
+      "free_cash_flow": 300610000.0,
+      "gross_margin": 26.87088020879946,
+      "net_margin": 16.93851658562351,
+      "operating_margin": 16.159730179815778,
+      "operating_margin_expansion": 4.402219430011016,
+      "revenue_growth": 14.89642685764288
+    },
+    "annual": 6,
+    "quarterly": 9,
+    "document_set": true,
+    "primary": false
+  },
+  "VLN": {
+    "metrics": {
+      "current_ratio": 5.21057865328156,
+      "fcf_margin": -20.599146467323088,
+      "free_cash_flow": -14770000.0,
+      "gross_margin": 61.77512482218069,
+      "net_margin": -45.233047892666875,
+      "operating_margin": -47.549580206967725,
+      "operating_margin_expansion": 8.74716104547258,
+      "revenue_growth": 7.676828352605497,
+      "roe": -30.375230040880545
+    },
+    "annual": 6,
+    "quarterly": 12,
+    "document_set": true,
+    "primary": false
+  }
+}

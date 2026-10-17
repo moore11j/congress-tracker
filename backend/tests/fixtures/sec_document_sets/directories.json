@@ -1,0 +1,18 @@
+{
+  "ADSE-company.json": {
+    "sha256": "8757205274c1fec5859118184bde06f65c1f49b981661825aa96fc4bc83db507",
+    "url": "https://data.sec.gov/submissions/CIK0001879248.json"
+  },
+  "AER-company.json": {
+    "sha256": "8685eb5435bf55b2b48a62c551f4e6e55fa7f88d1eeba39a9a8e20bffe18885d",
+    "url": "https://data.sec.gov/submissions/CIK0001378789.json"
+  },
+  "ALC-company.json": {
+    "sha256": "e900917d42eb27d33c8f63090ca8336bef55feedc16e8aede90d067cdf020c17",
+    "url": "https://data.sec.gov/submissions/CIK0001167379.json"
+  },
+  "AER-facts.json": {
+    "sha256": "e172e18f599684304e05b270aaf1d41da8eb59a738fa6e864d1081e304bc77e6",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001378789.json"
+  }
+}

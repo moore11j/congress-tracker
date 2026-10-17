@@ -86,9 +86,13 @@ def plan(payload, company, *, symbol, cik, available_by):
             'A current tagged statement is required; event-only 6-Ks do not establish financial reporting periods.']}
 
 
-def acquire(payload,company,*,symbol,cik,available_by,client):
+def acquire(payload,company,*,symbol,cik,available_by,client,company_raw=None):
+    from app.services.sec_reporting_policy import reviewed
+    from app.services.sec_currency_ratios import basis
+    if reviewed(symbol,cik) or basis(symbol,cik):return None
     selection=plan(payload,company,symbol=symbol,cik=cik,available_by=available_by)
-    if selection is None:return None
+    if selection is None:
+        return _document_set(payload,company,company_raw,symbol=symbol,cik=cik,available_by=available_by,client=client)
     from app.services.sec_inline_financials import parse
     current=selection['current'];raw=client.get(current['url'])
     parsed=parse(raw,cik=selection['cik'],accession=current['accession'],filed=current['filed'],
@@ -99,13 +103,35 @@ def acquire(payload,company,*,symbol,cik,available_by,client):
 
 def authorized(payload,company,*,symbol,cik,available_by,supplement):
     """Recompute qualification and bind it to the independently parsed original."""
+    proof=(supplement or {}).get('evidence',{})
+    if proof.get('cover_evidence',{}).get('methodology')=='sec_inline_document_set_v1' or proof.get('unindexed_primary_discovery'):
+        from app.services.sec_inline_financials import merge
+        payload=merge(payload,supplement,available_by=available_by)
     selection=plan(payload,company,symbol=symbol,cik=cik,available_by=available_by)
     if selection is None:return None
-    proof=(supplement or {}).get('evidence',{})
     current=selection['current']
+    expected_url=current['url']
+    primary=proof.get('unindexed_primary_discovery')
+    if primary is not None:
+        if (primary.get('cover_url')!=current['url'] or primary.get('cik')!=selection['cik']
+                or any(primary.get(k)!=current[k] for k in ('accession','filed','report_date','form'))
+                or not re.fullmatch(r'[0-9a-f]{64}',str(primary.get('directory_sha256','')))):
+            raise TaggedForeignError('primary_original_proof_required')
+    cover=proof.get('cover_evidence',{})
+    if cover.get('methodology')=='sec_inline_document_set_v1':
+        discovery=proof.get('document_set_discovery',{})
+        expected_url=discovery.get('statement_url')
+        if (cover.get('source_url')!=current['url'] or discovery.get('cover_url')!=current['url']
+                or cover.get('exhibit_url')!=expected_url or cover.get('exhibit_sha256')!=proof.get('sha256')
+                or any(discovery.get(k)!=current[k] for k in ('accession','filed','report_date','form'))
+                or discovery.get('cik')!=selection['cik']
+                or not re.fullmatch(r'[0-9a-f]{64}',str(cover.get('source_sha256','')))
+                or not re.fullmatch(r'[0-9a-f]{64}',str(discovery.get('directory_sha256','')))):
+            raise TaggedForeignError('document_set_original_proof_required')
     if (proof.get('standard_foreign_reporting')!=selection or proof.get('cik')!=selection['cik']
             or proof.get('namespace')!='us-gaap' or proof.get('currency')!='USD'
-            or any(proof.get(k)!=current[k] for k in ('accession','filed','report_date','form','url'))
+            or any(proof.get(k)!=current[k] for k in ('accession','filed','report_date','form'))
+            or proof.get('url')!=expected_url
             or not isinstance(proof.get('sha256'),str)
             or not re.fullmatch(r'[0-9a-f]{64}',proof['sha256'])):
         raise TaggedForeignError('tagged_foreign_original_proof_required')
@@ -122,3 +148,47 @@ def filtered(payload,selection):
                 concept['units'][unit]=[p for p in rows if p.get('accn') in accepted
                     and p.get('form')==accepted[p['accn']]['form'] and p.get('filed')==accepted[p['accn']]['filed']]
     return out
+
+
+
+def _document_set(payload,company,company_raw,*,symbol,cik,available_by,client):
+    """Recover an indexed foreign statement omitted from companyfacts.
+
+    Only the existing USD US GAAP reporting class is admitted here. Native
+    currency/IFRS basis selection remains separate from document discovery.
+    """
+    if company_raw is None or not any(f in {'6-K','6-K/A'} for f in company.get('filings',{}).get('recent',{}).get('form',[])):return None
+    from app.services import sec_document_sets as sets,sec_inline_financials as inline,sec_foreign_statements as foreign
+    if foreign.profile(symbol,cik):return None
+    concepts=payload.get('facts',{}).get('us-gaap',{})
+    if not any(concepts.get(tag,{}).get('units',{}).get('USD') for tag in BALANCE) or not any(concepts.get(tag,{}).get('units',{}).get('USD') for tag in DURATION):return None
+    candidates=sets.candidates(company_raw,symbol=symbol,cik=cik,available_by=available_by)
+    # Preserve the existing domestic reporting boundary even when companyfacts
+    # has no qualifying foreign statement. Old 6-Ks must not supersede a 10-Q.
+    from app.services.sec_reporting_policy import DOMESTIC_FORMS
+    recent=company.get('filings',{}).get('recent',{})
+    domestic_ends=[_day(end) for form,end,filed in zip(recent.get('form',[]),recent.get('reportDate',[]),recent.get('filingDate',[]))
+        if form in DOMESTIC_FORMS and _day(end) and _day(filed) and _day(end)<=_day(filed)<=available_by]
+    if domestic_ends:
+        candidates=[c for c in candidates if _day(c['report_date'])>max(domestic_ends)]
+    # A lagged report period is more likely to be a statement than a same-day
+    # event. This controls bounded discovery order, never financial admission.
+    candidates.sort(key=lambda c:(c['report_date']<c['filed'],c['report_date'],c['filed']),reverse=True)
+    for candidate in candidates[:3]:
+        try:
+            supplement=sets.acquire_candidate(candidate,company_raw,symbol=symbol,cik=cik,
+                available_by=available_by,client=client)
+        except inline.InlineFactsError as exc:
+            if str(exc) in {'filing_namespaces','latest_reported_revenue_unavailable'}:continue
+            raise
+        if supplement is None:continue
+        effective=inline.merge(payload,supplement,available_by=available_by)
+        selection=plan(effective,company,symbol=symbol,cik=cik,available_by=available_by)
+        if selection is None:continue
+        # A parsed older exhibit cannot authorize an unrelated current filing.
+        if selection['current']['accession']!=candidate['accession']:
+            raise TaggedForeignError('document_set_not_current_selection')
+        supplement['evidence']['document_set_discovery_limit']={'candidate_bound':3,'total_candidates':len(candidates),'statement_complete':False}
+        supplement['evidence']['standard_foreign_reporting']=selection
+        return supplement
+    return None

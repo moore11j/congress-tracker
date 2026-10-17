@@ -120,7 +120,7 @@ def _consistent_precision(previous, previous_decimals, value, decimals):
     return None
 
 
-def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cover_raw=None, cover_url=None):
+def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cover_raw=None, cover_url=None, document_set=False):
     from app.services.sec_fundamentals import TAGS
     namespace = basis['namespace'] if basis else 'us-gaap'
     currency = basis['currency'] if basis else 'USD'
@@ -130,7 +130,13 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
     if not raw or len(raw) > MAX_INLINE_BYTES:
         raise InlineFactsError('filing_size')
     source_sha256 = hashlib.sha256(raw).hexdigest()
-    tree = html.fromstring(raw)
+    document_set_evidence = None
+    if document_set:
+        from app.services.sec_document_sets import combined_tree
+        tree, document_set_evidence = combined_tree(raw, cover_raw, url=url, cover_url=cover_url,
+            cik=cik, accession=accession, form=form)
+    else:
+        tree = html.fromstring(raw)
     namespace_pattern = r'https?://fasb\.org/us-gaap/[0-9]{4}' if namespace == 'us-gaap' else r'https?://xbrl\.ifrs\.org/taxonomy/[0-9]{4}-[0-9]{2}-[0-9]{2}/ifrs-full'
     if (not re.fullmatch(namespace_pattern, tree.get('xmlns:'+namespace, ''))
             or not re.fullmatch(r'https?://xbrl.sec.gov/dei/[0-9]{4}', tree.get('xmlns:dei', ''))
@@ -216,8 +222,8 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
                 dates.add(str(date.fromisoformat(value)))
             except ValueError as exc:
                 raise InlineFactsError('unsupported_report_date') from exc
-    cover_evidence = None
-    if cover_raw is not None or cover_url is not None:
+    cover_evidence = document_set_evidence
+    if not document_set and (cover_raw is not None or cover_url is not None):
         if cik == '0001306965':
             from app.services.sec_shell_financials import form_proof
         else:
@@ -410,7 +416,7 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
     from app.services.sec_reporting_policy import forms_for, periodic_document
     from app.services.sec_tagged_foreign import acquire as acquire_standard_foreign
-    standard_foreign = acquire_standard_foreign(payload, company, symbol=symbol, cik=cik, available_by=available, client=client)
+    standard_foreign = acquire_standard_foreign(payload, company, symbol=symbol, cik=cik, available_by=available, client=client, company_raw=company_raw)
     if standard_foreign is not None:
         return standard_foreign
     forms = forms_for(symbol, cik)
