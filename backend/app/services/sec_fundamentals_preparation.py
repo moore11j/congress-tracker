@@ -25,6 +25,9 @@ METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
 def version_for_symbol(symbol):
     from app.services.sec_parent_equity import PROFILES, VERSION as equity_version
     base = _base_version_for_symbol(symbol)
+    from app.services.sec_nonrevenue_financials import PROFILES as partial_profiles, VERSION as partial_version
+    if symbol in partial_profiles:
+        base += '_'+partial_version
     if symbol == 'NVDA':
         base += '_'+CASH_FLOW_RECOVERY_VERSION
     return base+"_"+equity_version if symbol in PROFILES else base

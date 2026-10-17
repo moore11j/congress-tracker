@@ -1,0 +1,97 @@
+"""Independently supported metrics for reviewed issuers without current revenue.
+
+Revenue-dependent calculations remain unavailable. No synthetic zero amounts.
+"""
+from datetime import date, timedelta
+import hashlib
+import json
+import math
+
+VERSION = 'sec_nonrevenue_financials_v1'
+PROFILES = {'ANIX': '0000715446', 'BCDA': '0000925741'}
+
+
+def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_at, available_by, filing_supplement=None):
+    from app.services.sec_fundamentals import _ttm, SecFundamentalsCoverageError
+    if PROFILES.get(symbol) != cik:
+        raise SecFundamentalsCoverageError('No current complete trailing revenue period')
+    recent = company.get('filings', {}).get('recent', {})
+    filings = []
+    for i, form in enumerate(recent.get('form', [])):
+        if form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}:
+            continue
+        try:
+            end = date.fromisoformat(recent['reportDate'][i])
+            filed = date.fromisoformat(recent['filingDate'][i])
+            accession = recent['accessionNumber'][i]
+        except (KeyError, IndexError, ValueError, TypeError):
+            raise SecFundamentalsCoverageError('Incomplete partial-financial filing identity') from None
+        if end <= filed <= available_by and accession:
+            filings.append((end, filed, accession, form))
+    if not filings:
+        raise SecFundamentalsCoverageError('No completed partial-financial filing')
+    end, filed, accession, form = max(filings)
+    if (available_by-end).days > 180:
+        raise SecFundamentalsCoverageError('Stale partial-financial filing')
+    candidates = [r for r in filings if r[:2] == (end, filed)]
+    if len({r[2] for r in candidates}) != 1:
+        raise SecFundamentalsCoverageError('Ambiguous partial-financial filing')
+
+    def instant(name, at=end):
+        fact = records[name].get((None, at))
+        if at == end and fact and (fact['accession'] != accession or fact['filed'] != str(filed)):
+            return None
+        return fact
+
+    def trailing(name):
+        fact = _ttm(records[name], end)
+        if fact and not any(f['end'] == str(end) and f['accession'] == accession
+                            and f['filed'] == str(filed) for f in fact['inputs']):
+            return None
+        return fact
+
+    current = {name: trailing(name) for name in ('net_income', 'operating_cash_flow', 'capex')}
+    current['revenue'] = None
+    balance = {name: instant(name) for name in ('equity', 'current_assets', 'current_liabilities')}
+    income, cash, capex = (current[k] for k in ('net_income', 'operating_cash_flow', 'capex'))
+    values = {'symbol': symbol, 'provider': 'sec_edgar', 'company_name': company['name'],
+              'fetched_at': observed_at, 'period_date': end, 'status': 'ok', 'error': None}
+    tickers, exchanges = company.get('tickers', []), company.get('exchanges', [])
+    values['exchange'] = exchanges[tickers.index(symbol)] if symbol in tickers and len(exchanges) == len(tickers) else None
+    calculations = {}
+    def save(name, value, formula):
+        if math.isfinite(value):
+            values[name] = value
+            calculations[name] = formula
+
+    assets, liabilities = balance['current_assets'], balance['current_liabilities']
+    if assets and liabilities and assets['value'] >= 0 and liabilities['value'] > 0:
+        save('current_ratio', assets['value']/liabilities['value'], 'period-end current assets / current liabilities')
+    if income and balance['equity']:
+        beginning = date.fromisoformat(income['start'])-timedelta(days=1)
+        balance['beginning_equity'] = instant('equity', beginning)
+        old = balance['beginning_equity']
+        if old and min(old['value'], balance['equity']['value']) > 0:
+            save('roe', income['value']/((old['value']+balance['equity']['value'])/2)*100,
+                 'TTM net income / average beginning and ending equity * 100')
+    if cash and capex and cash['start'] == capex['start'] and capex['value'] >= 0:
+        save('free_cash_flow', cash['value']-capex['value'],
+             'TTM operating cash flow minus TTM cash paid for property, plant and equipment')
+    if not calculations:
+        raise SecFundamentalsCoverageError('No independently supported partial financial metrics')
+    evidence = {'methodology': VERSION, 'financial_status': 'partial', 'cik': cik,
+        'available_by': str(available_by), 'availability_basis': 'filed date, available after completed New York filing day',
+        'facts': {'url': f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json', 'sha256': hashlib.sha256(facts_raw).hexdigest()},
+        'company': {'url': f'https://data.sec.gov/submissions/CIK{cik}.json', 'sha256': hashlib.sha256(company_raw).hexdigest()},
+        'reporting_currency': 'USD', 'period_end': str(end),
+        'period_start': (income or cash or {}).get('start'),
+        'current': current, 'prior': {}, 'instant': balance, 'calculations': calculations,
+        'partial_financial_basis': {'accession': accession, 'filed': str(filed), 'form': form,
+            'reason': 'current_revenue_unavailable', 'reviewed_symbol': symbol},
+        'limitations': ['Current revenue and revenue-dependent ratios are unavailable, not zero.',
+            'Only independently aligned USD US GAAP balance-sheet and cash-flow metrics are included.',
+            'Negative income and cash flow remain negative; missing capital expenditure is not zero.']}
+    if filing_supplement is not None:
+        evidence['inline_filing_supplement'] = filing_supplement['evidence']
+    values['source_evidence_json'] = json.dumps(evidence, sort_keys=True)
+    return values

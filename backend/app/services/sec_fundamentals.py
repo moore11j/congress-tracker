@@ -320,7 +320,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
     if end is None or (available_by - end).days > 180:
-        raise SecFundamentalsCoverageError("No current complete trailing revenue period")
+        from app.services.sec_nonrevenue_financials import project as partial_financials
+        return partial_financials(records, company, symbol=symbol, cik=cik,
+            facts_raw=facts_raw, company_raw=company_raw, observed_at=observed_at, available_by=available_by,
+            filing_supplement=filing_supplement)
     # Do not silently fall back to an older annual period when newer reported
     # revenue cannot be aligned into a complete trailing year.
     if ends and end != ends[0]:
