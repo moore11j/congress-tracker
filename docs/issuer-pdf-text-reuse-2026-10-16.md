@@ -32,3 +32,8 @@ Previous goal turn made concrete progress through Shell merge and ordinary issue
 Completed read-only production verification of all10configured readers: 9prepared (MGA,MSFT,NVDA,META,GOOGL,IBM,SOFI,MRNA,RDDT), holds=[{"symbol": "UL", "reason": "latest_issuer_index_not_verified"}]. Every prepared result has exact reader-validated source/text hashes, document/revision provenance and Q&A; no text/customer payload exported, zero writes. This is current selected reader behavior on the existing deployed image, not the new cache runtime or broad all-ticker transcript coverage. Receipt artifacts/issuer-reader-stream-1792113034.json.
 
 The prior timed-out process was confirmed absent before this replacement probe. The new bounded20/25CPU-second probe streams each completed public-status result to a local receipt, preserving partial evidence if observation fails. It does not restart the prior process or change production collectors. Prepared transcript data remains separately gated; TRANSCRIPT_PROVIDER remainsFMP. Institutional/financial broad coverage, all source/alert/ranking consumers, sustained capacity and final providers/zero-FMP/billing gates remain. PR694-699 are merged, not deployed; no protected portfolio interruption or deployment retry.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.

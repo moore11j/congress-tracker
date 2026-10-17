@@ -51,3 +51,8 @@ Shell is local preparation pending exact review/release, installed verification 
 PR694-698 remain undeployed. The protected portfolio cycle advances from538 to546 of1135scopes with zero failed scopes; the latest actual queue observation confirms an ordinary enrichment process live. No deployment retry, checkpoint clearing or job interruption. Evidence: release-blocker-1792112226.json and active-work-1792112231.json. Four public rendered responses return200/no server errors at00:56UTC: Feed0.523s, Insights2.860s, AAPL2.688s andNVDA2.753s. This is not sustained or signed-in performance acceptance (public-render-1792112197185.json).
 
 Previous percentage-only goal turn was no progress. This turn completes the reviewed merge and obtains new ordinary issuer collection evidence; goal remains active. Installed Shell verification and ordinary preparation follow a safe deployment boundary. Core financials/transcripts remainFMP and institutional publication is not activated. All broader coverage, scheduled consumers, capacity, final providers, zero-FMP and billing gates remain.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.

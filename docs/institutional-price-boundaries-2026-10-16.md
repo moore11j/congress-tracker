@@ -41,3 +41,8 @@ PR697 https://github.com/moore11j/congress-tracker/pull/697 tested6bacb497ee1ee7
 No backend deployment was attempted. Read-only final release-blocker-1792110904.json records530/1135protected scopes, zero failures, continuing/no live portfolio process,12queued. active-work-1792110902.json independently confirms another app.ingest_run group actually live17seconds/1.22CPU. Neither queue state nor a previous succeeded external request clears the unfinished-cycle guard. PR694/695/696/697 await safe release and installed verification.
 
 Public render receipt public-render-1792110814542.json at00:33:34: all four200/noRSCerrors, Feed0.645s, Insights0.153s, AAPL2.646s, NVDA3.713s. These responses confirm no sampled server error, not sustained capacity, fresh/full data or signed-in behavior. Broader performance remains open. Local test/process handles all terminal; ownedPGserver stopped and schema removed. No provider activation, new schedule, hardware change, purchase, customer email, video or landing edit.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.

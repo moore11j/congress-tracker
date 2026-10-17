@@ -1,3 +1,5 @@
+October17,00:33UTC: [Guarded migration release](migration-release-verification-2026-10-17.md) deploysPR694-705/f4f9ff0f with eleven installed proofs. OrdinaryShellfourmetric equality passes; NVO/BABA scheduled refresh remains pending. Terminalfailedportfolio and sustained capacity remain reliability gates; coreFMP/institutionsoff/IPOandpaid preparationoff/finalMassive and full retirement remain incomplete.
+
 October16: [BABA financial preparation](baba-sec-financials-2026-10-16.md) locally adds seven native CNY GAAP ratios with276Linuxchecks and full-original consumers. Cash/valuation/history gaps remain; review/release/ordinary operation pending. Core staysFMP and retirement incomplete.
 
 October16,02:26UTC: [NVO PR704](nvo-sec-financials-2026-10-16.md#reviewed-merge-and-pending-backend-release) merged9bf64c51/allCI/exacttestedparity. Nine ratios/275checks/full-original consumers verified locally; backend and ordinary acquisition await safe release. Core remainsFMP; full retirement incomplete.

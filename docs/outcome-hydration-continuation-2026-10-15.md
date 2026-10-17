@@ -42,3 +42,8 @@ Prepared artifacts/verify-outcome-continuation-runtime-oct15.py passes local Win
 No backend deployment was attempted for PR695. Last protected-cycle receipt release-blocker-1792109139.json remains518/1135/zero failures, continuing,17queued. At00:08:26 the separate price hydrator is actually live at438seconds/38.49CPU with19queued (active-work-1792109306.json). This does not imply the job is stuck or terminal. Normal SEC collection completion remains unverified; no duplicate collector or publisher was queued.
 
 Public rendered-response spot check00:09:17 (public-render-1792109357240.json) passesHTTP200/no RSC or server-error markers: Feed0.284s,Insights0.240s,AAPL0.366s,NVDA0.675s. These are current public response samples, not complete client data, source freshness or sustained capacity evidence. Prior production backend18de6ae1 remains the last verified release; both PR694 andPR695 await a safe guarded rollout. The broad FMP migration stays active and incomplete.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.

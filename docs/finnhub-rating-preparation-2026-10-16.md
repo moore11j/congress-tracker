@@ -49,3 +49,8 @@ The previous status-only turn was no progress. This continuation completes execu
 The four-hash installed verifier was prepared and passed a local Python3.14.2 rehearsal: disabled preparation and CLI reject before database import, synthetic source/cache repeat preserves clocks and duplicates, conflicting/tampered data is held, and zero provider calls/canonical events/production reads or writes occur. Receipt artifacts/rating-runtime-1792114034.json. This is local rehearsal, not installed production proof; the190 selected tests separately ran on Linux3.12.3.
 
 After merge, actual bounded guard receipt artifacts/release-blocker-1792114084.json still reports a continuing protected portfolio cycle567/1135, zero failed scopes and11pending jobs. No portfolio process was live at that instant; the unfinished durable cycle still prevents deployment. No restart, checkpoint reset or guard bypass. PR694-700 remain merged and undeployed. Earlier local/unreviewed statements are superseded by this merge receipt; live paid source/coverage/reconciliation/scheduled consumers and all broader FMP retirement gates remain open. All local test handles are terminal; unrelated TypeScript build metadata is preserved.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.

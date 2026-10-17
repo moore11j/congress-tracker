@@ -27,3 +27,8 @@ Twelve-hash installed-runtime verifier is prepared and passes local Python3.14.2
 Local codex/baba-sec-financials; reviewed merge/deployment still pending. Final pre-review aggregate guard release-blocker-1792118352.json has a continuing protected portfolio cycle1010/1135, zero recorded scope failures, six pending jobs, no live portfolio PID at that observation. This is advancing checkpoint evidence, not completion or a currently verified process wait. PR694-704 backend releases remain deferred; no guard bypass/reset/retry. Public anonymous Feed/Insights/AAPL/NVDA return200/no server/RSCerror in0.626/1.749/0.867/1.020seconds (public-render-1792118257.json), which is a spot check only.
 
 Prior NVO turn and current source/implementation/consumer turn are concrete migration progress. Goalactive/FMPenabled. Full financial coverage, institutional activation, transcripts, remaining analysts/valuation/calendar, all scheduled consumer checks, sustained performance, final Massive entitlement, zero-FMP traffic and billing closure remain. Pending private exports untouched. No source selector, schedule, hardware, subscription, customer email, video or landing-page change.
+
+
+## October17 installed release
+
+This package is deployed in f4f9ff0f through successful guarded workflow38986463595, and its isolated installed-runtime proof passes. See the [central release and ordinary-operation report](migration-release-verification-2026-10-17.md) for exact receipts, verifier corrections, live-source distinctions and remaining gates. Earlier deferred-release notes above are historical. No provider selection changed; FMP retirement remains incomplete.
