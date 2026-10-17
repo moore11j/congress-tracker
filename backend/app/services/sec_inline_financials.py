@@ -292,8 +292,15 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         monetary = monetary_units.get(n.get('unitref'))
         if not monetary or period is None or str(period[1]) != report_date or tag not in currency_balance | currency_duration:
             continue
-        if _nil_fact(n):
-            continue
+        try:
+            if _nil_fact(n):
+                continue
+        except InlineFactsError:
+            if tag not in auxiliary:
+                raise
+            # The numeric pass isolates malformed optional facts. Still retain
+            # their declared currency here: an optional fact error must not
+            # make a multi-currency statement look unambiguously USD.
         # Currency ambiguity does not depend on the numeric transform.
         # Reviewed currency readers keep their existing fact validation.
         group = currency_groups.setdefault(monetary, set())

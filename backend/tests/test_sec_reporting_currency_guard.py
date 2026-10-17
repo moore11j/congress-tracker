@@ -138,3 +138,17 @@ def test_missing_native_proof_keeps_ambiguous_currency_hold_cached_without_repea
         finally:
             reset_request_context(token)
     engine.dispose()
+
+
+@pytest.mark.parametrize('mode',['wrong_namespace','invalid_boolean','content'])
+def test_malformed_optional_fact_cannot_hide_a_second_statement_currency(mode):
+    from test_sec_inline_financials import document,fact,parse,TAG
+    optional=fact('1' if mode=='content' else '',tag='ProfitLoss',
+        attrs='xs:nil="maybe"' if mode=='invalid_boolean' else 'xs:nil="true"').replace('unitRef="usd"','unitRef="cny"')
+    units='<xbrli:unit id="cny"><xbrli:measure>iso4217:CNY</xbrli:measure></xbrli:unit>'
+    raw=document(units+optional).replace(b'<html ',b'<html xmlns:xs="http://www.w3.org/2001/XMLSchema-instance" ',1)
+    if mode=='wrong_namespace':raw=raw.replace(b'http://www.w3.org/2001/XMLSchema-instance',b'https://example.test/spoof')
+    result=parse(raw)
+    assert result['facts'][TAG]['units']['USD'][0]['val']==70
+    assert result['evidence']['currency_observation']['current_statement_currencies']==['CNY','USD']
+    with pytest.raises(tagged.TaggedCurrencyError):tagged.verify_currency(result['evidence'])
