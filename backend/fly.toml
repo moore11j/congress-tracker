@@ -36,6 +36,8 @@ processes = ["app"]
   # Preparation only; public fundamentals selection stays separately gated.
   FINNHUB_METRICS_WARMING_ENABLED = "1"
   FINNHUB_METRICS_BATCH_SIZE = "8"
+  # Verified public IPO status dates; uses the existing free calendar warmer.
+  IPO_CALENDAR_PROVIDER = "finnhub"
   DIRECT_FEEDS_MODE = "shadow"
   SENATE_PUBLIC_NOTICE_ACKNOWLEDGED = "true"
   DIRECT_FEED_PUBLICATION_ENABLED = "false"
