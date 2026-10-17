@@ -79,14 +79,15 @@ def test_negative_equity_does_not_create_roe():
     result=project('ANIX',facts,company)
     assert 'roe' not in result and result['current_ratio']==pytest.approx(EXPECTED['ANIX']['current_ratio'])
 
-def test_unreviewed_issuer_cannot_use_partial_policy():
+def test_valid_issuer_does_not_require_symbol_allowlist():
     facts,company=sources('ANIX');company['tickers']=['OTHER']
-    with pytest.raises(sec.SecFundamentalsCoverageError):
-        sec.project_fundamentals(json.dumps(facts).encode(),json.dumps(company).encode(),symbol='OTHER',cik=PROFILES['ANIX'],observed_at=NOW)
+    result=sec.project_fundamentals(json.dumps(facts).encode(),json.dumps(company).encode(),symbol='OTHER',cik=PROFILES['ANIX'],observed_at=NOW)
+    assert result['current_ratio']==pytest.approx(EXPECTED['ANIX']['current_ratio'])
+    assert result['roe']==pytest.approx(EXPECTED['ANIX']['roe'])
 
 
 @pytest.mark.parametrize('symbol',list(PROFILES))
-def test_actual_acquisition_preparation_score_and_alert_consumers(symbol,monkeypatch):
+def test_actual_acquisition_preparation_score_and_alert_consumers(symbol,monkeypatch,metric="current_ratio"):
     import socket,types
     from datetime import timedelta
     from unittest.mock import patch
@@ -135,8 +136,8 @@ def test_actual_acquisition_preparation_score_and_alert_consumers(symbol,monkeyp
         db.add_all([user,security]);db.flush()
         watch=Watchlist(name='Partial financials',owner_user_id=user.id);db.add(watch);db.flush()
         db.add(WatchlistItem(watchlist_id=watch.id,security_id=security.id,target_type='ticker'))
-        threshold=new['current_ratio']-1
-        rule=WatchlistAlertRule(user_id=user.id,watchlist_id=watch.id,name='Current ratio',enabled=True,scope_type='any_watchlist_ticker',match_type='all',delivery='both',conditions_json=json.dumps(validate_conditions([dict(metric='current_ratio',operator='gt',comparison_type='value',comparison_value=threshold)])))
+        threshold=new[metric]-1
+        rule=WatchlistAlertRule(user_id=user.id,watchlist_id=watch.id,name='Current ratio',enabled=True,scope_type='any_watchlist_ticker',match_type='all',delivery='both',conditions_json=json.dumps(validate_conditions([dict(metric=metric,operator='gt',comparison_type='value',comparison_value=threshold)])))
         row=FundamentalsCache(symbol=symbol,provider='sec_edgar',status='ok',fetched_at=NOW,source_evidence_json=json.dumps({'financial_status':'unavailable','calculations':{}}))
         db.add_all([rule,row]);db.commit();monkeypatch.setenv('FUNDAMENTALS_PROVIDER','sec_edgar')
         def run(minutes):
@@ -145,9 +146,9 @@ def test_actual_acquisition_preparation_score_and_alert_consumers(symbol,monkeyp
         for key,value in payload['values'].items():setattr(row,key,value)
         row.source_evidence_json=new['source_evidence_json']
         assert run(5)['triggered']==0 and run(10)['triggered']==0
-        row.current_ratio=threshold-1;assert run(15)['triggered']==0
-        row.current_ratio=new['current_ratio'];assert run(20)['triggered']==1 and run(25)['triggered']==0
-        row.current_ratio=None;row.source_evidence_json=json.dumps({'financial_status':'unavailable','calculations':{}})
+        setattr(row,metric,threshold-1);assert run(15)['triggered']==0
+        setattr(row,metric,new[metric]);assert run(20)['triggered']==1 and run(25)['triggered']==0
+        setattr(row,metric,None);row.source_evidence_json=json.dumps({'financial_status':'unavailable','calculations':{}})
         assert run(30)['triggered']==0
         assert db.scalar(select(func.count()).select_from(MonitoringAlert))==1
         assert db.scalar(select(func.count()).select_from(EmailDelivery))==0

@@ -1,4 +1,4 @@
-"""Independently supported metrics for reviewed issuers without current revenue.
+"""Independently supported USD GAAP metrics when revenue coverage is missing.
 
 Revenue-dependent calculations remain unavailable. No synthetic zero amounts.
 """
@@ -7,18 +7,19 @@ import hashlib
 import json
 import math
 
-VERSION = 'sec_nonrevenue_financials_v1'
+VERSION = 'sec_independent_financials_v2'
+# Legacy per-symbol cache versions only, never an eligibility allowlist.
 PROFILES = {'ANIX': '0000715446', 'BCDA': '0000925741'}
 
 
-def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_at, available_by, filing_supplement=None):
+def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_at, available_by, filing_supplement=None, currency="USD", namespace="us-gaap", source_context=None):
     from app.services.sec_fundamentals import _ttm, SecFundamentalsCoverageError
-    if PROFILES.get(symbol) != cik:
-        raise SecFundamentalsCoverageError('No current complete trailing revenue period')
+    if currency != 'USD' or namespace != 'us-gaap':
+        raise SecFundamentalsCoverageError('Independent financial metrics require supported reporting currency and taxonomy')
     recent = company.get('filings', {}).get('recent', {})
     filings = []
     for i, form in enumerate(recent.get('form', [])):
-        if form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}:
+        if form not in {'10-K', '10-Q', '10-K/A', '10-Q/A', '10-KT', '10-QT', '10-KT/A', '10-QT/A', '20-F', '20-F/A', '40-F', '40-F/A'}:
             continue
         try:
             end = date.fromisoformat(recent['reportDate'][i])
@@ -31,6 +32,8 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
     if not filings:
         raise SecFundamentalsCoverageError('No completed partial-financial filing')
     end, filed, accession, form = max(filings)
+    if form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}:
+        raise SecFundamentalsCoverageError('Latest partial-financial reporting form requires supported period rules')
     if (available_by-end).days > 180:
         raise SecFundamentalsCoverageError('Stale partial-financial filing')
     candidates = [r for r in filings if r[:2] == (end, filed)]
@@ -87,10 +90,12 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
         'period_start': (income or cash or {}).get('start'),
         'current': current, 'prior': {}, 'instant': balance, 'calculations': calculations,
         'partial_financial_basis': {'accession': accession, 'filed': str(filed), 'form': form,
-            'reason': 'current_revenue_unavailable', 'reviewed_symbol': symbol},
+            'reason': 'current_revenue_unavailable', 'eligibility': 'verified_identity_and_current_filing_inputs'},
         'limitations': ['Current revenue and revenue-dependent ratios are unavailable, not zero.',
             'Only independently aligned USD US GAAP balance-sheet and cash-flow metrics are included.',
             'Negative income and cash flow remain negative; missing capital expenditure is not zero.']}
+    if source_context:
+        evidence.update({key: value for key, value in source_context.items() if value is not None})
     if filing_supplement is not None:
         evidence['inline_filing_supplement'] = filing_supplement['evidence']
     values['source_evidence_json'] = json.dumps(evidence, sort_keys=True)
