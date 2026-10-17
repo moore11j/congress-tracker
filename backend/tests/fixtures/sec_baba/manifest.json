@@ -1,0 +1,37 @@
+{
+  "current_cover": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926099220/tm2623667d1_6k.htm",
+    "original_sha256": "5366b80d460025a719382e17d6030a96696efc63f8f6fa19d7b4e2f62e2f3f0e",
+    "original_bytes": 8822,
+    "gzip_bytes": 1528,
+    "complete_original": true
+  },
+  "current": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465926099220/tm2623667d1_ex99-1.htm",
+    "original_sha256": "f066fab87e9246a3305b1559d58954f0212a196934c293f63ebeb350ecf28fbd",
+    "original_bytes": 464053,
+    "gzip_bytes": 31279,
+    "complete_original": true
+  },
+  "prior_cover": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465925085638/tm2524743d1_6k.htm",
+    "original_sha256": "a4e81c042addd735e141e410441afb3a498e1c2e4830b620a529007cba29d84c",
+    "original_bytes": 10193,
+    "gzip_bytes": 1977,
+    "complete_original": true
+  },
+  "prior": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1577552/000110465925085638/tm2524743d1_ex99-1.htm",
+    "original_sha256": "12118c96d09e31633602e930d8440cd42e31da37b8b091b025d0547d1ef18e16",
+    "original_bytes": 473558,
+    "gzip_bytes": 31148,
+    "complete_original": true
+  },
+  "annual": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1577552/000119312526231755/baba-20260331.htm",
+    "original_sha256": "8f0a001092d1b21aa6ad6b2ee0e840df547e65802637e84a8e9bc00be21ca4dd",
+    "original_bytes": 11745272,
+    "gzip_bytes": 708428,
+    "complete_original": true
+  }
+}
