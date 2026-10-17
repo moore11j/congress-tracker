@@ -1,0 +1,65 @@
+{
+  "ADSE-0001213900-26-105353.htm": {
+    "accession": "0001213900-26-105353",
+    "form": "6-K",
+    "filed": "2026-09-30",
+    "end": "2026-06-30",
+    "url": "https://www.sec.gov/Archives/edgar/data/1879248/000121390026105353/ea0307089-6k_adstec.htm",
+    "symbol": "ADSE",
+    "cik": "0001879248",
+    "sha256": "7132e69db7d46f2b6279aff4520b7773ba2037afed29cb3bcf903d27a2de44a3",
+    "bytes": 162355,
+    "observed_at": "2026-10-17T02:41:14.673129+00:00"
+  },
+  "AER-0001628280-26-050456.htm": {
+    "accession": "0001628280-26-050456",
+    "form": "6-K",
+    "filed": "2026-07-29",
+    "end": "2026-06-30",
+    "url": "https://www.sec.gov/Archives/edgar/data/1378789/000162828026050456/aer-20260630.htm",
+    "symbol": "AER",
+    "cik": "0001378789",
+    "sha256": "00c4be8a14935c88041ba0b381498d7582191b3e1de30090607fcf396234ad42",
+    "bytes": 134568,
+    "observed_at": "2026-10-17T02:41:15.199925+00:00"
+  },
+  "ALC-0001167379-26-000030.htm": {
+    "accession": "0001167379-26-000030",
+    "form": "6-K",
+    "filed": "2026-08-10",
+    "end": "2026-06-30",
+    "url": "https://www.sec.gov/Archives/edgar/data/1167379/000116737926000030/alc-20260630.htm",
+    "symbol": "ALC",
+    "cik": "0001167379",
+    "sha256": "c0a00e8d00d0f2b1121357e3560c66c79445b7398a9efae6d66a246e49d15c5c",
+    "bytes": 166554,
+    "observed_at": "2026-10-17T02:41:15.644615+00:00"
+  },
+  "ADSE-ea030708901ex99-1.htm": {
+    "symbol": "ADSE",
+    "url": "https://www.sec.gov/Archives/edgar/data/1879248/000121390026105353/ea030708901ex99-1.htm",
+    "parent_url": "https://www.sec.gov/Archives/edgar/data/1879248/000121390026105353/ea0307089-6k_adstec.htm",
+    "accession": "0001213900-26-105353",
+    "sha256": "cb2da5a92d8a76138980bafa43c1039b3a0858df4948e18693bfc2f1db9c53c3",
+    "bytes": 541657,
+    "observed_at": "2026-10-17T02:41:51.423080+00:00"
+  },
+  "AER-aer-20260630_d2.htm": {
+    "symbol": "AER",
+    "url": "https://www.sec.gov/Archives/edgar/data/1378789/000162828026050456/aer-20260630_d2.htm",
+    "parent_url": "https://www.sec.gov/Archives/edgar/data/1378789/000162828026050456/aer-20260630.htm",
+    "accession": "0001628280-26-050456",
+    "sha256": "418b9c3711017956f399e7cf170b5028e3e3edf9ee9344dbb4a5052628f48fa4",
+    "bytes": 1612347,
+    "observed_at": "2026-10-17T02:41:52.062319+00:00"
+  },
+  "ALC-alc-20260630_d2.htm": {
+    "symbol": "ALC",
+    "url": "https://www.sec.gov/Archives/edgar/data/1167379/000116737926000030/alc-20260630_d2.htm",
+    "parent_url": "https://www.sec.gov/Archives/edgar/data/1167379/000116737926000030/alc-20260630.htm",
+    "accession": "0001167379-26-000030",
+    "sha256": "26ddf4483fb56ad0a42447bc8664507124412bceb0f5d7604387f4972bdadcc0",
+    "bytes": 1094849,
+    "observed_at": "2026-10-17T02:41:52.827695+00:00"
+  }
+}
