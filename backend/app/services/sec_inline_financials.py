@@ -309,8 +309,10 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
             provenance[key]['reported_precision'] = {'decimals':n.get('decimals'), 'value':value}
     revenue_available = any(k[0] in tags['revenue'] and k[2] is not None and k[3] == report_date for k in records)
     if not revenue_available:
-        from app.services.sec_nonrevenue_financials import PROFILES
-        if cik not in PROFILES.values() or not any(k[3] == report_date for k in records):
+        from app.services.sec_nonrevenue_financials import VERSION as partial_version
+        if (namespace != 'us-gaap' or currency != 'USD'
+                or form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}
+                or not any(k[3] == report_date for k in records)):
             raise InlineFactsError('latest_reported_revenue_unavailable')
     gaap = {}
     for (tag, unit, start, end), fact in records.items():
@@ -321,7 +323,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         'namespace':namespace, 'currency':currency,
         **({'nil_facts':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3]}
             for k in sorted(nil_keys, key=repr)]} if nil_keys else {}),
-        **({'revenue_status':'unavailable', 'partial_financial_policy':'sec_nonrevenue_financials_v1'} if not revenue_available else {}),
+        **({'revenue_status':'unavailable', 'partial_financial_policy':partial_version} if not revenue_available else {}),
         **({'cover_evidence':cover_evidence} if cover_evidence else {}),
         **({'auxiliary_rounded_duplicates':rounded_duplicates} if rounded_duplicates else {}),
         **({'auxiliary_holds':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3], 'reason':v}

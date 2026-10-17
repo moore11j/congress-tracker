@@ -246,7 +246,7 @@ def _prior_end(records, end):
 
 def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, cik: str,
                          observed_at: datetime, history_raw=None, filing_supplement=None):
-    """Return cache values plus evidence; requires a current, coherent revenue period.
+    """Return independently supported cache values with current filing evidence.
 
     Filed dates have day resolution. Today's filings are excluded until the day
     is complete, avoiding an invented intraday availability time.
@@ -319,15 +319,18 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     records = {name: all_records[name] for name in TAGS}
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
-    if end is None or (available_by - end).days > 180:
+    if end is None or (available_by - end).days > 180 or (ends and end != ends[0]):
         from app.services.sec_nonrevenue_financials import project as partial_financials
         return partial_financials(records, company, symbol=symbol, cik=cik,
             facts_raw=facts_raw, company_raw=company_raw, observed_at=observed_at, available_by=available_by,
-            filing_supplement=filing_supplement)
-    # Do not silently fall back to an older annual period when newer reported
-    # revenue cannot be aligned into a complete trailing year.
-    if ends and end != ends[0]:
-        raise SecFundamentalsCoverageError("Latest revenue period has incomplete trailing coverage")
+            filing_supplement=filing_supplement, currency=currency,
+            namespace=native_basis['namespace'] if native_basis else 'us-gaap',
+            source_context={
+                'financial_continuity': continuity,
+                'parent_income_reconciliation': parent_income_evidence,
+                'parent_statement_review': parent_statement_evidence,
+                'parent_equity_reconciliation': parent_equity_evidence,
+            })
     prior_end = _prior_end(records["revenue"], end)
     current = {name: _ttm(rows, end) for name, rows in records.items() if name not in INSTANT}
     prior = {name: _ttm(rows, prior_end) if prior_end else None for name, rows in records.items() if name not in INSTANT}

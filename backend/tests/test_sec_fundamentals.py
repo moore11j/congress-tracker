@@ -299,5 +299,5 @@ def test_new_inclusive_tax_series_cannot_borrow_annual_net_revenue_history():
     rows=gaap['RevenueFromContractWithCustomerExcludingAssessedTax']['units']['USD']
     latest=rows.pop()
     gaap['RevenueFromContractWithCustomerIncludingAssessedTax']={'units':{'USD':[latest]}}
-    with pytest.raises(SecFundamentalsError,match='complete trailing revenue'):
+    with pytest.raises(SecFundamentalsError,match='No completed partial-financial filing'):
         project(facts,company)
