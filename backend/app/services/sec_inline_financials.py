@@ -26,6 +26,33 @@ def nodes(root, local):
     return [n for n in root.iter() if isinstance(n.tag, str) and n.tag.lower() == ('ix:' if local == 'nonfraction' else 'xbrli:')+local]
 
 
+def _nil_fact(node):
+    """Resolve XML Schema-instance nil by namespace, including prefix aliases."""
+    flags = []
+    for key, value in node.attrib.items():
+        if not key.endswith(':nil'):
+            continue
+        prefix = key.split(':', 1)[0]
+        namespace = None
+        ancestor = node
+        while ancestor is not None:
+            namespace = ancestor.get('xmlns:'+prefix)
+            if namespace is not None:
+                break
+            ancestor = ancestor.getparent()
+        if namespace != 'http://www.w3.org/2001/XMLSchema-instance':
+            raise InlineFactsError('unsupported_nil_namespace')
+        if value not in {'true', 'false', '1', '0'}:
+            raise InlineFactsError('invalid_nil_boolean')
+        flags.append(value in {'true', '1'})
+    if len(flags) > 1:
+        raise InlineFactsError('ambiguous_nil_attribute')
+    nil = bool(flags and flags[0])
+    if nil and (node.text_content().strip() or len(node) or node.get('continuedat')):
+        raise InlineFactsError('nil_fact_has_content')
+    return nil
+
+
 def _number(node, tree):
     value = node.text_content().strip()
     transform = node.get('format')
@@ -42,7 +69,7 @@ def _number(node, tree):
             raise InlineFactsError('unsupported_numeric_namespace')
     else:
         local = None
-    if node.get('continuedat') or node.get('xsi:nil') or node.get('sign') not in {None, '-'}:
+    if node.get('continuedat') or _nil_fact(node) or node.get('sign') not in {None, '-'}:
         raise InlineFactsError('unsupported_numeric_fact')
     if local == 'fixed-zero':
         value = '0'  # Explicit reported transformation, not inferred missing data.
@@ -223,7 +250,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
             if cik == profile[0]:
                 auxiliary |= {t for ts in tags_for(equity_symbol, cik).values() for t in ts} - wanted
         wanted |= auxiliary
-    records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}
+    records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}; nil_keys = set()
     for n in nodes(tree, 'nonfraction'):
         name = n.get('name', '')
         if not name.startswith(namespace+':') or name.split(':', 1)[1] not in wanted:
@@ -237,6 +264,13 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         if key in auxiliary_holds:
             continue
         try:
+            if _nil_fact(n):
+                if key in records:
+                    raise InlineFactsError('conflicting_nil_and_numeric_fact')
+                nil_keys.add(key)
+                continue
+            if key in nil_keys:
+                raise InlineFactsError('conflicting_nil_and_numeric_fact')
             value = _number(n, tree)
         except InlineFactsError as exc:
             if tag not in auxiliary:
@@ -273,8 +307,11 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
             'context_id':n.get('contextref'), 'fact_id':n.get('id')}
         if tag in {'DebtAndCapitalLeaseObligations','DebtCurrent','LongTermDebtAndCapitalLeaseObligations'}:
             provenance[key]['reported_precision'] = {'decimals':n.get('decimals'), 'value':value}
-    if not any(k[0] in tags['revenue'] and k[2] is not None and k[3] == report_date for k in records):
-        raise InlineFactsError('latest_reported_revenue_unavailable')
+    revenue_available = any(k[0] in tags['revenue'] and k[2] is not None and k[3] == report_date for k in records)
+    if not revenue_available:
+        from app.services.sec_nonrevenue_financials import PROFILES
+        if cik not in PROFILES.values() or not any(k[3] == report_date for k in records):
+            raise InlineFactsError('latest_reported_revenue_unavailable')
     gaap = {}
     for (tag, unit, start, end), fact in records.items():
         gaap.setdefault(tag, {'units':{}})['units'].setdefault(unit, []).append(fact)
@@ -282,6 +319,9 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         'cik':cik, 'accession':accession, 'filed':filed, 'report_date':report_date, 'form':form,
         'url':url, 'sha256':source_sha256, 'reported_facts':len(records),
         'namespace':namespace, 'currency':currency,
+        **({'nil_facts':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3]}
+            for k in sorted(nil_keys, key=repr)]} if nil_keys else {}),
+        **({'revenue_status':'unavailable', 'partial_financial_policy':'sec_nonrevenue_financials_v1'} if not revenue_available else {}),
         **({'cover_evidence':cover_evidence} if cover_evidence else {}),
         **({'auxiliary_rounded_duplicates':rounded_duplicates} if rounded_duplicates else {}),
         **({'auxiliary_holds':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3], 'reason':v}
@@ -423,6 +463,20 @@ def merge(payload, supplement, *, available_by):
         raise InlineFactsError('supplement_identity_or_availability')
     merged = deepcopy(payload)
     gaap = merged.setdefault('facts',{}).setdefault(evidence.get('namespace', 'us-gaap'),{})
+    # A later explicit nil withdraws an older value for that exact concept and
+    # period. It must not be resurrected from companyfacts during the merge.
+    for missing in evidence.get('nil_facts', []):
+        units = gaap.get(missing['tag'], {}).get('units', {})
+        rows = units.get(missing['unit'], [])
+        retained = []
+        for row in rows:
+            same = row.get('start') == missing['start'] and row.get('end') == missing['end']
+            if same and row.get('accn') == evidence['accession'] and row.get('val') is not None:
+                raise InlineFactsError('nil_companyfacts_conflict')
+            if not same or row.get('filed', '') > evidence['filed']:
+                retained.append(row)
+        if missing['unit'] in units:
+            units[missing['unit']] = retained
     for tag, content in supplement['facts'].items():
         for unit, facts in content['units'].items():
             gaap.setdefault(tag,{'units':{}})['units'].setdefault(unit,[]).extend(facts)
@@ -452,6 +506,13 @@ def annotate(records, supplement, *, metrics=None, expected_cik=None, available_
             period = (sec._day(hold['start']), sec._day(hold['end']))
             fact = series.get(period)
             if fact is None or fact['filed'] <= supplement['evidence']['filed']:
+                series[period] = None
+        for missing in supplement['evidence'].get('nil_facts', []):
+            if missing['tag'] not in tags or missing['unit'] != unit:
+                continue
+            period = (sec._day(missing['start']), sec._day(missing['end']))
+            fact = series.get(period)
+            if fact and fact['tag'] == missing['tag'] and fact['filed'] <= supplement['evidence']['filed']:
                 series[period] = None
         for fact in series.values():
             if fact and fact['accession'] == supplement['evidence']['accession']:

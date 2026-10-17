@@ -1,0 +1,32 @@
+{
+  "ANIX-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0000715446.json",
+    "sha256": "48c104619a94584b4b8e21c7d51466fd937e6b85bed8c1439367b23043dfca7b",
+    "bytes": 155770
+  },
+  "ANIX-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000715446.json",
+    "sha256": "e81922dde8f95b9a18ad34411c18fef0305fc9d48fc76607e8e3e2758178634a",
+    "bytes": 1671604
+  },
+  "BCDA-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0000925741.json",
+    "sha256": "85de3b3f1f3ed13678c597c9fd6623a32b7e0bc908a9ff80a1b3ac30ca3c9207",
+    "bytes": 161182
+  },
+  "BCDA-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000925741.json",
+    "sha256": "568a8a2c38da072a1f22198d08e12d02cb85a00878a7806df43baea1ea18c6eb",
+    "bytes": 1652097
+  },
+  "ANIX-current.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/715446/000149315226041963/form10-q.htm",
+    "sha256": "b764071702fe92c41e69e1c104b59a8c88b75d282ddfe1cbcc7a75e4d137341c",
+    "bytes": 889191
+  },
+  "BCDA-current.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/925741/000143774926027315/bcda20260806_10q.htm",
+    "sha256": "ea541ad56bd2146fa45b1cf88431485e64280f7744d13bffea564d29bec033cd",
+    "bytes": 785536
+  }
+}
