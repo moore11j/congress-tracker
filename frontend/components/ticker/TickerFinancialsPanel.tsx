@@ -12,8 +12,10 @@ import type {
 import { formatDateShort } from "@/lib/format";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { formatStatementMoney as formatCompactCurrency } from "@/lib/financialCurrency.mjs";
+import { comparableHalfYear } from "@/lib/financialPeriods.mjs";
 
-type PeriodMode = "annual" | "quarterly";
+type PeriodMode = "annual" | "quarterly" | "semiannual";
+const PERIOD_LABELS = { annual: "Annual", quarterly: "Quarterly", semiannual: "Half-year" };
 type ChartMetric = "revenue" | "netIncome";
 type HoverPoint = {
   x: number;
@@ -96,15 +98,15 @@ function pointKey(point: TickerFinancialsPoint, index: number) {
   return `${point.period}-${point.date ?? index}`;
 }
 
-function defaultMode(annual: TickerFinancialsPoint[], quarterly: TickerFinancialsPoint[]): PeriodMode {
-  return annual.length > 0 ? "annual" : "quarterly";
+function defaultMode(annual: TickerFinancialsPoint[], quarterly: TickerFinancialsPoint[], semiannual: TickerFinancialsPoint[]): PeriodMode {
+  return annual.length > 0 ? "annual" : quarterly.length > 0 ? "quarterly" : semiannual.length > 0 ? "semiannual" : "quarterly";
 }
 
 function seriesWithYoy(points: TickerFinancialsPoint[], metric: ChartMetric, mode: PeriodMode): ChartPoint[] {
   const lag = mode === "quarterly" ? 4 : 1;
   return points.map((point, index) => {
     const value = point[metric] ?? null;
-    const prior = points[index - lag]?.[metric] ?? null;
+    const prior = (mode === "semiannual" ? comparableHalfYear(points, index)?.[metric] : points[index - lag]?.[metric]) ?? null;
     const yoyGrowth =
       isFiniteNumber(value) && isFiniteNumber(prior) && prior !== 0
         ? ((value - prior) / Math.abs(prior)) * 100
@@ -187,19 +189,22 @@ function ModeToggle({
   mode,
   annualAvailable,
   quarterlyAvailable,
+  semiannualAvailable,
   onChange,
 }: {
   mode: PeriodMode;
   annualAvailable: boolean;
   quarterlyAvailable: boolean;
+  semiannualAvailable: boolean;
   onChange: (mode: PeriodMode) => void;
 }) {
-  if (!annualAvailable || !quarterlyAvailable) {
-    return <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{quarterlyAvailable ? "Quarterly" : "Annual"}</span>;
+  const modes = (["annual", "quarterly", "semiannual"] as PeriodMode[]).filter(item => ({ annual: annualAvailable, quarterly: quarterlyAvailable, semiannual: semiannualAvailable })[item]);
+  if (modes.length < 2) {
+    return <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{PERIOD_LABELS[modes[0] ?? "annual"]}</span>;
   }
   return (
     <div className="flex rounded-lg border border-white/10 bg-slate-950/70 p-0.5">
-      {(["annual", "quarterly"] as PeriodMode[]).map((item) => (
+      {modes.map((item) => (
         <button
           key={item}
           type="button"
@@ -208,7 +213,7 @@ function ModeToggle({
             mode === item ? "bg-emerald-400/15 text-emerald-200" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
           }`}
         >
-          {item}
+          {PERIOD_LABELS[item]}
         </button>
       ))}
     </div>
@@ -221,6 +226,7 @@ function FinancialChart({
   valueLabel,
   annual,
   quarterly,
+  semiannual = [],
   forecasts,
   positiveNegative,
   currency = "USD",
@@ -230,14 +236,18 @@ function FinancialChart({
   valueLabel: string;
   annual: TickerFinancialsPoint[];
   quarterly: TickerFinancialsPoint[];
+  semiannual?: TickerFinancialsPoint[];
   forecasts?: TickerFinancialForecasts | null;
   positiveNegative?: boolean;
   currency?: string;
 }) {
-  const [mode, setMode] = useState<PeriodMode>(defaultMode(annual, quarterly));
+  const [preferredMode, setMode] = useState<PeriodMode>(defaultMode(annual, quarterly, semiannual));
+  const available = { annual, quarterly, semiannual };
+  const mode = available[preferredMode].length > 0 || !Object.values(available).some(rows => rows.length > 0)
+    ? preferredMode : defaultMode(annual, quarterly, semiannual);
   const [hover, setHover] = useState<HoverPoint | null>(null);
-  const points = mode === "quarterly" && quarterly.length > 0 ? quarterly : annual;
-  const selectedForecast = mode === "quarterly" ? forecasts?.nextQuarter : forecasts?.nextFiscalYear;
+  const points = mode === "semiannual" ? semiannual : mode === "quarterly" && quarterly.length > 0 ? quarterly : annual;
+  const selectedForecast = mode === "semiannual" ? null : mode === "quarterly" ? forecasts?.nextQuarter : forecasts?.nextFiscalYear;
   const normalized = seriesWithForecast(points, metric, mode, selectedForecast).filter((point) => isFiniteNumber(point.value));
   const values = normalized.flatMap((point) => [point.value, point.estimateLow, point.estimateHigh]).filter(isFiniteNumber);
   const minValue = positiveNegative ? Math.min(0, ...values) : 0;
@@ -257,7 +267,7 @@ function FinancialChart({
 
   if (normalized.length === 0) {
     return (
-      <FinancialSection title={title} action={<ModeToggle mode={mode} annualAvailable={annual.length > 0} quarterlyAvailable={quarterly.length > 0} onChange={setMode} />}>
+      <FinancialSection title={title} action={<ModeToggle mode={mode} annualAvailable={annual.length > 0} quarterlyAvailable={quarterly.length > 0} semiannualAvailable={semiannual.length > 0} onChange={setMode} />}>
         <UnavailableState message={`${title} data is not available yet.`} />
       </FinancialSection>
     );
@@ -273,7 +283,7 @@ function FinancialChart({
           Forecast
         </span>
       ) : null}
-      <ModeToggle mode={mode} annualAvailable={annual.length > 0} quarterlyAvailable={quarterly.length > 0} onChange={setMode} />
+      <ModeToggle mode={mode} annualAvailable={annual.length > 0} quarterlyAvailable={quarterly.length > 0} semiannualAvailable={semiannual.length > 0} onChange={setMode} />
     </div>
   );
 
@@ -677,6 +687,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
   const forwardPeTooltip = forwardPeSource === "implied_from_forward_peg" ? "Estimated from Forward PEG and analyst EPS growth." : undefined;
   const annual = Array.isArray(data?.annual) ? data.annual : [];
   const quarterly = Array.isArray(data?.quarterly) ? data.quarterly : [];
+  const semiannual = Array.isArray(data?.semiannual) ? data.semiannual : [];
   const earnings = Array.isArray(data?.earnings) ? data.earnings : [];
   const forecasts = data?.forecasts ?? null;
   const hasForecastData = Boolean(forecasts?.nextQuarter || forecasts?.nextFiscalYear);
@@ -698,7 +709,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
       isFiniteNumber(summary?.assetRatio),
   );
   const hasNormalizedSections = Array.isArray(data?.sections_present) && data.sections_present.length > 0;
-  const hasAnyData = Boolean(annual.length || quarterly.length || earnings.length || hasForecastData || hasSummaryData || hasNormalizedSections);
+  const hasAnyData = Boolean(annual.length || quarterly.length || semiannual.length || earnings.length || hasForecastData || hasSummaryData || hasNormalizedSections);
   const marginTiles = useMemo(
     () => [
       { label: "Gross Margin", value: formatMargin(summary?.grossMargin) },
@@ -741,8 +752,8 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <FinancialChart title="Revenue Trend" metric="revenue" valueLabel="Revenue" annual={annual} quarterly={quarterly} forecasts={forecasts} currency={currency} />
-        <FinancialChart title="Earnings Trend" metric="netIncome" valueLabel="Net Income" annual={annual} quarterly={quarterly} forecasts={forecasts} currency={currency} positiveNegative />
+        <FinancialChart title="Revenue Trend" metric="revenue" valueLabel="Revenue" annual={annual} quarterly={quarterly} semiannual={semiannual} forecasts={forecasts} currency={currency} />
+        <FinancialChart title="Earnings Trend" metric="netIncome" valueLabel="Net Income" annual={annual} quarterly={quarterly} semiannual={semiannual} forecasts={forecasts} currency={currency} positiveNegative />
       </div>
 
       <EpsSurpriseSection earnings={earnings} forecasts={forecasts} />

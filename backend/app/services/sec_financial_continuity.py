@@ -45,6 +45,12 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
     if filing_supplement and 'registration_error' in filing_supplement:
         from app.services.sec_registration_history import RegistrationHistoryError
         raise RegistrationHistoryError(filing_supplement['registration_error'])
+    from app.services import sec_statement_currency as native
+    if (filing_supplement or {}).get('evidence',{}).get('native_reporting'):
+        if history_raw is not None:
+            raise native.StatementCurrencyError('native_reporting_continuity_unreviewed')
+        return native.record_sets(payload,company,symbol=symbol,cik=cik,available_by=available_by,
+            supplement=filing_supplement,metrics=metrics,instant_metrics=instant_metrics), None
     from app.services.sec_reporting_policy import forms_for
     forms = forms_for(symbol, cik)
     from app.services import sec_tagged_foreign

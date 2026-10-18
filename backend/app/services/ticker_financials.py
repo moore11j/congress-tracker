@@ -141,7 +141,7 @@ def _financials_payload_has_data(payload: dict[str, Any] | None) -> bool:
         return False
     if payload.get("sections_present"):
         return True
-    for key in ("annual", "quarterly", "earnings", "forecasts"):
+    for key in ("annual", "quarterly", "semiannual", "earnings", "forecasts"):
         value = payload.get(key)
         if isinstance(value, list) and value:
             return True

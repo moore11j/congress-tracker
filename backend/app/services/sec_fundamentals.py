@@ -294,7 +294,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     from app.services import sec_leverage, sec_parent_income, sec_depreciation_components
     from app.services import sec_parent_statement_income, sec_parent_equity
     from app.services.sec_currency_ratios import basis as currency_basis, REVIEW as currency_review
-    native_basis = currency_basis(symbol, cik)
+    from app.services import sec_statement_currency as native
+    native_selection = native.authorized(payload,company,symbol=symbol,cik=cik,
+        available_by=available_by,supplement=filing_supplement)
+    native_basis = native.reporting_basis(filing_supplement) if native_selection else currency_basis(symbol, cik)
     currency = native_basis['currency'] if native_basis else 'USD'
     metric_tags = native_basis['tags'] if native_basis else {**TAGS, **sec_leverage.TAGS, **sec_parent_income.TAGS}
     if symbol in sec_parent_statement_income.SYMBOLS:
@@ -325,6 +328,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
             facts_raw=facts_raw, company_raw=company_raw, observed_at=observed_at, available_by=available_by,
             filing_supplement=filing_supplement, currency=currency,
             namespace=native_basis['namespace'] if native_basis else 'us-gaap',
+            native_selection=native_selection,
             source_context={
                 'financial_continuity': continuity,
                 'parent_income_reconciliation': parent_income_evidence,
@@ -354,7 +358,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         evidence['reporting_currency'] = currency
         evidence['reviewed_currency_basis'] = dict(native_basis.get('review', currency_review))
         accounting = 'IFRS' if native_basis['namespace'] == 'ifrs-full' else 'US GAAP'
-        evidence['limitations'][0] = currency+' '+accounting+' standard concepts under the reviewed issuer policy'
+        evidence['limitations'][0] = currency+' '+accounting+(' standard concepts with explicit original-statement currency evidence' if native_selection else ' standard concepts under the reviewed issuer policy')
         if currency != 'USD':
             evidence['limitations'].append('Only dimensionless ratios are published; no FX conversion or USD cash amounts.')
         else:
