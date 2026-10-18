@@ -110,7 +110,7 @@ test("annual history remains the default when half-year history is also present"
   });
   assert.match(html, /Annual/);
   assert.match(html, /Half-year/);
-  assert.match(html, /Year ended &#x27;25-12-31/);
+  assert.match(html, /<title>Year ended 2025-12-31<\/title>Dec &#x27;25/);
   assert.doesNotMatch(html, /Half-year ended 2026-06-30/);
 });
 

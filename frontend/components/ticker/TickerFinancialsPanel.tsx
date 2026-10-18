@@ -12,7 +12,7 @@ import type {
 import { formatDateShort } from "@/lib/format";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { formatStatementMoney as formatCompactCurrency } from "@/lib/financialCurrency.mjs";
-import { comparableHalfYear } from "@/lib/financialPeriods.mjs";
+import { comparableHalfYear, financialAxisLabel } from "@/lib/financialPeriods.mjs";
 
 type PeriodMode = "annual" | "quarterly" | "semiannual";
 const PERIOD_LABELS = { annual: "Annual", quarterly: "Quarterly", semiannual: "Half-year" };
@@ -363,7 +363,8 @@ function FinancialChart({
                   onMouseLeave={() => setHover(null)}
                 />
                 <text x={centerX} y={height - 16} textAnchor="middle" className="fill-slate-500 text-[10px]">
-                  {point.period.replace(" 20", " '")}
+                  <title>{point.period}</title>
+                  {financialAxisLabel(point.period)}
                 </text>
               </g>
             );
