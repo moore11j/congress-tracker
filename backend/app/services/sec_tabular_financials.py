@@ -70,6 +70,11 @@ def preceding_text(table):
     return [clean(' '.join(n.itertext())) for n in nodes if clean(' '.join(n.itertext()))]
 
 
+def statement_prefix(text):
+    text=re.sub(r'\bSummary\s+(?=Consolidated (?:Balance Sheets?|Statements? of)\b)', '', text, flags=re.I)
+    return re.split(r'\b(?:unaudited|audited|condensed|consolidated)\b',text,maxsplit=1,flags=re.I)[0].strip()
+
+
 def neutral_statement_context(text):
     """Page numbers and numbered explanatory footnotes are not issuer captions."""
     return bool(re.fullmatch(r'\d{1,3}', text) or
@@ -100,7 +105,7 @@ def document_statement_scope(tree, issuer):
         match=heading.fullmatch(text)
         if match and company_key(match['issuer'])!=company_key(issuer):return None
         if table_kind(text) is None:continue
-        prefix=re.split(r'\b(?:unaudited|audited|condensed|consolidated)\b',text,maxsplit=1,flags=re.I)[0].strip()
+        prefix=statement_prefix(text)
         if not prefix:
             # Inspect beyond page numbers, not just the last eight local blocks.
             current_table=node.xpath('ancestor::table')
@@ -122,6 +127,9 @@ def currencies(text):
 
 def metric_for(label,kind,issuer):
     label=clean(label).lower().replace('\u2019',"'").rstrip(':')
+    # Printed numeric note references do not change the financial line item.
+    # Keep other parentheses (adjusted, per-share, currency, etc.) meaningful.
+    label=re.sub(r'\s+\(\s*notes?\s+\d+(?:\s*(?:,|and|&|-)\s*\d+)*\s*\)$','',label)
     if re.search(r'non.?gaap|adjusted|per share|per ads|non.?controlling',label):return None
     exact={
         'total current assets':'current_assets','total current liabilities':'current_liabilities',
@@ -206,7 +214,7 @@ def parse_table(table,*,issuer,filed,document_scope=None):
     for index,block in enumerate(identity_blocks):
         if table_kind(block) != kind:
             continue
-        prefix=re.split(r'\b(?:unaudited|audited|condensed|consolidated)\b',block,maxsplit=1,flags=re.I)[0].strip()
+        prefix=statement_prefix(block)
         if not prefix and document_scope and company_key(document_scope.get('issuer',''))==issuer_key and all(neutral_statement_context(v) for v in identity_blocks[:index] if v.strip()):
             identified.append(True);scope_used=True
         else:
@@ -279,11 +287,12 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
     if len(metadata)!=1:raise TabularFinancialError('source_directory_identity')
     metadata=metadata[0]
     if source_identity(source_url)!=(metadata['cik'],metadata['accession']):raise TabularFinancialError('source_accession_identity')
-    if not isinstance(cover_raw,bytes) or not cover_raw or len(cover_raw)>2_000_000:raise TabularFinancialError('cover_size')
+    if not isinstance(cover_raw,bytes) or not cover_raw or len(cover_raw)>(MAX_BYTES if source_url==cover_url else 2_000_000):raise TabularFinancialError('cover_size')
     try:cover=html.fromstring(cover_raw);tree=html.fromstring(raw)
     except (ValueError,html.etree.ParserError) as exc:raise TabularFinancialError('source_html') from exc
     if cover.xpath('//base') or tree.xpath('//base'):raise TabularFinancialError('source_base')
-    if source_url not in {urljoin(cover_url,n.get('href')) for n in cover.xpath('//a[@href]')}:
+    if source_url==cover_url and raw!=cover_raw:raise TabularFinancialError('primary_bytes_mismatch')
+    if source_url!=cover_url and source_url not in {urljoin(cover_url,n.get('href')) for n in cover.xpath('//a[@href]')}:
         raise TabularFinancialError('source_not_linked')
     for n in tree.xpath('//script|//style|//template'):n.drop_tree()
     tables=tree.xpath('//table')
@@ -315,6 +324,7 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
             facts.append({k:points[0][k] for k in ('metric','start','end','months','currency','value')}|{'occurrences':points})
     ownership=[{'table':t['table'],**t['document_scope']} for t in out if 'document_scope' in t]
     scope_proof={'statement_ownership':ownership} if ownership else {}
+    if source_url==cover_url:scope_proof['document_role']='primary_filing'
     return {'version':VERSION,'status':'prepared' if facts else 'unavailable','publication_eligible':False,
             'source':{**metadata,'statement_url':source_url,'statement_sha256':hashlib.sha256(raw).hexdigest(),
                       'cover_sha256':hashlib.sha256(cover_raw).hexdigest(),**scope_proof},

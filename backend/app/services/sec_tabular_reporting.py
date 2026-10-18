@@ -36,11 +36,16 @@ def declaration(raw, observations):
     subject = r'(?:financial statements|financial information|financial performance|results)'
     standard = (r'(?:U\.?S\.?\s+GAAP|accounting principles generally accepted in '
                 r'the United States(?: of America)?|generally accepted accounting principles in '
-                r'the United States(?: of America)?)')
+                r'the United States(?: of America)?|(?:U\.?S\.?|United States) generally accepted accounting principles)')
     verb = r'(?:prepared(?: and presented)?|presented) in accordance with'
     pattern = subject + r'(?:(?![.;]).){0,100}?\b' + verb + r'\s+' + standard
-    matches = [m.group(0) for m in re.finditer(pattern, text, re.I)
-               if not re.search(r'\b(?:not|never|unlike)\b', m.group(0), re.I)]
+    # A release can explicitly name the US GAAP basis of its comparable
+    # financial measures without repeating the prepared-in-accordance wording.
+    comparable = r'most directly comparable financial measures under\s+' + standard
+    matches = [m.group(0) for m in re.finditer(pattern + '|' + comparable, text, re.I)
+               if not re.search(r'\b(?:not|never|unlike)\b', m.group(0), re.I)
+               and not re.search(r'\b(?:not|never|unlike)\s+(?:\w+\s+){0,3}$',
+                                 text[max(0,m.start()-70):m.start()],re.I)]
     if not matches:
         raise TabularReportingError('table_accounting_basis_unproved')
     if re.search(subject + r'.{0,120}(?:' + verb + r'|comply with).{0,40}(?:IFRS|International Financial Reporting Standards)', text, re.I):
@@ -149,9 +154,20 @@ def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik
 
 
 
+def primary_statement_candidate(tree):
+    # Only an explicit statement heading triggers primary-document inspection;
+    # ordinary cover tables and shareholder-vote tables are not statements.
+    for node in tree.xpath('//*[self::p or self::div or self::td or self::th]'
+                           '[not(ancestor::blockquote)][not(.//table)]'
+                           '[not(.//p)][not(.//div)]'):
+        text=tables.clean(' '.join(node.itertext()))
+        if len(text)<=240 and tables.table_kind(text) is not None:return True
+    return False
+
+
 def acquire(company_raw, *, symbol, cik, available_by, client):
     """Inspect at most three filing covers and one exhibit each, caller budgeted."""
-    from urllib.parse import urljoin
+    from urllib.parse import urljoin,urldefrag
     from app.services import sec_document_sets as sets
     from app.services.sec_reporting_policy import reviewed
     from app.services.sec_foreign_statements import profile
@@ -165,11 +181,22 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
     accepted=[];holds=[]
     for candidate in candidates[:3]:
         cover=client.get(candidate['cover_url'])
-        if len(cover)>2_000_000:
-            holds.append({'accession':candidate['accession'],'reason':'cover_size'});continue
+        if len(cover)>tables.MAX_BYTES:
+            holds.append({'accession':candidate['accession'],'reason':'source_size'});continue
         tree=html.fromstring(cover)
         if tree.xpath('//base'):
             raise TabularReportingError('table_cover_base')
+        primary=primary_statement_candidate(tree)
+        if primary:
+            args=dict(source_url=candidate['cover_url'],company_raw=company_raw,cover_raw=cover,
+                cover_url=candidate['cover_url'],symbol=symbol,cik=cik,available_by=available_by)
+            try:result=normalize(cover,**args)
+            except (tables.TabularFinancialError,TabularReportingError) as exc:
+                if str(exc)!='table_no_statements':
+                    holds.append({'accession':candidate['accession'],'filed':candidate['filed'],'reason':str(exc)})
+            else:accepted.append((result,cover,args))
+        elif len(cover)>2_000_000:
+            holds.append({'accession':candidate['accession'],'reason':'cover_size'});continue
         links=set(); statement_links=set()
         for node in tree.xpath('//a[@href]'):
             label=tables.clean(' '.join(node.itertext()))
@@ -179,7 +206,9 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
             if re.search(r'\b(?:to|will)\s+(?:announce|report)\b|\b(?:date|schedule)\s+(?:of|for)\b',label,re.I):
                 continue
             if re.search(r'\bfinancial\s+(?:statements?|reports?|results?)\b|\b(?:press|earnings)\s+release\b',label,re.I):
-                url=urljoin(candidate['cover_url'],node.get('href'));links.add(url)
+                url=urljoin(candidate['cover_url'],node.get('href'))
+                if urldefrag(url)[0]==candidate['cover_url']:continue
+                links.add(url)
                 if re.search(r'\bfinancial statements?\b',label,re.I):statement_links.add(url)
         links=statement_links or links
         if not links:

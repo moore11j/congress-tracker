@@ -5,7 +5,7 @@ must be in the linked exhibit. Both complete originals remain separately hashed.
 """
 import hashlib
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin,urldefrag
 from lxml import html
 
 VERSION='sec_inline_document_set_v1'
@@ -104,6 +104,8 @@ def statement_exhibits(raw,metadata):
         label=' '.join(node.text_content().split())
         if not re.search(r'\bfinancial\s+(?:statements?|reports?)\b',label,re.I):continue
         url=urljoin(metadata['cover_url'],node.get('href'))
+        # A table-of-contents anchor stays in the already retained primary.
+        if urldefrag(url)[0]==metadata['cover_url']:continue
         if not url.startswith(prefix) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.html?',url[len(prefix):]):
             raise InlineFactsError('document_set_statement_link_scope')
         out[url]={'url':url,'label':label,'cover_sha256':hashlib.sha256(raw).hexdigest()}

@@ -1,0 +1,52 @@
+{
+  "https://www.sec.gov/Archives/edgar/data/911971/000091197126000049/tkinterimfsq2-26doc.htm": {
+    "file": "fbe774d01c9f581b35695d2cb2822c6399932b2e943d0ff0e9055bb6ab4d8777.gz",
+    "bytes": 419667,
+    "sha256": "fbe774d01c9f581b35695d2cb2822c6399932b2e943d0ff0e9055bb6ab4d8777"
+  },
+  "https://www.sec.gov/Archives/edgar/data/911971/000091197126000046/tkq2-26pressrelease.htm": {
+    "file": "1d8661023615ac0fc19d508d92ea7304745c716ff531a172ba86ea3f8fee0a9f.gz",
+    "bytes": 51965,
+    "sha256": "1d8661023615ac0fc19d508d92ea7304745c716ff531a172ba86ea3f8fee0a9f"
+  },
+  "https://www.sec.gov/Archives/edgar/data/911971/000091197126000022/tkq1-26pressrelease.htm": {
+    "file": "8d64a1ccc517b616359e7e139dfbddab3f85333b60bee7caafd3f4720cfbd7d5.gz",
+    "bytes": 51532,
+    "sha256": "8d64a1ccc517b616359e7e139dfbddab3f85333b60bee7caafd3f4720cfbd7d5"
+  },
+  "https://data.sec.gov/submissions/CIK0000911971.json": {
+    "file": "f75ee8558590bc2650ff9b460e8e6be3e6ff2c5335ae86af7eb9e93c378ec1cb.gz",
+    "bytes": 122873,
+    "sha256": "f75ee8558590bc2650ff9b460e8e6be3e6ff2c5335ae86af7eb9e93c378ec1cb"
+  },
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0000911971.json": {
+    "file": "1513df5e712a9666005aee62074147140cc41e3b24441e8066fd088fffcd94a3.gz",
+    "bytes": 2502149,
+    "sha256": "1513df5e712a9666005aee62074147140cc41e3b24441e8066fd088fffcd94a3"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1419945/000141994526000056/tnk6-kq1x261.htm": {
+    "file": "b0a31bd668b6f1727cf97f3083bd092724a29a71a16fd74ff3997ca2fccb5678.gz",
+    "bytes": 946694,
+    "sha256": "b0a31bd668b6f1727cf97f3083bd092724a29a71a16fd74ff3997ca2fccb5678"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1419945/000141994526000054/tnkq2-26erdocument.htm": {
+    "file": "85a09195fa9eaa53c316da3fe05b1d7c6db01756bfe3dacaef3d73c06710c966.gz",
+    "bytes": 458926,
+    "sha256": "85a09195fa9eaa53c316da3fe05b1d7c6db01756bfe3dacaef3d73c06710c966"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1419945/000141994526000016/tnkq1-26erdocument.htm": {
+    "file": "1c73e626fe2c7614b9caf893b3e6bd4a6f86da83211521863c8d63c02bcb4ed2.gz",
+    "bytes": 418259,
+    "sha256": "1c73e626fe2c7614b9caf893b3e6bd4a6f86da83211521863c8d63c02bcb4ed2"
+  },
+  "https://data.sec.gov/submissions/CIK0001419945.json": {
+    "file": "aee0accb8ca6a4a1a145d02135a73372ed4071759895f15471802810c54bca31.gz",
+    "bytes": 74469,
+    "sha256": "aee0accb8ca6a4a1a145d02135a73372ed4071759895f15471802810c54bca31"
+  },
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0001419945.json": {
+    "file": "265bacf3c9f5626c8498f46d47ec1d9c3a633ef2adecf64d69ff915515e6550e.gz",
+    "bytes": 1464141,
+    "sha256": "265bacf3c9f5626c8498f46d47ec1d9c3a633ef2adecf64d69ff915515e6550e"
+  }
+}
