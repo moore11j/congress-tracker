@@ -1,0 +1,5 @@
+# Financial chart period labels, October 18, 2026
+
+Live ADSE Financials browser verification after PR716/718 showed full labels such as Half-year ended 2026-06-30 overlapping on narrow charts. The targeted frontend repair shortens only recognized dated axis labels to Jun '26 and retains complete source dates in SVG titles and existing hover content. It does not infer fiscal quarters, alter values, defaults, year-over-year comparison, page layout or landing-page content. Existing fiscal labels keep their prior format. Invalid source dates are not normalized into another date.
+
+Fourteen focused Node checks pass, covering actual rendered financial charts, annual default, half-year fallback, source currency, compact dates and retained full titles. The initial run had one expected-label mismatch in the existing annual-default test; that assertion now verifies the full SVG title plus compact label and still rejects selecting half-year data by default. TypeScript no-emit validation also passes with incremental writes disabled. Release and live browser verification remain pending. No backend source or schedule change.
