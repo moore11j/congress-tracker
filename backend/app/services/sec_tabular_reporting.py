@@ -48,18 +48,28 @@ def declaration(raw, observations):
     if re.search(r'convenience of the readers?', text, re.I):
         # A full explicit from/to declaration is necessary. A parenthetical USD
         # amount or a market exchange-rate mention cannot select native currency.
-        aliases = tables.CURRENCIES
-        for code, alias in aliases.items():
-            for target, destination in aliases.items():
-                if code == target:
-                    continue
-                pattern = (r'\btranslations?\s+(?:of (?:(?![.;]).){0,230}?\s+)?from\s+'
-                    r'(?:' + alias + r')\s+(?:amounts?\s+)?(?:into|to)\s+(?:' + destination + r')')
-                for match in re.finditer(pattern, text, re.I):
-                    context = text[max(0, match.start()-250):match.end()+350]
-                    if re.search(r'convenience of the readers?', context, re.I):
-                        translations.append({'currency':code, 'convenience_currency':target,
-                                             'declaration':match.group(0)})
+        # Scan declaration verbs once, then resolve each explicit currency.
+        # Re-scanning the entire release for every currency pair adds hundreds
+        # of regex passes to each scheduled preparation.
+        atom = r'(?<![A-Za-z])(?:' + '|'.join(tables.CURRENCIES.values()) + r')(?![A-Za-z])'
+        currency = atom + r'(?:\s*\(' + atom + r'\))?'
+        pattern = (r'\b(?:translations?\s+(?:of (?:(?![.;]).){0,230}?\s+)?from|conversion\s+of)\s+'
+                   r'(?P<source>' + currency + r')\s+(?:amounts?\s+)?(?:into|to)\s+'
+                   r'(?P<destination>' + currency + r')')
+        for match in re.finditer(pattern, text, re.I):
+            context = text[max(0, match.start()-250):match.end()+350]
+            prefix = text[max(0, match.start()-40):match.start()]
+            if re.search(r'\b(?:no|not|never|hypothetical)\s+(?:\w+\s+){0,3}$', prefix, re.I):
+                continue
+            origin = tables.currencies(match.group('source'))
+            destination = tables.currencies(match.group('destination'))
+            # A parenthetical alias must identify the same currency. Mixed
+            # aliases, ambiguous directions and non-convenience FX stay held.
+            if len(origin) != 1 or len(destination) != 1 or origin == destination:
+                raise TabularReportingError('table_translation_basis_unproved')
+            if re.search(r'convenience of the readers?', context, re.I):
+                translations.append({'currency':next(iter(origin)),
+                    'convenience_currency':next(iter(destination)), 'declaration':match.group(0)})
         pairs = {(r['currency'], r['convenience_currency']) for r in translations}
         if len(pairs) != 1:
             raise TabularReportingError('table_translation_basis_unproved')
