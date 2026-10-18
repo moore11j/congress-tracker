@@ -494,6 +494,10 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
         return native_statement
     if currency_hold is not None:
         raise currency_hold
+    from app.services.sec_tabular_reporting import acquire as acquire_tables
+    table_statement = acquire_tables(company_raw,symbol=symbol,cik=cik,available_by=available,client=retained)
+    if table_statement is not None:
+        return table_statement
     forms = forms_for(symbol, cik)
     from app.services.sec_currency_ratios import basis as currency_basis
     native_basis = currency_basis(symbol, cik)

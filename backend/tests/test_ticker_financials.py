@@ -109,6 +109,13 @@ def test_valuation_metrics_negative_eps_growth_does_not_imply_forward_pe():
 
 
 def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch):
+    # The source fixture describes forecasts as of June, before September ends.
+    # Keep this normalization test independent of the machine's current date.
+    class FixtureDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 6, 1)
+    monkeypatch.setattr(financials_module, "date", FixtureDate)
     clear_financials_cache()
     monkeypatch.setattr(financials_module, "_quote_cache_price", lambda _symbol: None)
 
@@ -645,3 +652,16 @@ def test_ticker_financials_empty_provider_response_is_no_data(monkeypatch):
     assert response["earnings"] == []
     assert response["message"] == "Financial data is not available for this ticker yet."
     assert response["sections_present"] == []
+
+
+def test_expired_annual_estimate_cannot_supply_forward_pe():
+    metrics = financials_module._valuation_metrics(
+        symbol="AAPL",
+        quote_rows=[{"price": 170.0}],
+        ratio_rows=[],
+        annual_estimate_rows=[{"date": "2026-09-30", "fiscalYear": "2026", "estimatedEpsAvg": 6.8}],
+        today=date(2026, 10, 17),
+    )
+    assert metrics["forward_pe"] is None
+    assert metrics["forward_pe_source"] is None
+    assert metrics["status"] == "unavailable"
