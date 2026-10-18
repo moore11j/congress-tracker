@@ -33,15 +33,17 @@ def declaration(raw, observations):
     text = tables.clean(' '.join(tree.itertext()))
     # Require an explicit basis for the financial statements/performance/results,
     # not a bare GAAP label or a reference to the jurisdiction of the issuer.
-    subject = r'(?:financial statements|financial performance|results)'
+    subject = r'(?:financial statements|financial information|financial performance|results)'
     standard = (r'(?:U\.?S\.?\s+GAAP|accounting principles generally accepted in '
+                r'the United States(?: of America)?|generally accepted accounting principles in '
                 r'the United States(?: of America)?)')
-    pattern = subject + r'(?:(?![.;]).){0,100}?\bprepared in accordance with\s+' + standard
+    verb = r'(?:prepared(?: and presented)?|presented) in accordance with'
+    pattern = subject + r'(?:(?![.;]).){0,100}?\b' + verb + r'\s+' + standard
     matches = [m.group(0) for m in re.finditer(pattern, text, re.I)
                if not re.search(r'\b(?:not|never|unlike)\b', m.group(0), re.I)]
     if not matches:
         raise TabularReportingError('table_accounting_basis_unproved')
-    if re.search(r'financial statements.{0,120}(?:prepared in accordance with|comply with).{0,40}(?:IFRS|International Financial Reporting Standards)', text, re.I):
+    if re.search(subject + r'.{0,120}(?:' + verb + r'|comply with).{0,40}(?:IFRS|International Financial Reporting Standards)', text, re.I):
         raise TabularReportingError('table_accounting_basis_conflict')
     units = {f['currency'] for f in observations['facts']}
     translations = []
