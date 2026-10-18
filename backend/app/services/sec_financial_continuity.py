@@ -37,7 +37,7 @@ def fetch_history(symbol, cik, *, client, observed_at):
     return client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{PREDECESSOR_CIK}.json')
 
 
-def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=None, metrics=None, filing_supplement=None, company=None, instant_metrics=()):
+def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=None, metrics=None, filing_supplement=None, company=None, instant_metrics=(), preserve_reported_revenue=False):
     from app.services import sec_fundamentals as sec
     metrics = metrics or {name:(tags,'USD') for name,tags in sec.TAGS.items()}
     instant_names = sec.INSTANT | set(instant_metrics)
@@ -86,6 +86,9 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
     from app.services.sec_revenue_concept_parity import apply as select_revenue_concept
     current = select_revenue_concept(current, effective, company or {}, symbol=symbol, cik=cik,
         available_by=available_by, supplement=filing_supplement)
+    from app.services.sec_revenue_series import apply as select_statement_revenue
+    current = select_statement_revenue(current,effective,company or {},cik=str(cik).zfill(10),
+        available_by=available_by,supplement=filing_supplement,preserve_reported_history=preserve_reported_revenue)
     inline.annotate(current,filing_supplement,metrics=metrics,expected_cik=cik,available_by=available_by)
     from app.services.sec_bank_revenue import apply
     current = apply(current,effective,company,available_by=available_by)

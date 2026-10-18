@@ -67,7 +67,7 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     metrics={name:(metric_tags[name],currency) for name in facts.TAGS}
     metrics['eps']=(('EarningsPerShareDiluted',),currency+'/shares')
     metrics['statement_assets']=(('Assets',),currency)
-    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,instant_metrics={'statement_assets'},filing_supplement=filing_supplement,company=company)
+    records,continuity=record_sets(data,symbol=matches[0],cik=cik,available_by=available,observed_at=observed_at,history_raw=history_raw,metrics=metrics,instant_metrics={'statement_assets'},filing_supplement=filing_supplement,company=company,preserve_reported_revenue=True)
     eps_records=records.pop('eps')
     standard_foreign=(filing_supplement or {}).get('evidence',{}).get('standard_foreign_reporting')
     if standard_foreign:
@@ -89,9 +89,12 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     # Fourth quarters may only appear as annual totals less nine-month YTD.
     for start, end in annual:
         for (ytd_start, ytd_end), value in records['revenue'].items():
-            if value and ytd_start == start and 70 <= (end-ytd_end).days <= 110:
+            # A derived period must use one concept. Otherwise an unusable
+            # candidate consumes a chart slot before the row is discarded.
+            same_basis = value and value['tag'] == records['revenue'][start,end]['tag']
+            if same_basis and ytd_start == start and 70 <= (end-ytd_end).days <= 110:
                 quarters.add((ytd_end+timedelta(days=1), end))
-            if native_selection and value and ytd_start == start and 160 <= (end-ytd_end).days <= 200:
+            if native_selection and same_basis and ytd_start == start and 160 <= (end-ytd_end).days <= 200:
                 halves.add((ytd_end+timedelta(days=1), end))
     evidence = {}
     def rows(periods, count, kind):

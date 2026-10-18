@@ -1,0 +1,160 @@
+{
+  "GCT-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001857816.json",
+    "sha256": "0b6a57930e020708c383c928c36bff115886f04c125e1b8c2fd0052bb225f24c",
+    "bytes": 748739,
+    "captured_at": "2026-10-17T02:07:04.270060+00:00"
+  },
+  "GCT-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001857816.json",
+    "sha256": "0a63e7df55d533b8da790336cb52e0abb6351eeda2538d21599d28c5ab061f26",
+    "bytes": 59010,
+    "captured_at": "2026-10-17T02:07:03.829536+00:00"
+  },
+  "GCT-0001857816-26-000018.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1857816/000185781626000018/gct-20251231.htm",
+    "sha256": "ca32aa181359ecbf6c0f086b70b3b99c631f36ebf3ce46f6a77c4ef864d53f12",
+    "bytes": 2818349,
+    "symbol": "GCT",
+    "cik": "0001857816",
+    "accession": "0001857816-26-000018",
+    "form": "10-K",
+    "filed": "2026-02-26",
+    "report_date": "2025-12-31"
+  },
+  "GCT-0001857816-26-000074.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1857816/000185781626000074/gct-20260630.htm",
+    "sha256": "fc33f5a99e0810d60f1682262cb754e7a51e0b756423c3e1dd0008e1fd38841e",
+    "bytes": 2043021,
+    "symbol": "GCT",
+    "cik": "0001857816",
+    "accession": "0001857816-26-000074",
+    "form": "10-Q",
+    "filed": "2026-08-06",
+    "report_date": "2026-06-30"
+  },
+  "KELYA-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000055135.json",
+    "sha256": "8b40b85cf8ec33b3e0ea8fae68f843b38e6ab6e5481a61ecf4bd4cd4411bad4e",
+    "bytes": 2781237,
+    "captured_at": "2026-10-17T02:07:40.564731+00:00"
+  },
+  "KELYA-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0000055135.json",
+    "sha256": "19abba0a4b4cd529e0436e354819e922fcbc19807735289492a46c9594dd4281",
+    "bytes": 159447,
+    "captured_at": "2026-10-17T02:07:40.049796+00:00"
+  },
+  "KELYA-0000055135-25-000052.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/55135/000005513525000052/kelya-20250629.htm",
+    "sha256": "52e0303502d50fc47f20e4fc4a90e6b6ad5e2bad03da24db3dc3df9331aad387",
+    "bytes": 1509754,
+    "symbol": "KELYA",
+    "cik": "0000055135",
+    "accession": "0000055135-25-000052",
+    "form": "10-Q",
+    "filed": "2025-08-07",
+    "report_date": "2025-06-29"
+  },
+  "KELYA-0000055135-26-000053.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/55135/000005513526000053/kelya-20251228.htm",
+    "sha256": "e601cdcd9f68628af40f525d678b64b98712935b6c350ab1d525aa7746b91f6c",
+    "bytes": 2083088,
+    "symbol": "KELYA",
+    "cik": "0000055135",
+    "accession": "0000055135-26-000053",
+    "form": "10-K",
+    "filed": "2026-02-12",
+    "report_date": "2025-12-28"
+  },
+  "KELYA-0000055135-26-000161.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/55135/000005513526000161/kelya-20260628.htm",
+    "sha256": "623766d22c159aa894d3c644cae20fbdab8c1c1c77707394f7b854958c248785",
+    "bytes": 1216210,
+    "symbol": "KELYA",
+    "cik": "0000055135",
+    "accession": "0000055135-26-000161",
+    "form": "10-Q",
+    "filed": "2026-08-06",
+    "report_date": "2026-06-28"
+  },
+  "KGS-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001767042.json",
+    "sha256": "0a410fb53c6dc2f53fb0a7c84aa26a8414e28b79bce52ab076d2318bffe2564f",
+    "bytes": 890215,
+    "captured_at": "2026-10-17T02:07:41.664830+00:00"
+  },
+  "KGS-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001767042.json",
+    "sha256": "611a0097496a20a5a73f5f6528f99a80c0a7c49124cf90d0abcee1785c4f90b9",
+    "bytes": 60559,
+    "captured_at": "2026-10-17T02:07:41.228881+00:00"
+  },
+  "KGS-0001767042-25-000045.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1767042/000176704225000045/kgs-20250630.htm",
+    "sha256": "2d3e5601160edd98ca81c36da5a2ad874d10e9d7a061bae4623ca8cbf853d753",
+    "bytes": 1487275,
+    "symbol": "KGS",
+    "cik": "0001767042",
+    "accession": "0001767042-25-000045",
+    "form": "10-Q",
+    "filed": "2025-08-07",
+    "report_date": "2025-06-30"
+  },
+  "KGS-0001767042-26-000012.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1767042/000176704226000012/kgs-20251231.htm",
+    "sha256": "16e688280372704d5b988f139f4c03ae56df7fefebbd45592e5183866fec4206",
+    "bytes": 2187199,
+    "symbol": "KGS",
+    "cik": "0001767042",
+    "accession": "0001767042-26-000012",
+    "form": "10-K",
+    "filed": "2026-02-26",
+    "report_date": "2025-12-31"
+  },
+  "KGS-0001767042-26-000055.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1767042/000176704226000055/kgs-20260630.htm",
+    "sha256": "50c15e548ddcd06446da0b9714d19ac0604fd7899ed5a8e71a6f7918f3709bb8",
+    "bytes": 1802070,
+    "symbol": "KGS",
+    "cik": "0001767042",
+    "accession": "0001767042-26-000055",
+    "form": "10-Q",
+    "filed": "2026-08-07",
+    "report_date": "2026-06-30"
+  },
+  "WAT-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001000697.json",
+    "sha256": "f36772e3c932728e55fc7b158a25d0ab2189ad8ffc3a3e02408c7bfd3ae0b8ed",
+    "bytes": 4401557,
+    "captured_at": "2026-10-17T02:09:46.111963+00:00"
+  },
+  "WAT-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001000697.json",
+    "sha256": "dec28b2b1653fb764ba4b0acefb90d394ec9a7314d6f6e5e77faa35c8b998e54",
+    "bytes": 158242,
+    "captured_at": "2026-10-17T02:09:45.408237+00:00"
+  },
+  "WAT-0001193125-26-062604.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1000697/000119312526062604/d778470d10k.htm",
+    "sha256": "1f2be0ad5ba9cd7d0eceebfea015c50e82630c0aa0d7c18a3edb84482d8887b2",
+    "bytes": 3024805,
+    "symbol": "WAT",
+    "cik": "0001000697",
+    "accession": "0001193125-26-062604",
+    "form": "10-K",
+    "filed": "2026-02-23",
+    "report_date": "2025-12-31"
+  },
+  "WAT-0001193125-26-344691.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1000697/000119312526344691/d170082d10q.htm",
+    "sha256": "26bb350a057648478f68d24117f07ef1ee63d38429f153946d9b3e2a8f8b10e5",
+    "bytes": 2032403,
+    "symbol": "WAT",
+    "cik": "0001000697",
+    "accession": "0001193125-26-344691",
+    "form": "10-Q",
+    "filed": "2026-08-11",
+    "report_date": "2026-07-04"
+  }
+}
