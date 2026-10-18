@@ -26,7 +26,21 @@ class TabularFinancialError(ValueError):
 
 
 def clean(value):
-    return ' '.join(value.replace('\xa0',' ').split())
+    return ' '.join(value.replace('\xa0',' ').replace('\u200b','').split())
+
+
+def visible_text(node):
+    """Join adjacent inline runs without inventing spaces inside printed words."""
+    blocks={'p','div','br','li','tr','td','th','h1','h2','h3','h4'}
+    def pieces(current):
+        if current.text:yield current.text
+        for child in current:
+            if isinstance(child.tag,str):
+                if child.tag.lower() in blocks:yield ' '
+                yield from pieces(child)
+                if child.tag.lower() in blocks:yield ' '
+            if child.tail:yield child.tail
+    return clean(''.join(pieces(node)))
 
 
 def company_key(value):
@@ -53,7 +67,7 @@ def grid(table):
                 raise TabularFinancialError('table_span')
             if any((y,x) in occupied for y in range(r,r+height) for x in range(column,column+span)):
                 raise TabularFinancialError('table_overlap')
-            record={'text':clean(' '.join(cell.itertext())),'start':column,'end':column+span,'row':r}
+            record={'text':visible_text(cell),'start':column,'end':column+span,'row':r}
             for y in range(r,r+height):
                 for x in range(column,column+span):occupied[y,x]=record
             cells.append(record);column+=span
@@ -67,7 +81,7 @@ def grid(table):
 def preceding_text(table):
     # Only local text blocks, not a whole ancestor DIV containing other tables.
     nodes=table.xpath('preceding::*[self::p or self::div][not(ancestor::table)][not(.//table)][not(.//p)][not(.//div)]')[-8:]
-    return [clean(' '.join(n.itertext())) for n in nodes if clean(' '.join(n.itertext()))]
+    return [visible_text(n) for n in nodes if visible_text(n)]
 
 
 def statement_prefix(text):
@@ -91,7 +105,7 @@ def document_statement_scope(tree, issuer):
     nodes=tree.xpath('//*[self::p or self::div or self::h1 or self::h2]'
                      '[not(ancestor::blockquote)][not(.//table)][not(.//p)]'
                      '[not(.//div)][not(.//h1)][not(.//h2)]')
-    blocks=[(n,clean(' '.join(n.itertext()))) for n in nodes]
+    blocks=[(n,visible_text(n)) for n in nodes]
     blocks=[(n,t) for n,t in blocks if t]
     heading=re.compile(r'(?P<issuer>.{1,160}?) (?:Reports|Announces) '
                        r'(?:(?:First|Second|Third|Fourth) Quarter|(?:Full|Fiscal) Year) '
@@ -125,6 +139,42 @@ def currencies(text):
     return {code for code,pattern in CURRENCIES.items() if re.search(r'(?<![A-Za-z])(?:' + pattern + r')(?![A-Za-z])',text,re.I)}
 
 
+def statement_currency_scope(tree,issuer):
+    """Explicit currency of these statements, never a derivative or bare dollar."""
+    nodes=tree.xpath('//*[self::p or self::div][not(ancestor::blockquote)]'
+                     '[not(.//table)][not(.//p)][not(.//div)]')
+    blocks=[visible_text(n) for n in nodes]
+    # A different entity's statement caption makes document-wide scope unsafe.
+    for i,text in enumerate(blocks):
+        if len(text)>240 or table_kind(text) is None:continue
+        if not re.search(r'\b(?:balance sheets?|statements? of (?:operations|income|comprehensive (?:loss|income)|cash flows?))(?: \(unaudited\))?$',text,re.I):continue
+        prefix=statement_prefix(text)
+        if not prefix:
+            if nodes[i].xpath('ancestor::table'):continue
+            prior=next((v for v in reversed(blocks[:i]) if v and not neutral_statement_context(v)), '')
+            if table_kind(prior) is not None:continue
+            prefix=prior
+        if prefix and company_key(prefix)!=company_key(issuer):return None
+    subject=(r'\b(?:the(?: accompanying)?|these|our)\s+'
+             r'(?:(?:unaudited|audited|interim|condensed|consolidated)\s+){0,5}'
+             r'financial statements(?: of the Company| included in this Report)?\s+')
+    bridge=(r'(?:(?:have been|are) prepared in accordance with '
+            r'(?:(?![;]|\b(?:not|never|except|subsidiary|subsidiaries)\b).){1,220}? and )?')
+    predicate=r'are (?:presented|denominated) in\s+'
+    matches=[]
+    for text in blocks:
+        if not re.search(r'\bfinancial statements\b',text,re.I) or not re.search(predicate,text,re.I):continue
+        for code,alias in ALIASES.items():
+            for match in re.finditer(subject+bridge+predicate+r'('+alias+r')\b',text,re.I):
+                prefix=text[max(0,match.start()-70):match.start()]
+                if re.search(r'\b(?:not|never|unlike|if|hypothetical)\s+(?:\w+\s+){0,3}$',prefix,re.I):continue
+                matches.append({'currency':code,'declaration':match.group(0)})
+    units={m['currency'] for m in matches}
+    if len(units)!=1:return None
+    return {'currency':next(iter(units)),'issuer':issuer,'basis':'explicit_statement_currency',
+            'declarations':[dict(t) for t in dict.fromkeys(tuple(m.items()) for m in matches)]}
+
+
 def metric_for(label,kind,issuer):
     label=clean(label).lower().replace('\u2019',"'").rstrip(':')
     # Printed numeric note references do not change the financial line item.
@@ -137,7 +187,7 @@ def metric_for(label,kind,issuer):
         "total shareholders' equity":'total_equity',"total stockholders' equity":'total_equity',
         "total shareholders' (deficit) equity":'total_equity',
         'total equity':'total_equity','revenues':'revenue','revenue':'revenue','total revenue':'revenue',
-        'total revenues':'revenue','net revenues':'revenue','total net revenues':'revenue',
+        'total revenues':'revenue','net revenues':'revenue','total net revenues':'revenue','revenue, net':'revenue',
         'gross profit':'gross_profit','gross (loss) profit':'gross_profit',
         'operating income':'operating_income','operating loss':'operating_income',
         'income from operations':'operating_income','loss from operations':'operating_income',
@@ -194,7 +244,7 @@ def amount(cells,start,end,scale):
     return float(value)
 
 
-def parse_table(table,*,issuer,filed,document_scope=None):
+def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False):
     rows=grid(table)
     if not rows:return None
     local=preceding_text(table)
@@ -203,13 +253,18 @@ def parse_table(table,*,issuer,filed,document_scope=None):
         if not row or row[0]['start']!=0 or not re.search(r'[A-Za-z]',row[0]['text']):return False
         if re.search(r'in thousands|in millions|months? ended|as of|as at',row[0]['text'],re.I):return False
         return any(re.fullmatch(r'\(?-?[0-9][0-9,.]*\)?',c['text']) for c in row[1:])
-    boundary=next((i for i,row in enumerate(rows) if data_row(row)),min(len(rows),12))
+    boundary=next((i for i,row in enumerate(rows) if data_row(row)),None)
+    if boundary is None:return None
     header_rows=rows[:boundary]
     intro=' '.join(local+[' '.join(c['text'] for c in r) for r in header_rows])
-    kind=table_kind(intro)
-    if kind is None:return None
     identity_blocks=local+[c['text'] for row in header_rows for c in row if c['start']==0]
+    captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(r'consolidated (?:balance sheets?|statements? of)',b,re.I)]
+    if not captions:return None
+    caption_index,caption=captions[-1];kind=table_kind(caption)
+    if kind is None:return None
     issuer_key=company_key(issuer)
+    if any(company_key(b)==issuer_key for b in identity_blocks[caption_index+1:]):
+        raise TabularFinancialError('table_issuer_unproved')
     identified=[];scope_used=False
     for index,block in enumerate(identity_blocks):
         if table_kind(block) != kind:
@@ -242,6 +297,8 @@ def parse_table(table,*,issuer,filed,document_scope=None):
             if any(not currencies(c['text']) and c['text']!='$' for c in monetary):
                 raise TabularFinancialError('column_currency_unproved')
             anchors=monetary;last=index
+    shared=currencies(' '.join(local+[c['text'] for row in header_rows for c in row if c['start']==0]))
+    currency_used=False
     columns=[]
     for i,anchor in enumerate(anchors):
         texts=[]
@@ -254,14 +311,21 @@ def parse_table(table,*,issuer,filed,document_scope=None):
             duration=[s for s in local if re.fullmatch(r'(?:For the )?(?:Three|Six|Nine|Twelve|3|6|9|12) months? ended',s,re.I)]
             if len(duration)==1:header+=' '+duration[0]
         start,finish,months=period_for(header,kind,filed)
+        if periods_only:
+            columns.append({'start':str(start) if start else None,'end':str(finish),'months':months,'header':texts})
+            continue
         unit=currencies(anchor['text']) or currencies(header)
-        if not unit:unit=currencies(' '.join(local))
+        if not unit:unit=shared
+        if not unit and currency_scope and company_key(currency_scope.get('issuer',''))==issuer_key:
+            unit={currency_scope['currency']};currency_used=True
         if len(unit)!=1:raise TabularFinancialError('column_currency_unproved')
-        declared=currencies(' '.join(local+[c['text'] for row in header_rows for c in row if c['start']==0]))
+        declared=shared
+        if currency_scope and unit!={currency_scope['currency']}:raise TabularFinancialError('column_currency_conflict')
         if len(declared)==1 and unit!=declared:raise TabularFinancialError('column_currency_conflict')
         columns.append({'column_start':anchor['start'],'column_end':anchors[i+1]['start'] if i+1<len(anchors) else max(c['end'] for r in rows for c in r),
                         'start':str(start) if start else None,'end':str(finish),'months':months,'currency':next(iter(unit)),
                         'scale':int(scale),'header':texts})
+    if periods_only:return {'kind':kind,'columns':columns,'heading':local}
     observations=[];holds=[]
     for row_number,row in enumerate(rows[boundary:],boundary):
         if not row:continue
@@ -276,7 +340,29 @@ def parse_table(table,*,issuer,filed,document_scope=None):
     if not observations:return None
     result={'kind':kind,'heading':local,'columns':columns,'observations':observations,'holds':holds}
     if scope_used:result['document_scope']=document_scope
+    if currency_used:result['currency_scope']=currency_scope
     return result
+
+
+def inspect_statement_period(raw,*,issuer,filed):
+    """Period evidence only: cannot authorize values, currency or accounting."""
+    if not isinstance(raw,bytes) or not raw or len(raw)>MAX_BYTES:return None
+    tree=html.fromstring(raw)
+    if tree.xpath("//base") or len(tree.xpath("//table"))>500:return None
+    for node in tree.xpath('//script|//style|//template|//blockquote'):node.drop_tree()
+    rows=[]
+    for index,table in enumerate(tree.xpath('//table')):
+        try:result=parse_table(table,issuer=issuer,filed=filed,periods_only=True)
+        except TabularFinancialError as exc:
+            if str(exc)!='table_issuer_unproved':return None
+            continue
+        if result:rows.append({'table':index,**result})
+    kinds={r['kind'] for r in rows}
+    if not {'balance','income'}<=kinds:return None
+    ends={kind:max(c['end'] for r in rows if r['kind']==kind for c in r['columns']) for kind in kinds}
+    if len(set(ends.values()))!=1:return None
+    return {'end':ends['balance'],'statements':rows,'basis':'owned_statement_headers_only',
+            'source_sha256':hashlib.sha256(raw).hexdigest(),'financial_values_qualified':False}
 
 
 def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by):
@@ -298,16 +384,22 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
     tables=tree.xpath('//table')
     if len(tables)>500:raise TabularFinancialError('table_count_bound')
     company=json.loads(company_raw);issuer=company['name'];filed=date.fromisoformat(metadata['filed']);out=[];holds=[]
-    scope=None;scope_checked=False
+    scope=None;scope_checked=False;currency_scope=None;currency_checked=False
     for index,table in enumerate(tables):
         try:
-            try:result=parse_table(table,issuer=issuer,filed=filed)
-            except TabularFinancialError as exc:
-                if str(exc)!='table_issuer_unproved':raise
-                if not scope_checked:
-                    scope=document_statement_scope(tree,issuer);scope_checked=True
-                if scope is None or table.xpath('ancestor::blockquote'):raise
-                result=parse_table(table,issuer=issuer,filed=filed,document_scope=scope)
+            for attempt in range(3):
+                try:
+                    quoted=bool(table.xpath('ancestor::blockquote'))
+                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope)
+                except TabularFinancialError as exc:
+                    if str(exc)=='table_issuer_unproved' and not scope_checked:
+                        scope=document_statement_scope(tree,issuer);scope_checked=True
+                        if scope is None or table.xpath('ancestor::blockquote'):raise
+                    elif str(exc)=='column_currency_unproved' and not currency_checked:
+                        currency_scope=statement_currency_scope(tree,issuer);currency_checked=True
+                        if currency_scope is None or table.xpath('ancestor::blockquote'):raise
+                    else:raise
+                else:break
         except TabularFinancialError as exc:holds.append({'table':index,'reason':str(exc)});continue
         if result is not None:out.append({'table':index,**result})
     grouped={}
@@ -324,6 +416,8 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
             facts.append({k:points[0][k] for k in ('metric','start','end','months','currency','value')}|{'occurrences':points})
     ownership=[{'table':t['table'],**t['document_scope']} for t in out if 'document_scope' in t]
     scope_proof={'statement_ownership':ownership} if ownership else {}
+    used_currency=[{'table':t['table'],**t['currency_scope']} for t in out if 'currency_scope' in t]
+    if used_currency:scope_proof['statement_currency']=used_currency
     if source_url==cover_url:scope_proof['document_role']='primary_filing'
     return {'version':VERSION,'status':'prepared' if facts else 'unavailable','publication_eligible':False,
             'source':{**metadata,'statement_url':source_url,'statement_sha256':hashlib.sha256(raw).hexdigest(),

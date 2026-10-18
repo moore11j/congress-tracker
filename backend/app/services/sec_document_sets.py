@@ -93,7 +93,9 @@ def candidates(company_raw,*,symbol,cik,available_by):
 def statement_exhibits(raw,metadata):
     """Discover explicitly labelled statement links within this one filing."""
     from app.services.sec_inline_financials import InlineFactsError
-    if not isinstance(raw,bytes) or not raw or len(raw)>2_000_000:
+    # A directory primary may itself contain full financial statements.
+    # Respect the existing original-document limit rather than a cover-only cap.
+    if not isinstance(raw,bytes) or not raw or len(raw)>20_000_000:
         raise InlineFactsError('document_set_cover_size')
     try:tree=html.fromstring(raw)
     except (ValueError,html.etree.ParserError) as exc:raise InlineFactsError('document_set_cover_html') from exc

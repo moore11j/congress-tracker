@@ -60,7 +60,7 @@ def test_complete_primary_source_and_unchanged_request_bound(symbol):
         assert panel['summary']['revenueTtm'] is None
         assert panel['summary']['currentRatio']==w['assets']/w['liabilities']
         assert core.project_fundamentals(facts,company,**args)['current_ratio']==panel['summary']['currentRatio']
-        if symbol=='TK':assert checked['records']['revenue'][date(2026,1,1),date(2026,6,30)]['source_occurrences'][0]['label']=='Revenues ( note 3 )'
+        if symbol=='TK':assert checked['records']['revenue'][date(2026,1,1),date(2026,6,30)]['source_occurrences'][0]['label']=='Revenues (note 3)'
 
 
 @pytest.mark.parametrize('label',['Revenues (note 3)','Revenues ( note 3 )','Revenues (notes 3 and 5)','Revenues (notes 3, 5)','Revenues (notes 3-5)'])

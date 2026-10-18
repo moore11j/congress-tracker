@@ -30,7 +30,7 @@ def declaration(raw, observations):
     tree = html.fromstring(raw)
     for node in tree.xpath('//script|//style|//template|//blockquote'):
         node.drop_tree()
-    text = tables.clean(' '.join(tree.itertext()))
+    text = tables.visible_text(tree)
     # Require an explicit basis for the financial statements/performance/results,
     # not a bare GAAP label or a reference to the jurisdiction of the issuer.
     subject = r'(?:financial statements|financial information|financial performance|results)'
@@ -160,7 +160,7 @@ def primary_statement_candidate(tree):
     for node in tree.xpath('//*[self::p or self::div or self::td or self::th]'
                            '[not(ancestor::blockquote)][not(.//table)]'
                            '[not(.//p)][not(.//div)]'):
-        text=tables.clean(' '.join(node.itertext()))
+        text=tables.visible_text(node)
         if len(text)<=240 and tables.table_kind(text) is not None:return True
     return False
 
@@ -178,7 +178,13 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
         return None
     candidates=sets.candidates(company_raw,symbol=symbol,cik=cik,available_by=available_by)
     candidates.sort(key=lambda c:(c['report_date']<c['filed'],c['report_date'],c['filed']),reverse=True)
-    accepted=[];holds=[]
+    accepted=[];holds=[];held_sources={}
+    issuer=json.loads(company_raw)['name']
+    def statement_hold(raw,candidate,reason,source_url):
+        hold={'accession':candidate['accession'],'filed':candidate['filed'],'reason':reason}
+        if reason in {'table_accounting_basis_unproved','table_reporting_currency_unproved','table_native_observations_unavailable'}:
+            held_sources[id(hold)]=(raw,source_url)
+        return hold
     for candidate in candidates[:3]:
         cover=client.get(candidate['cover_url'])
         if len(cover)>tables.MAX_BYTES:
@@ -193,13 +199,13 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
             try:result=normalize(cover,**args)
             except (tables.TabularFinancialError,TabularReportingError) as exc:
                 if str(exc)!='table_no_statements':
-                    holds.append({'accession':candidate['accession'],'filed':candidate['filed'],'reason':str(exc)})
+                    holds.append(statement_hold(cover,candidate,str(exc),candidate['cover_url']))
             else:accepted.append((result,cover,args))
         elif len(cover)>2_000_000:
             holds.append({'accession':candidate['accession'],'reason':'cover_size'});continue
         links=set(); statement_links=set()
         for node in tree.xpath('//a[@href]'):
-            label=tables.clean(' '.join(node.itertext()))
+            label=tables.visible_text(node)
             row=node.xpath('ancestor::tr[1]')
             if row and len(row[0].xpath('.//a[@href]'))==1:
                 label=tables.clean(' '.join(row[0].itertext()))
@@ -225,7 +231,7 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
         try: result=normalize(raw,**args)
         except (tables.TabularFinancialError,TabularReportingError) as exc:
             if str(exc)!='table_no_statements':
-                holds.append({'accession':candidate['accession'],'filed':candidate['filed'],'reason':str(exc)})
+                holds.append(statement_hold(raw,candidate,str(exc),url))
             continue
         accepted.append((result,raw,args))
     if not accepted:
@@ -238,7 +244,17 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
     if len(selected)!=1:
         raise TabularReportingError('table_current_selection_ambiguous')
     result,raw,args=selected[0]
-    if any(h.get('filed','9999')>result['evidence']['current_period'] for h in holds):
+    def superseded(hold):
+        # Reparse only a hold that could actually block an accepted newer filing.
+        # Failed-only scopes and already older disclosure dates need no second pass.
+        original=held_sources.get(id(hold))
+        if original is None or hold.get('filed','9999')>=result['evidence']['source']['filed']:return False
+        raw,source_url=original
+        period=tables.inspect_statement_period(raw,issuer=issuer,filed=date.fromisoformat(hold['filed']))
+        if period is None:return False
+        hold['period_evidence']={**period,'source_url':source_url}
+        return period['end']<=result['evidence']['current_period']
+    if any(h.get('filed','9999')>result['evidence']['current_period'] and not superseded(h) for h in holds):
         # A possibly relevant inspected statement was not qualified; do not
         # fall back to an older result while concealing that gap.
         raise TabularReportingError('table_discovery_has_unqualified_statement')
