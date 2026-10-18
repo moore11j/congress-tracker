@@ -56,6 +56,9 @@ def apply(records, payload, company, *, available_by):
     ordinary = records.get('revenue', {})
     if reviewed:
         return _reviewed_contract(records, payload, ordinary, combined, fees, available_by)
+    if ordinary and all(row and row.get('tag') in {'Revenues', 'RevenuesNetOfInterestExpense'} for row in ordinary.values()):
+        replacement = _obsolete_reported_total(ordinary, combined, company, available_by)
+        return {**records, 'revenue': replacement} if replacement is not None else records
     if ordinary:
         # A bank's discontinued contract-revenue component must not block its
         # current complete banking denominator. Never splice those two bases.
@@ -111,3 +114,50 @@ def _reviewed_contract(records, payload, ordinary, combined, fees, available_by)
             'method': REVIEWED_VERSION, 'review': REVIEW,
             'superseded_component': component, 'basis_spliced': False}}
     return {**records, 'revenue': selected}
+
+
+def _obsolete_reported_total(ordinary, combined, company, available_by):
+    """Replace an abandoned total series with a wholly current bank basis.
+
+    Never combine legacy totals with component periods or bypass a newer filing.
+    This is the same disclosed net-interest bank definition, not an EBITDA proxy.
+    """
+    old_end = max(end for _, end in ordinary)
+    end = max((end for _, end in combined), default=None)
+    if (end is None or (available_by-old_end).days <= 380 or end <= old_end
+            or not 0 <= (available_by-end).days <= 180):
+        return None
+    trailing = sec._ttm(combined, end)
+    if trailing is None:
+        return None
+    recent = company.get('filings', {}).get('recent', {})
+    filings = []
+    for index, form in enumerate(recent.get('form', [])):
+        if form not in {'10-K', '10-Q', '10-K/A', '10-Q/A', '10-KT', '10-QT', '10-KT/A', '10-QT/A', '20-F', '20-F/A', '40-F', '40-F/A'}:
+            continue
+        try:
+            report = date.fromisoformat(recent['reportDate'][index])
+            filed = date.fromisoformat(recent['filingDate'][index])
+            accession = recent['accessionNumber'][index]
+        except (ValueError, TypeError, KeyError, IndexError):
+            return None
+        if report <= filed <= available_by and accession:
+            filings.append((report, filed, accession, form))
+    if not filings:
+        return None
+    report, filed, accession, form = max(filings)
+    if (form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'} or report != end
+            or len({(a, kind) for e, f, a, kind in filings if (e, f)==(report, filed)}) != 1):
+        return None
+    closing = [row for row in trailing['inputs'] if row['end'] == str(end)]
+    if not closing or any((row['filed'], row['accession']) != (str(filed), accession) for row in closing):
+        return None
+    selection = {
+        'method': 'complete_bank_basis_replaces_obsolete_reported_total_v1',
+        'superseded_last_period': str(old_end),
+        'superseded_concepts': sorted({row['tag'] for row in ordinary.values()}),
+        'current_report': {'end': str(report), 'filed': str(filed), 'accession': accession, 'form': form},
+        'basis_spliced': False,
+    }
+    return {key: {**row, 'revenue_selection': selection} if row else None
+            for key, row in combined.items()}
