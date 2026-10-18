@@ -556,7 +556,24 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
         exhibit = exhibit_url(cover, url, cik=cik)
         return parse(client.get(exhibit), cik=cik, accession=accession, filed=filed, report_date=report,
             form=form, url=exhibit, basis=native_basis, cover_raw=cover, cover_url=url)
-    return parse(client.get(url),cik=cik,accession=accession,filed=filed,report_date=report,form=form,url=url,basis=native_basis)
+    result = parse(retained.get(url),cik=cik,accession=accession,filed=filed,report_date=report,form=form,url=url,basis=native_basis)
+    from app.services.sec_revenue_concept_parity import PROFILES as reviewed_revenue_profiles
+    if native_basis is None and form in FORMS and symbol not in reviewed_revenue_profiles:
+        from app.services import sec_revenue_series
+        from app.clients.direct_sources import DirectSourceError
+        try:
+            if any(p.get('tag') in {sec_revenue_series.TOTAL,sec_revenue_series.CONTRACT}
+                   for p in result['evidence'].get('nil_facts', [])):
+                raise ValueError('revenue_series_nil_revenue')
+            selection = sec_revenue_series.acquire(payload,company,cik=cik,available_by=available,
+                client=retained, originals={url:result})
+            if selection is not None:
+                result['evidence']['revenue_series_selection'] = selection
+        except (ValueError, DirectSourceError) as exc:
+            # Keep independently valid inline metrics; a failed total-revenue
+            # proof never authorizes the alternate series or a partial splice.
+            result['evidence']['revenue_series_hold'] = type(exc).__name__+':'+str(exc)
+    return result
 
 
 def merge(payload, supplement, *, available_by):
