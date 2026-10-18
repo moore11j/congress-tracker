@@ -110,6 +110,12 @@ def cached_currency_valid(evidence):
     """Reject old generic admissions without invalidating unrelated readers."""
     if not isinstance(evidence, dict):
         return False
+    if evidence.get('methodology') == 'sec_tabular_reporting_v1' and 'table_reporting' not in evidence:
+        return False
+    if 'table_reporting' in evidence:
+        from app.services.sec_tabular_reporting import cached_valid
+        return (bool(evidence.get('cik')) and cached_valid(evidence['table_reporting'], cik=evidence['cik'])
+                and evidence.get('reporting_currency') == evidence['table_reporting'].get('currency'))
     proof = evidence.get('inline_filing_supplement') or {}
     if not isinstance(proof, dict):
         return False

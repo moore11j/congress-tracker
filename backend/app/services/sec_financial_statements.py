@@ -50,6 +50,9 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
     matches = [s for s in company.get('tickers', []) if _symbol_key(s) == _symbol_key(symbol)]
     if len(matches) != 1:
         raise DirectSourceError('financial_symbol_identity_mismatch')
+    if (filing_supplement or {}).get('evidence',{}).get('table_reporting'):
+        from app.services.sec_tabular_reporting import panel
+        return panel(facts_raw,company_raw,symbol=matches[0],cik=cik,observed_at=observed_at,supplement=filing_supplement)
     from app.services import sec_foreign_statements as foreign
     if foreign.profile(symbol, cik):
         return foreign.project(facts_raw,company_raw,symbol=symbol,cik=cik,observed_at=observed_at,supplement=filing_supplement)
@@ -210,6 +213,13 @@ def cached_row_payload(row, symbol, *, now=None):
     evidence = payload.get('sourceEvidence') or {}
     if not isinstance(evidence, dict):
         return None
+    if evidence.get('methodology') == 'sec_tabular_reporting_v1' and 'tableReporting' not in evidence:
+        return None
+    if 'tableReporting' in evidence:
+        from app.services.sec_tabular_reporting import cached_valid
+        if (not cached_valid(evidence['tableReporting'], symbol=symbol) or payload.get('reportingCurrency') != evidence['tableReporting'].get('currency')
+                or payload.get('preparationVersion') != evidence['tableReporting'].get('methodology')):
+            return None
     generic = evidence.get('standardForeignReporting')
     proof = evidence.get('inlineFilingSupplement') or {}
     if 'standardForeignReporting' in evidence:
@@ -317,16 +327,22 @@ def prepared(symbol):
                 from app.services import sec_foreign_statements as foreign
                 from app.services.sec_tagged_foreign import TaggedCurrencyError
                 from app.services.sec_statement_currency import StatementCurrencyError
+                from app.services.sec_tabular_reporting import TabularReportingError
                 try:
                     if foreign.profile(symbol,cik):
                         filing=foreign.acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
                     else:
                         filing=acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
                     payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
-                except (TaggedCurrencyError, StatementCurrencyError):
+                except (TaggedCurrencyError, StatementCurrencyError, TabularReportingError) as exc:
                     from app.services.ticker_financials import _unavailable
-                    payload = _unavailable(symbol, message='Financial statements require verification of their reporting currency.',
-                                           reason='unreviewed_foreign_statement_currency')
+                    if isinstance(exc, TabularReportingError):
+                        message = 'Financial statements require verification of their accounting basis, reporting currency or source period.'
+                        reason = 'unqualified_html_statement'
+                    else:
+                        message = 'Financial statements require verification of their reporting currency.'
+                        reason = 'unreviewed_foreign_statement_currency'
+                    payload = _unavailable(symbol, message=message, reason=reason)
                     payload.update(source='sec_edgar', updatedAt=now.isoformat(),
                                    sourceEvidence={'factsUrl': facts_url, 'factsSha256': hashlib.sha256(raw).hexdigest(),
                                                    'companySha256': hashlib.sha256(company).hexdigest()})

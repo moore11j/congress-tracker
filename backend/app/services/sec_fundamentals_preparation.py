@@ -184,12 +184,15 @@ def prepare(symbol, *, max_cache_age=TTL):
             from app.services.sec_inline_financials import acquire
             from app.services.sec_tagged_foreign import TaggedCurrencyError
             from app.services.sec_statement_currency import StatementCurrencyError
+            from app.services.sec_tabular_reporting import TabularReportingError
             try:
                 filing = acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client,include_debt_precision=True)
                 values = sec_fundamentals.project_fundamentals(raw, company,
                     symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
             except (TaggedCurrencyError, StatementCurrencyError):
                 payload.update(reason='unreviewed_foreign_statement_currency')
+            except TabularReportingError as exc:
+                payload.update(reason='unqualified_html_statement',detail=str(exc))
             except sec_fundamentals.SecFundamentalsCoverageError as exc:
                 payload.update(reason='unsupported_current_financial_coverage', detail=str(exc))
             else:

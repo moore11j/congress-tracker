@@ -263,6 +263,9 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     if not symbol or tickers.count(symbol) != 1 or not company.get("name"):
         raise SecFundamentalsError("SEC symbol identity is missing or ambiguous")
     available_by = observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)
+    if (filing_supplement or {}).get('evidence',{}).get('table_reporting'):
+        from app.services.sec_tabular_reporting import core
+        return core(facts_raw,company_raw,symbol=symbol,cik=cik,observed_at=observed_at,supplement=filing_supplement)
     if symbol == 'UL':
         from app.services.sec_ul_financials import project
         return project(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at, supplement=filing_supplement)
