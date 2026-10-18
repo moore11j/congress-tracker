@@ -70,6 +70,52 @@ def preceding_text(table):
     return [clean(' '.join(n.itertext())) for n in nodes if clean(' '.join(n.itertext()))]
 
 
+def neutral_statement_context(text):
+    """Page numbers and numbered explanatory footnotes are not issuer captions."""
+    return bool(re.fullmatch(r'\d{1,3}', text) or
+                (len(text) > 100 and re.match(r'^\(\d{1,2}\)\s', text)
+                 and table_kind(text) is None))
+
+
+def document_statement_scope(tree, issuer):
+    """An exact issuer earnings headline can own otherwise unnamed statements.
+
+    This is never inferred from a company mention, URL, SEC filer identity alone,
+    or a quote. Any competing financial headline/caption disables this fallback.
+    """
+    nodes=tree.xpath('//*[self::p or self::div or self::h1 or self::h2]'
+                     '[not(ancestor::blockquote)][not(.//table)][not(.//p)]'
+                     '[not(.//div)][not(.//h1)][not(.//h2)]')
+    blocks=[(n,clean(' '.join(n.itertext()))) for n in nodes]
+    blocks=[(n,t) for n,t in blocks if t]
+    heading=re.compile(r'(?P<issuer>.{1,160}?) (?:Reports|Announces) '
+                       r'(?:(?:First|Second|Third|Fourth) Quarter|(?:Full|Fiscal) Year) '
+                       r'20\d{2} (?:Financial )?Results', re.I)
+    top=[t for n,t in blocks if not n.xpath('ancestor::table')][:12]
+    titles=[(t,heading.fullmatch(t)) for t in top]
+    titles=[(t,m) for t,m in titles if m]
+    if len(titles)!=1 or company_key(titles[0][1]['issuer'])!=company_key(issuer):
+        return None
+    for i,(node,text) in enumerate(blocks):
+        match=heading.fullmatch(text)
+        if match and company_key(match['issuer'])!=company_key(issuer):return None
+        if table_kind(text) is None:continue
+        prefix=re.split(r'\b(?:unaudited|audited|condensed|consolidated)\b',text,maxsplit=1,flags=re.I)[0].strip()
+        if not prefix:
+            # Inspect beyond page numbers, not just the last eight local blocks.
+            current_table=node.xpath('ancestor::table')
+            prefix=next((t for n,t in reversed(blocks[:i])
+                         if (not n.xpath('ancestor::table') or n.xpath('ancestor::table')==current_table)
+                         and not neutral_statement_context(t)
+                         and not re.match(r'^\(?\s*(?:Amounts expressed in|In thousands|In millions|Stated in)\b',t,re.I)), '')
+            if table_kind(prefix) is not None:continue
+            # Long prose is not an entity caption; local admission below still
+            # requires only neutral blocks immediately before an unnamed title.
+            if len(prefix)>160:continue
+        if prefix and company_key(prefix)!=company_key(issuer):return None
+    return {'issuer':issuer,'headline':titles[0][0],'basis':'exact_issuer_earnings_headline'}
+
+
 def currencies(text):
     return {code for code,pattern in CURRENCIES.items() if re.search(r'(?<![A-Za-z])(?:' + pattern + r')(?![A-Za-z])',text,re.I)}
 
@@ -140,7 +186,7 @@ def amount(cells,start,end,scale):
     return float(value)
 
 
-def parse_table(table,*,issuer,filed):
+def parse_table(table,*,issuer,filed,document_scope=None):
     rows=grid(table)
     if not rows:return None
     local=preceding_text(table)
@@ -156,14 +202,17 @@ def parse_table(table,*,issuer,filed):
     if kind is None:return None
     identity_blocks=local+[c['text'] for row in header_rows for c in row if c['start']==0]
     issuer_key=company_key(issuer)
-    identified=[]
+    identified=[];scope_used=False
     for index,block in enumerate(identity_blocks):
         if table_kind(block) != kind:
             continue
         prefix=re.split(r'\b(?:unaudited|audited|condensed|consolidated)\b',block,maxsplit=1,flags=re.I)[0].strip()
-        if not prefix:
-            prefix=next((v for v in reversed(identity_blocks[:index]) if v.strip()), '')
-        identified.append(company_key(prefix)==issuer_key)
+        if not prefix and document_scope and company_key(document_scope.get('issuer',''))==issuer_key and all(neutral_statement_context(v) for v in identity_blocks[:index] if v.strip()):
+            identified.append(True);scope_used=True
+        else:
+            if not prefix:
+                prefix=next((v for v in reversed(identity_blocks[:index]) if v.strip()), '')
+            identified.append(company_key(prefix)==issuer_key)
     # The closest statement heading owns this table. An earlier parent-company
     # mention cannot authorize an intervening subsidiary/acquisition statement.
     if not issuer_key or not identified or not identified[-1]:
@@ -217,7 +266,9 @@ def parse_table(table,*,issuer,filed):
             if value is None:continue
             observations.append({'metric':metric,'value':value,'label':label,'row':row_number,**col})
     if not observations:return None
-    return {'kind':kind,'heading':local,'columns':columns,'observations':observations,'holds':holds}
+    result={'kind':kind,'heading':local,'columns':columns,'observations':observations,'holds':holds}
+    if scope_used:result['document_scope']=document_scope
+    return result
 
 
 def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by):
@@ -238,8 +289,16 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
     tables=tree.xpath('//table')
     if len(tables)>500:raise TabularFinancialError('table_count_bound')
     company=json.loads(company_raw);issuer=company['name'];filed=date.fromisoformat(metadata['filed']);out=[];holds=[]
+    scope=None;scope_checked=False
     for index,table in enumerate(tables):
-        try:result=parse_table(table,issuer=issuer,filed=filed)
+        try:
+            try:result=parse_table(table,issuer=issuer,filed=filed)
+            except TabularFinancialError as exc:
+                if str(exc)!='table_issuer_unproved':raise
+                if not scope_checked:
+                    scope=document_statement_scope(tree,issuer);scope_checked=True
+                if scope is None or table.xpath('ancestor::blockquote'):raise
+                result=parse_table(table,issuer=issuer,filed=filed,document_scope=scope)
         except TabularFinancialError as exc:holds.append({'table':index,'reason':str(exc)});continue
         if result is not None:out.append({'table':index,**result})
     grouped={}
@@ -254,9 +313,11 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
                 'reason':'conflicting_statement_observations','occurrences':points})
         else:
             facts.append({k:points[0][k] for k in ('metric','start','end','months','currency','value')}|{'occurrences':points})
+    ownership=[{'table':t['table'],**t['document_scope']} for t in out if 'document_scope' in t]
+    scope_proof={'statement_ownership':ownership} if ownership else {}
     return {'version':VERSION,'status':'prepared' if facts else 'unavailable','publication_eligible':False,
             'source':{**metadata,'statement_url':source_url,'statement_sha256':hashlib.sha256(raw).hexdigest(),
-                      'cover_sha256':hashlib.sha256(cover_raw).hexdigest()},
+                      'cover_sha256':hashlib.sha256(cover_raw).hexdigest(),**scope_proof},
             'tables':out,'holds':holds,'facts':facts,'conflicts':conflicts,
             'limitations':['Table observations are not admitted ratios or historical panels.',
                 'Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.',

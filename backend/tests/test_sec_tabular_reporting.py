@@ -51,7 +51,7 @@ def test_complete_original_normalization_and_bounded_acquisition(symbol,currency
             assert point['unit']==currency and point['source_kind']=='html_statement' and point['tag'].startswith('html:')
 
 
-@pytest.mark.parametrize('symbol',['CGNT','NIVF','YI','ZEPP'])
+@pytest.mark.parametrize('symbol',['CGNT','NIVF','ZEPP'])
 def test_missing_explicit_accounting_basis_is_held(symbol):
     raw,args=source(symbol)
     with pytest.raises(tables.TabularReportingError,match='table_accounting_basis_unproved'):
@@ -216,3 +216,17 @@ def test_unqualified_table_hold_is_truthful_and_cached(monkeypatch):
         assert payload['subsections']['income']['reason_code']=='unqualified_html_statement'
         count=len(client.calls);assert statements.prepared('YQ')==payload and len(client.calls)==count
     engine.dispose()
+
+
+def test_yi_complete_original_explicit_prepared_and_presented_basis():
+    raw,args=source('YI');result=tables.normalize(raw,**args)
+    assert result['evidence']['accounting_basis']=='US GAAP'
+    assert result['evidence']['currency']=='CNY'
+    assert result['evidence']['native_observation_count']==24
+    assert result['evidence']['source_observation_count']==36
+    assert result['records']['current_assets'][None,date(2026,6,30)]['value']==1723085000
+    assert result['records']['operating_cash_flow'][date(2026,1,1),date(2026,6,30)]['value']==-103158000
+    assert all(p['unit']=='CNY' for values in result['records'].values() for p in values.values() if p)
+    assert b'prepared and presented' in raw
+    with pytest.raises(tables.TabularReportingError,match='accounting_basis_unproved'):
+        tables.normalize(raw.replace(b'prepared and presented',b'not prepared and presented'),**args)
