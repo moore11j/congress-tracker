@@ -70,6 +70,3 @@ def test_actual_revenue_series_source_recovery_and_alert_transitions(symbol,monk
         assert db.scalar(select(func.count()).select_from(MonitoringAlert))==1
         assert db.scalar(select(func.count()).select_from(EmailDelivery))==0
     engine.dispose()
-
-
-
