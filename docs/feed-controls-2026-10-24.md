@@ -1,6 +1,6 @@
 # Feed controls and plan access, October 24, 2026
 
-Implemented on `codex/feed-controls`, based on current `origin/main` at `31b2a10f`. Production is unchanged.
+Implemented on `codex/feed-controls`, based on `31b2a10f`; merged and deployed as `5480f312` on October 24 after owner approval. See the release receipt below.
 
 ## Requested behavior
 
@@ -27,10 +27,25 @@ Ryan's feedback identified page sizes resetting when filters changed, missing ex
 
 ## Release state
 
-Draft [PR727](https://github.com/moore11j/congress-tracker/pull/727), application commit `5f2504e6`, is ready for review. Review and deployment remain pending. No production data, provider settings, schedules, infrastructure or emails changed. The paused FMP migration remains separate. Production performance with large mixed-source pages has not been measured by these isolated checks.
+[PR727](https://github.com/moore11j/congress-tracker/pull/727), including application commits `5f2504e6` and `154106d2`, merged as `5480f31225780300f513afb8bf62e0c3c00fcc47` and is deployed. No provider settings, schedules, infrastructure capacity, direct production data edits or emails changed. The paused FMP migration remains separate. Production performance with large mixed-source pages has not been measured.
 
 ## October 24 follow-up: tables only
 
 The owner requested removal of the Cards selector and card view. FeedList no longer stores or reads a view preference and always renders FeedTable. The mobile stacked layout is removed; a labeled, keyboard-focusable horizontal scroll region contains the same table at every screen size. Row details remain expandable. Shared detail components used elsewhere are retained.
 
 Seven focused frontend checks pass (the six controls/API checks plus the updated existing layout assertion), as does TypeScript. Local Chrome with synthetic fixtures and a saved `walnut:feed:view=cards` preference confirms the selector is absent, one table remains visible on desktop and mobile, horizontal scrolling and expansion work, and Pro sorting in both directions, export order, filter-size persistence and 1,000 rows still pass. Desktop/mobile screenshots were inspected. No uncaught browser errors; the existing global-search hydration warning remains. Removing the mobile stacked layout also removes its nested watchlist-button markup. No backend changes or new backend test run in this follow-up. Review and deployment remain pending.
+
+## Approved release and production verification, October 24
+
+The owner's instruction to commit and deploy all feed changes authorized this release. The merged frontend/backend trees exactly match the tested PR head. Preview build passed; Vercel production deployment `dpl_FHFsQb5GTWTRNKfDwfycmGTj1zE4` is Ready. Both `walnutmarkets.com/api/app-version` and `app.walnutmarkets.com/api/app-version` returned the full `5480f312` merge SHA.
+
+Guarded [backend workflow40116863444](https://github.com/moore11j/congress-tracker/actions/runs/40116863444) succeeded at17:38:10UTC. Installed normalized SHA256 hashes match the local release for `app/main.py`, `app/routers/events.py`, `app/services/feed_controls.py` and `requirements.txt`. Runtime Python3.12.15 has openpyxl3.1.5 and reportlab4.4.10; actual installed renderers produce readable CSV, XLSX and PDF bytes. Isolated in-process rank checks cover0/10/20/30 without database writes.
+
+Public checks after deployment:
+
+- Readiness/database returned healthy in0.354s.
+- Requests for1,000 rows through `limit` and `page_size` each returned25rows/limit25 in0.628s and0.362s.
+- Explicit sorting through either parameter and all three export formats returned403 anonymously, in0.213–0.226s.
+- Fresh Chrome on the production app passed desktop/mobile checks with a saved Cards preference: no selector, one table,25rows, disabled sort headers, no export buttons, horizontally scrollable mobile table and expandable row details. No uncaught browser errors; screenshots inspected. The browser harness waits for hydration after consent dismissal.
+
+These timings are bounded spot checks, not a capacity benchmark. Authenticated paid production sessions and1,000-row production performance were not exercised. Prior paid-tier local browser fixtures and66backend/sevenfrontend checks remain the evidence for those branches. Local-only verification scripts/screenshots are in `artifacts/feed-controls-2026-10-24/` in the primary checkout. This tracked receipt preserves the results.
