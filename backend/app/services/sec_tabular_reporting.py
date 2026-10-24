@@ -241,9 +241,13 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
     rank=lambda item:(item[0]['evidence']['current_period'],item[0]['evidence']['source']['filed'])
     latest=max(rank(item) for item in accepted)
     selected=[item for item in accepted if rank(item)==latest]
-    if len(selected)!=1:
-        raise TabularReportingError('table_current_selection_ambiguous')
-    result,raw,args=selected[0]
+    corroboration=None;corroborating_originals=[]
+    if len(selected)>1:
+        from app.services.sec_tabular_corroboration import select
+        chosen,corroboration=select(selected)
+        corroborating_originals=[{'raw':raw,'args':args} for i,(_,raw,args) in enumerate(selected) if i!=chosen]
+    else:chosen=0
+    result,raw,args=selected[chosen]
     def superseded(hold):
         # Reparse only a hold that could actually block an accepted newer filing.
         # Failed-only scopes and already older disclosure dates need no second pass.
@@ -261,8 +265,11 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
     proof=result['evidence']
     proof['discovery']={'candidate_bound':3,'total_candidates':len(candidates),
         'inspected':len(candidates[:3]),'holds':holds,'whole_universe_complete':False}
-    return {'evidence':{'table_reporting':proof},'table_original':raw,
-            'table_args':args}
+    supplement={'evidence':{'table_reporting':proof},'table_original':raw,'table_args':args}
+    if corroboration is not None:
+        proof['discovery']['corroboration']=corroboration
+        supplement['table_corroborating_originals']=corroborating_originals
+    return supplement
 
 
 def validate(supplement, *, company_raw, symbol, cik, available_by):
@@ -276,9 +283,28 @@ def validate(supplement, *, company_raw, symbol, cik, available_by):
         raise TabularReportingError('table_consumer_identity')
     args['available_by']=available_by
     result=normalize(supplement['table_original'],**args)
-    proof=dict(supplement['evidence']['table_reporting']);proof.pop('discovery',None)
+    proof=dict(supplement['evidence']['table_reporting']);discovery=proof.pop('discovery',{})
+    peers=supplement.get('table_corroborating_originals')
+    corroboration=discovery.get('corroboration')
+    if peers is not None or corroboration is not None:
+        if not isinstance(peers,list) or not 1<=len(peers)<=5 or not corroboration:
+            raise TabularReportingError('table_corroboration_originals_required')
+        items=[(result,supplement['table_original'],args)]
+        for peer in peers:
+            peer_args=dict(peer['args'])
+            if peer_args['company_raw']!=company_raw or peer_args['symbol']!=symbol or str(peer_args['cik']).zfill(10)!=str(cik).zfill(10):
+                raise TabularReportingError('table_consumer_identity')
+            peer_args['available_by']=available_by
+            items.append((normalize(peer['raw'],**peer_args),peer['raw'],peer_args))
+        from app.services.sec_tabular_corroboration import select
+        chosen,checked=select(items)
+        if chosen!=0 or checked!=corroboration:
+            raise TabularReportingError('table_corroboration_evidence_changed')
     if result['evidence']!=proof:
         raise TabularReportingError('table_original_evidence_changed')
+    if corroboration is not None:
+        # Preserve only the proof recomputed from complete originals above.
+        result['evidence']['corroboration']=checked
     return result
 
 
@@ -368,6 +394,9 @@ def cached_valid(proof, *, symbol=None, cik=None):
     if not isinstance(proof,dict):return False
     try:
         source=proof['source']
+        if 'corroboration' in proof:
+            from app.services.sec_tabular_corroboration import cached_valid as corroboration_valid
+            if not corroboration_valid(proof['corroboration'],source):return False
         from app.services.sec_statement_currency import source_identity
         return (proof['methodology']==VERSION and proof['version']==VERSION
             and proof['accounting_basis']=='US GAAP' and proof['accounting_declarations']
