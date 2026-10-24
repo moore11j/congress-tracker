@@ -6,11 +6,11 @@ export const planBenefits = {
   },
   premium: {
     purpose: "See where the data agrees, compare stocks, and follow what changes.",
-    benefits: ["Confirmation Score and detailed ranking context", "Side-by-side stock comparisons", "Saved-screen monitoring and research email alerts"],
+    benefits: ["Confirmation Score and detailed ranking context", "Side-by-side stock comparisons", "Saved-screen monitoring and research email alerts", "Up to 1,000 feed rows per page"],
   },
   pro: {
     purpose: "Add reported institutional activity and deeper market context to your research.",
-    benefits: ["Everything in Premium, with higher limits", "Institutional activity and macro positioning", "Custom multi-condition alerts and Walnut Strategies"],
+    benefits: ["Everything in Premium, with higher limits", "Institutional activity and macro positioning", "Custom multi-condition alerts and Walnut Strategies", "Feed sorting and Excel, CSV and PDF exports"],
   },
 } as const;
 

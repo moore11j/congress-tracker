@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.auth import SESSION_COOKIE_NAME, current_user, is_admin_user
 from app.db import get_db
 from app.entitlements import entitlements_for_user
+from app.services.feed_controls import FeedExportRequest, feed_limit, require_feed_pro, render_feed_export
 from app.rate_limit import rate_limit_provider_backed
 from app.models import Event, GovernmentContractAction, InsiderTransaction, InsiderTransactionNormalized, InstitutionalActivityEvent, InstitutionalHolder, InstitutionalPositionChange, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
@@ -77,6 +78,24 @@ from app.request_guards import (
 
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
+
+
+@router.post("/events/export.{export_format}", dependencies=[Depends(rate_limit_provider_backed)])
+def export_feed_page(
+    export_format: Literal["csv", "xlsx", "pdf"],
+    body: FeedExportRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    # The report is the user's displayed page, not a new unbounded feed query.
+    require_feed_pro(request, db)
+    content, media_type = render_feed_export(body.rows, export_format)
+    filename = f"walnut-feed-{date.today().isoformat()}.{export_format}"
+    return Response(content, media_type=media_type, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    })
 
 
 @router.get("/public/activity", dependencies=[Depends(rate_limit_provider_backed)])
@@ -5460,8 +5479,10 @@ def list_events(
     whale: bool | None = None,
     recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
-    limit: int = Query(DEFAULT_LIMIT, ge=1, le=100),
-    page_size: int | None = Query(None, ge=1, le=MAX_LIMIT),
+    limit: int = Query(25, ge=1, le=1000),
+    page_size: int | None = Query(None, ge=1, le=1000),
+    sort_by: Literal["filed_after", "ticker", "entity", "source", "action", "amount", "pnl", "signal"] | None = None,
+    sort_dir: Literal["asc", "desc"] | None = None,
     offset: int = Query(0, ge=0),
     include_total: bool = Query(False),
     enrich_prices: bool = Query(True),
@@ -5496,6 +5517,8 @@ def list_events(
     recent_days = recent_days if isinstance(recent_days, int) else None
     offset = offset if isinstance(offset, int) else 0
     page_size = page_size if isinstance(page_size, int) else None
+    limit = feed_limit(db, request, limit if isinstance(limit, int) else 25, page_size, sort_by, sort_dir)
+    page_size = limit if page_size is not None else None
     include_total = include_total is True
     enrich_prices = enrich_prices is not False
     include_net_flows = include_net_flows is not False

@@ -30,3 +30,10 @@ def test_public_events_cache_key_changes_with_feed_epoch(monkeypatch) -> None:
     assert first is not None
     assert second is not None
     assert first != second
+
+
+def test_explicit_feed_sort_cannot_bypass_entitlement_check_via_public_cache():
+    for query in (b"sort_by=amount", b"sort_dir=asc"):
+        request = _request()
+        request.scope["query_string"] = query
+        assert main_module._public_get_cache_key(request) is None

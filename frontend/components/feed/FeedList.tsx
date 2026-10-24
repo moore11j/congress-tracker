@@ -4,19 +4,23 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FeedItem } from "@/lib/types";
 import { FeedCard } from "@/components/feed/FeedCard";
-import { FeedTable } from "@/components/feed/FeedTable";
+import { FeedTable, feedExportRows, sortFeedTableItems } from "@/components/feed/FeedTable";
+import { downloadFeedExport } from "@/lib/api";
+import { feedPageSizes, type FeedPageSize, type FeedSortKey } from "@/lib/feedControls";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import { ghostButtonClassName, selectClassName } from "@/lib/styles";
 
 type FeedListProps = {
   items: FeedItem[];
   page?: number;
-  pageSize?: 25 | 50 | 100;
+  pageSize?: FeedPageSize;
   total?: number | null;
   totalPages?: number;
   hasMore?: boolean | null;
   overlaySignals?: SignalOverlayMap;
   canViewPremiumMetrics?: boolean;
+  canExpand?: boolean;
+  canSortExport?: boolean;
   debugLifecycle?: boolean;
 };
 
@@ -27,10 +31,45 @@ type FeedViewMode = "table" | "cards";
 const feedViewStorageKey = "walnut:feed:view";
 const DEFAULT_FEED_PAGE_SIZE = 25;
 
-export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = DEFAULT_FEED_PAGE_SIZE, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, canViewPremiumMetrics = false, debugLifecycle = false }: FeedListProps) {
+export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: initialPageSize = DEFAULT_FEED_PAGE_SIZE, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, canViewPremiumMetrics = false, canExpand = false, canSortExport = false, debugLifecycle = false }: FeedListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const sortBy = searchParams.get("sort_by") || "filed_after";
+  const sortDir = searchParams.get("sort_dir") || "desc";
+  const items = useMemo(() => canSortExport ? sortFeedTableItems(rawItems, sortBy, sortDir) : rawItems, [rawItems, canSortExport, sortBy, sortDir]);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  function sortColumn(key: FeedSortKey) {
+    if (!canSortExport) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("sort_by", key);
+    params.set("sort_dir", key === sortBy && sortDir === "desc" ? "asc" : "desc");
+    params.set("page_size", String(initialPageSize));
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
+  async function exportPage(format: "csv" | "xlsx" | "pdf") {
+    if (!canSortExport || exporting || !items.length) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const { blob, filename } = await downloadFeedExport(format, feedExportRows(items));
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
@@ -75,7 +114,8 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function changePageSize(size: 25 | 50 | 100) {
+  function changePageSize(size: FeedPageSize) {
+    if (size > 25 && !canExpand) return;
     setPageSize(size);
     setExpandedItemId(null);
     setPage(1);
@@ -121,6 +161,22 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+        {canSortExport ? (
+          <>
+            <span>Sort and export this page ({items.length} rows).</span>
+            {(["xlsx", "csv", "pdf"] as const).map((format) => (
+              <button key={format} type="button" disabled={exporting || !items.length}
+                className={`${ghostButtonClassName} disabled:opacity-50`} onClick={() => exportPage(format)}>
+                {format === "xlsx" ? "Excel" : format.toUpperCase()}
+              </button>
+            ))}
+            {exporting ? <span role="status">Preparing export…</span> : null}
+          </>
+        ) : <a href="/pricing" className="text-emerald-200">Pro unlocks sorting and Excel, CSV and PDF exports.</a>}
+        {exportError ? <span role="alert" className="text-rose-200">{exportError}</span> : null}
+      </div>
+
       {!items.length ? (
         <div className="rounded-3xl border border-dashed border-white/20 bg-white/5 p-8 text-center">
           <div className="text-lg font-semibold">No trades yet</div>
@@ -133,6 +189,10 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
           onToggleExpanded={toggleExpandedItem}
           overlaySignals={overlaySignals}
           canViewPremiumMetrics={canViewPremiumMetrics}
+          canSortExport={canSortExport}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSort={sortColumn}
         />
       ) : (
         items.map((item) => {
@@ -146,13 +206,15 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
           <span className="text-sm text-slate-400">Rows</span>
           <select
             value={pageSize}
-            onChange={(e) => changePageSize(Number(e.target.value) as 25 | 50 | 100)}
+            aria-label="Rows per page"
+            onChange={(e) => changePageSize(Number(e.target.value) as FeedPageSize)}
             className={`${selectClassName} w-auto min-w-[88px] rounded-lg px-2 py-1 text-sm`}
           >
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
+            {feedPageSizes.map((size) => <option key={size} value={size} disabled={size > 25 && !canExpand}>
+              {size.toLocaleString()}{size > 25 && !canExpand ? " · Premium" : ""}
+            </option>)}
           </select>
+          {!canExpand ? <a href="/pricing" className="text-xs text-emerald-200">More rows with Premium</a> : null}
         </div>
 
         <div className="text-sm text-slate-400">

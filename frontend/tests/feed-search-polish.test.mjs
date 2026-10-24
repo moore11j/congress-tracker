@@ -164,7 +164,9 @@ test("feed list defaults to compact table while preserving card view", () => {
   assert.match(list, /<FeedCard key=\{item\.id\}/);
   assert.match(list, /Table/);
   assert.match(list, /Cards/);
-  assert.match(table, /Date[\s\S]*Ticker[\s\S]*Person \/ Entity[\s\S]*Source[\s\S]*Action[\s\S]*Amount[\s\S]*G\/L[\s\S]*Signal[\s\S]*Disclosure/);
+  assert.match(table, /feedSortOptions\.map/);
+  assert.match(read("lib/feedControls.ts"), /Date[\s\S]*Ticker[\s\S]*Person \/ Entity[\s\S]*Source[\s\S]*Action[\s\S]*Amount[\s\S]*% Delta[\s\S]*Signal/);
+  assert.match(table, /Disclosure/);
   assert.match(table, /\{dateLabel\(item\)\}[\s\S]*<AddTickerToWatchlist[\s\S]*\{entityLabel\(item\)\}[\s\S]*\{sourceLabel\(item\)\}[\s\S]*\{actionLabel\(item\)\}[\s\S]*\{amountLabel\(item\)\}/);
   assert.match(table, /lg:hidden/);
   assert.match(table, /hidden lg:block/);

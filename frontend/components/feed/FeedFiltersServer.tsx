@@ -7,13 +7,16 @@ import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutos
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { feedModeOptions, type FeedMode } from "@/lib/feedModes";
 import { activeFilterControlClassName, cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { getEntitlements } from "@/lib/api";
+import { feedAccess, feedPageSize, feedSortOptions, type FeedPageSize, type FeedSortKey } from "@/lib/feedControls";
 
-type FeedSortBy = "filed_after" | "amount" | "pnl" | "signal";
+type FeedSortBy = FeedSortKey;
 type FeedSortDir = "asc" | "desc";
 
 type FeedFiltersServerProps = {
   mode: FeedMode;
+  pageSize?: FeedPageSize;
   params: {
     symbol?: string;
     recent_days?: string;
@@ -28,21 +31,17 @@ type FeedFiltersServerProps = {
   };
 };
 
-const sortOptions = [
-  ["filed_after", "Filed after"],
-  ["amount", "Amount"],
-  ["pnl", "% Delta"],
-  ["signal", "Signal"],
-] as const satisfies readonly (readonly [FeedSortBy, string])[];
+const sortOptions = feedSortOptions;
 
 const directionOptions = [
   ["desc", "Desc"],
   ["asc", "Asc"],
 ] as const satisfies readonly (readonly [FeedSortDir, string])[];
 
-function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) {
+function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"], pageSize: number) {
   const url = new URLSearchParams();
   url.set("mode", nextMode);
+  url.set("page_size", String(pageSize));
   const keys =
     nextMode === "institutional"
       ? (["symbol", "member", "trade_type", "sort_by", "sort_dir"] as const)
@@ -73,7 +72,7 @@ function feedSelectClassName(value?: string): string {
 }
 
 function normalizeSortBy(value?: string): FeedSortBy {
-  return value === "amount" || value === "pnl" || value === "signal" || value === "filed_after" ? value : "filed_after";
+  return sortOptions.some(([key]) => key === value) ? value as FeedSortBy : "filed_after";
 }
 
 function normalizeSortDir(value?: string): FeedSortDir {
@@ -130,12 +129,12 @@ function TradeTypeField({ value }: { value?: string }) {
   );
 }
 
-function SortField({ value }: { value?: string }) {
+function SortField({ value, enabled }: { value?: string; enabled: boolean }) {
   const normalized = normalizeSortBy(value);
   return (
     <div className={selectFieldClassName}>
-      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sort by</label>
-      <select name="sort_by" defaultValue={normalized} className={feedSelectClassName(value)}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sort by {enabled ? "" : "(Pro)"}</label>
+      <select name="sort_by" disabled={!enabled} defaultValue={normalized} className={`${feedSelectClassName(value)} disabled:opacity-50`} aria-label="Sort displayed rows (Pro)">
         {sortOptions.map(([optionValue, label]) => (
           <option key={optionValue} value={optionValue}>
             {label}
@@ -146,12 +145,12 @@ function SortField({ value }: { value?: string }) {
   );
 }
 
-function DirectionField({ value }: { value?: string }) {
+function DirectionField({ value, enabled }: { value?: string; enabled: boolean }) {
   const normalized = normalizeSortDir(value);
   return (
     <div className={narrowSelectFieldClassName}>
       <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Direction</label>
-      <select name="sort_dir" defaultValue={normalized} className={feedSelectClassName(value)}>
+      <select name="sort_dir" disabled={!enabled} defaultValue={normalized} className={`${feedSelectClassName(value)} disabled:opacity-50`} aria-label="Sort direction">
         {directionOptions.map(([optionValue, label]) => (
           <option key={optionValue} value={optionValue}>
             {label}
@@ -248,11 +247,20 @@ function SavedFeedViews({ mode }: { mode: FeedMode }) {
   );
 }
 
-export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
+export function FeedFiltersServer({ mode, params, pageSize = 25 }: FeedFiltersServerProps) {
+  const [access, setAccess] = useState({ canExpand: false, canSortExport: false });
+  useEffect(() => {
+    let cancelled = false;
+    getEntitlements(undefined, { source: "FeedFilters" }).then((value) => {
+      if (!cancelled) setAccess(feedAccess(value));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+  const selectedPageSize = feedPageSize(pageSize, access.canExpand);
   const normalizedParams = {
     ...params,
-    sort_by: normalizeSortBy(params.sort_by),
-    sort_dir: normalizeSortDir(params.sort_dir),
+    sort_by: access.canSortExport ? normalizeSortBy(params.sort_by) : "",
+    sort_dir: access.canSortExport ? normalizeSortDir(params.sort_dir) : "",
   };
   const formKey = JSON.stringify({ mode, ...normalizedParams });
   const modeLabel = feedModeOptions.find(([value]) => value === mode)?.[1] ?? "All";
@@ -278,7 +286,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           return (
             <a
               key={value}
-              href={modeHref(value, normalizedParams)}
+              href={modeHref(value, normalizedParams, selectedPageSize)}
               className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                 active
                   ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
@@ -293,14 +301,15 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
       <form key={formKey} id="feed-filters-form" method="GET" action="/" className="mt-5 flex flex-col gap-4">
         <input type="hidden" name="mode" value={mode} />
+        <input type="hidden" name="page_size" value={selectedPageSize} />
 
         {mode === "all" ? (
           <FilterRow>
             <SymbolField mode={mode} value={params.symbol} />
             <NameField label="Name" value={params.member} mode={mode} placeholder="Member, insider, department, institution" />
             <TradeTypeField value={params.trade_type} />
-            <SortField value={normalizedParams.sort_by} />
-            <DirectionField value={normalizedParams.sort_dir} />
+            <SortField value={normalizedParams.sort_by} enabled={access.canSortExport} />
+            <DirectionField value={normalizedParams.sort_dir} enabled={access.canSortExport} />
             <RecentDaysField value={params.recent_days} />
             <SavedFeedViews mode={mode} />
           </FilterRow>
@@ -313,8 +322,8 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <TradeTypeField value={params.trade_type} />
             <PartyField value={params.party} />
             <ChamberField value={params.chamber} />
-            <SortField value={normalizedParams.sort_by} />
-            <DirectionField value={normalizedParams.sort_dir} />
+            <SortField value={normalizedParams.sort_by} enabled={access.canSortExport} />
+            <DirectionField value={normalizedParams.sort_dir} enabled={access.canSortExport} />
             <RecentDaysField value={params.recent_days} />
             <SavedFeedViews mode={mode} />
           </FilterRow>
@@ -326,8 +335,8 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <NameField label="Name" value={params.member} mode={mode} placeholder="Insider name" />
             <TradeTypeField value={params.trade_type} />
             <RoleField value={params.role} />
-            <SortField value={normalizedParams.sort_by} />
-            <DirectionField value={normalizedParams.sort_dir} />
+            <SortField value={normalizedParams.sort_by} enabled={access.canSortExport} />
+            <DirectionField value={normalizedParams.sort_dir} enabled={access.canSortExport} />
             <RecentDaysField value={params.recent_days} />
             <SavedFeedViews mode={mode} />
           </FilterRow>
@@ -338,8 +347,8 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <SymbolField mode={mode} value={params.symbol} />
             <DepartmentField value={params.department} />
             <TradeTypeField value={params.trade_type} />
-            <SortField value={normalizedParams.sort_by} />
-            <DirectionField value={normalizedParams.sort_dir} />
+            <SortField value={normalizedParams.sort_by} enabled={access.canSortExport} />
+            <DirectionField value={normalizedParams.sort_dir} enabled={access.canSortExport} />
             <SavedFeedViews mode={mode} />
           </FilterRow>
         ) : null}
@@ -349,8 +358,8 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <SymbolField mode={mode} value={params.symbol} />
             <NameField label="Institution" value={params.member} mode={mode} placeholder="Institution name" />
             <TradeTypeField value={params.trade_type} />
-            <SortField value={normalizedParams.sort_by} />
-            <DirectionField value={normalizedParams.sort_dir} />
+            <SortField value={normalizedParams.sort_by} enabled={access.canSortExport} />
+            <DirectionField value={normalizedParams.sort_dir} enabled={access.canSortExport} />
             <SavedFeedViews mode={mode} />
           </FilterRow>
         ) : null}
@@ -362,12 +371,12 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           >
             Apply filters
           </button>
-          <a href={`/?mode=${mode}`} className={ghostButtonClassName}>
+          <a href={`/?mode=${mode}&page_size=${selectedPageSize}`} className={ghostButtonClassName}>
             Reset
           </a>
         </div>
       </form>
-      <FeedFilterAutoSubmit formId="feed-filters-form" />
+      <FeedFilterAutoSubmit key={`autosubmit:${formKey}`} formId="feed-filters-form" />
     </details>
   );
 }

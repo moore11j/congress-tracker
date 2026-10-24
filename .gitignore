@@ -87,3 +87,4 @@ frontend/test-results/
 .codex-remote-attachments
 .codex/
 .env*
+.feed-venv/

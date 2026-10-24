@@ -12,6 +12,7 @@ import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { institutionHref, institutionDisplayName } from "@/lib/institution";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
+import { feedSortOptions, type FeedSortKey } from "@/lib/feedControls";
 
 type SignalOverlay = { score: number; band: string } | null;
 
@@ -21,6 +22,10 @@ type FeedTableProps = {
   onToggleExpanded: (id: number) => void;
   overlaySignals?: Record<string, { score: number; band: string }>;
   canViewPremiumMetrics?: boolean;
+  canSortExport?: boolean;
+  sortBy?: string;
+  sortDir?: string;
+  onSort?: (key: FeedSortKey) => void;
 };
 
 const sourceLabels: Record<string, string> = {
@@ -74,6 +79,7 @@ function signedCompactMoney(value: number): string {
 function parseNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
+    if (!value.trim()) return null;
     const parsed = Number(value.replace(/[$,]/g, "").trim());
     return Number.isFinite(parsed) ? parsed : null;
   }
@@ -336,6 +342,50 @@ function disclosureLabel(item: FeedItem): string {
   return "Open";
 }
 
+// Use the same displayed values for ordering and export as the table itself.
+function sortValue(item: FeedItem, key: string): string | number | null {
+  if (key === "ticker") return item.security?.symbol?.toUpperCase() || null;
+  if (key === "entity") return entityLabel(item);
+  if (key === "source") return sourceLabel(item);
+  if (key === "action") return actionLabel(item);
+  if (key === "amount") {
+    if (isInstitutional(item) && String(item.kind).includes("exit")) return 0;
+    if (isInstitutional(item)) return parseNumber(item.amount_range_max) ?? parseNumber(item.amount_range_min);
+    const payload = payloadRecord(item);
+    return parseNumber(payload.display_trade_value ?? payload.value_usd ?? payload.reported_value_usd)
+      ?? parseNumber(item.amount_range_max) ?? parseNumber(item.amount_range_min);
+  }
+  if (key === "pnl") return isInstitutional(item) || isGovernmentContract(item) ? null : parseNumber(item.gain_loss_percent ?? item.pnl_pct);
+  if (key === "signal") return parseNumber(item.smart_score);
+  const payload = payloadRecord(item);
+  const value = isGovernmentContract(item)
+    ? payload.report_date ?? payload.action_date ?? item.report_date ?? item.trade_date
+    : item.report_date ?? item.trade_date;
+  const date = value ? Date.parse(value) : NaN;
+  return Number.isFinite(date) ? date : null;
+}
+
+export function sortFeedTableItems(items: FeedItem[], key: string, direction: string): FeedItem[] {
+  const multiplier = direction === "asc" ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const left = sortValue(a, key), right = sortValue(b, key);
+    if (left === null && right === null) return b.id - a.id;
+    if (left === null) return 1;
+    if (right === null) return -1;
+    const result = typeof left === "number" && typeof right === "number"
+      ? left - right : String(left).localeCompare(String(right), "en", { sensitivity: "base", numeric: true });
+    return result ? result * multiplier : b.id - a.id;
+  });
+}
+
+export function feedExportRows(items: FeedItem[]): string[][] {
+  return items.map((item) => [
+    String(item.id), dateLabel(item), item.trade_date ?? "", item.security?.symbol ?? "",
+    companyLabel(item), entityLabel(item), sourceLabel(item), actionLabel(item), amountLabel(item),
+    gainLossLabel(item, true).label, signalLabel(item, true).label, disclosureHref(item) ?? "",
+  ]);
+}
+
 function onRowKeyDown(event: KeyboardEvent, id: number, onToggleExpanded: (id: number) => void) {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
@@ -364,6 +414,10 @@ export function FeedTable({
   onToggleExpanded,
   overlaySignals,
   canViewPremiumMetrics = false,
+  canSortExport = false,
+  sortBy = "filed_after",
+  sortDir = "desc",
+  onSort,
 }: FeedTableProps) {
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/35">
@@ -382,14 +436,16 @@ export function FeedTable({
           </colgroup>
           <thead className="border-b border-white/10 bg-white/[0.03] text-xs uppercase tracking-[0.14em] text-slate-400">
             <tr>
-              <th className="px-3 py-3 font-semibold">Date</th>
-              <th className="px-3 py-3 font-semibold">Ticker</th>
-              <th className="px-3 py-3 font-semibold">Person / Entity</th>
-              <th className="px-3 py-3 font-semibold">Source</th>
-              <th className="px-3 py-3 font-semibold">Action</th>
-              <th className="px-3 py-3 text-right font-semibold">Amount</th>
-              <th className="px-3 py-3 text-right font-semibold">% Delta</th>
-              <th className="px-3 py-3 text-right font-semibold">Signal</th>
+              {feedSortOptions.map(([key, label], index) => (
+                <th key={key} className={`px-3 py-3 font-semibold ${index >= 5 ? "text-right" : ""}`}
+                  aria-sort={canSortExport && sortBy === key ? sortDir === "asc" ? "ascending" : "descending" : "none"}>
+                  <button type="button" disabled={!canSortExport} onClick={() => onSort?.(key)}
+                    title={canSortExport ? `Sort displayed rows by ${label}` : "Pro required to sort"}
+                    className="rounded text-inherit hover:text-emerald-200 focus-visible:outline focus-visible:outline-emerald-300 disabled:cursor-default disabled:hover:text-inherit">
+                    {label}{canSortExport && sortBy === key ? sortDir === "asc" ? " ↑" : " ↓" : ""}
+                  </button>
+                </th>
+              ))}
               <th className="px-3 py-3 text-right font-semibold">Disclosure</th>
             </tr>
           </thead>
