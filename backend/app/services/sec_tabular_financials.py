@@ -207,9 +207,9 @@ def metric_for(label,kind,issuer):
 
 def table_kind(text):
     if re.search(r'non.?gaap|reconciliation|adjusted|pro.?forma|notes to',text,re.I):return None
-    if re.search(r'consolidated balance sheets?',text,re.I):return 'balance'
-    if re.search(r'consolidated statements? of cash flows?',text,re.I):return 'cashflow'
-    if re.search(r'consolidated statements? of (?:operations|income|comprehensive (?:loss|income))',text,re.I):return 'income'
+    if re.search(r'consolidated (?:interim )?balance sheets?',text,re.I):return 'balance'
+    if re.search(r'consolidated (?:interim )?statements? of cash flows?',text,re.I):return 'cashflow'
+    if re.search(r'consolidated (?:interim )?statements? of (?:operations|income|comprehensive (?:loss|income))',text,re.I):return 'income'
     return None
 
 
@@ -258,7 +258,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     header_rows=rows[:boundary]
     intro=' '.join(local+[' '.join(c['text'] for c in r) for r in header_rows])
     identity_blocks=local+[c['text'] for row in header_rows for c in row if c['start']==0]
-    captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(r'consolidated (?:balance sheets?|statements? of)',b,re.I)]
+    captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(r'consolidated (?:interim )?(?:balance sheets?|statements? of)',b,re.I)]
     if not captions:return None
     caption_index,caption=captions[-1];kind=table_kind(caption)
     if kind is None:return None
