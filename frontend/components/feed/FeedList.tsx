@@ -114,7 +114,7 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
         enabled={debugLifecycle}
         detail={{ items: items.length, page, pageSize, total: total ?? null }}
       />
-      <div className="flex flex-wrap items-center justify-end gap-2 text-right text-xs text-slate-400">
+      <div className="flex flex-wrap items-center justify-start gap-2 text-left text-xs text-slate-400 lg:justify-end">
         {canSortExport ? (
           <>
             <span>Sort and export this page ({items.length} rows).</span>
