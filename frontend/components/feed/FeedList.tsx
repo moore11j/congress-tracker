@@ -117,7 +117,7 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
       <div className="flex flex-wrap items-center justify-start gap-2 text-left text-xs text-slate-400 lg:justify-end">
         {canSortExport ? (
           <>
-            <span>Sort and export this page ({items.length} rows).</span>
+            <span className="w-full lg:w-auto">Sort and export this page ({items.length} rows).</span>
             {(["xlsx", "csv", "pdf"] as const).map((format) => (
               <button key={format} type="button" disabled={exporting || !items.length}
                 className={`${ghostButtonClassName} disabled:opacity-50`} onClick={() => exportPage(format)}>
