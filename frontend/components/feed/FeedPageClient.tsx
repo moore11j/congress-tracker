@@ -8,6 +8,7 @@ import { FeedShellFallback } from "@/components/feed/FeedShellFallback";
 import { isCompactFeedFilterMode, isValidFeedMode, type FeedMode } from "@/lib/feedModes";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { feedPageSize } from "@/lib/feedControls";
 
 const feedParamKeys = [
   "symbol",
@@ -100,9 +101,7 @@ export function FeedPageClient() {
   const requestedPage = Number(getParam(sp, "page") || "1");
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || String(DEFAULT_FEED_PAGE_SIZE));
-  const pageSize: 25 | 50 | 100 = [25, 50, 100].includes(requestedPageSize)
-    ? (requestedPageSize as 25 | 50 | 100)
-    : DEFAULT_FEED_PAGE_SIZE;
+  const pageSize = feedPageSize(requestedPageSize);
   const activeParams = feedParamsForMode(feedMode, {
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
@@ -220,7 +219,7 @@ export function FeedPageClient() {
                 debug_server_placeholder_in_filter_slot=1 (server-rendered placeholder only)
               </div>
             ) : (
-              <FeedFiltersServer mode={feedMode} params={activeParams} />
+              <FeedFiltersServer mode={feedMode} params={activeParams} pageSize={pageSize} />
             )}
           </div>
         </section>

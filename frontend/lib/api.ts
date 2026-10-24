@@ -108,7 +108,7 @@ function publicStalePageFetchInit(enabled?: boolean): Pick<ApiRequestInit, "cach
     : { cache: "no-store", next: { revalidate: 0 } };
 }
 
-export const EVENTS_API_MAX_LIMIT = 100;
+export const EVENTS_API_MAX_LIMIT = 1000;
 const CLIENT_CACHE_TTL_MS = 30_000;
 const SEARCH_CACHE_TTL_MS = 20 * 60_000;
 const EVENTS_CACHE_TTL_MS = 5_000;
@@ -3768,6 +3768,21 @@ export async function downloadAdminSalesLedger(
     blob: await response.blob(),
     filename: match?.[1] ?? `sales-ledger.${format}`,
   };
+}
+
+export async function downloadFeedExport(
+  format: "csv" | "xlsx" | "pdf", rows: string[][],
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(buildApiUrl(`/api/events/export.${format}`), requestInitWithEntitlements({
+    method: "POST", cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows }),
+  }));
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Export failed. Please try again.");
+  }
+  return { blob: await response.blob(), filename: `walnut-feed-${new Date().toISOString().slice(0, 10)}.${format}` };
 }
 
 export async function downloadAdminUsers(

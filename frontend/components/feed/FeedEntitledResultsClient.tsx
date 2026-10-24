@@ -6,6 +6,7 @@ import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { getEntitlements } from "@/lib/api";
 import { defaultEntitlements, hasEntitlement, type Entitlements } from "@/lib/entitlements";
 import { isInstitutionalFeedMode, type FeedMode } from "@/lib/feedModes";
+import { feedAccess, feedPageSize, type FeedPageSize } from "@/lib/feedControls";
 
 type FeedParamKey =
   | "symbol"
@@ -25,7 +26,7 @@ type FeedEntitledResultsClientProps = {
   queryDebug: boolean;
   debugLifecycle: boolean;
   page: number;
-  pageSize: 25 | 50 | 100;
+  pageSize: FeedPageSize;
   activeParams: Record<FeedParamKey, string>;
 };
 
@@ -94,9 +95,11 @@ export function FeedEntitledResultsClient({
   const institutionalMode = isInstitutionalFeedMode(feedMode);
   const canViewInstitutionalFeed = hasEntitlement(entitlements, "institutional_feed");
   const canViewPremiumMetrics = hasEntitlement(entitlements, "premium_feed_metrics");
+  const { canExpand, canSortExport } = feedAccess(entitlements);
 
   if (institutionalMode && !loaded) return <InstitutionalEntitlementSkeleton />;
   if (institutionalMode && !canViewInstitutionalFeed) return <InstitutionalFeedLockedPanel />;
+  if (!loaded) return <InstitutionalEntitlementSkeleton />;
 
   return (
     <FeedResultsClient
@@ -104,8 +107,10 @@ export function FeedEntitledResultsClient({
       queryDebug={queryDebug}
       debugLifecycle={debugLifecycle}
       page={page}
-      pageSize={pageSize}
-      activeParams={activeParams}
+      pageSize={feedPageSize(pageSize, canExpand)}
+      activeParams={canSortExport ? activeParams : { ...activeParams, sort_by: "", sort_dir: "" }}
+      canExpand={canExpand}
+      canSortExport={canSortExport}
       canViewPremiumMetrics={loaded ? canViewPremiumMetrics : false}
     />
   );

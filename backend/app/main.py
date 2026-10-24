@@ -2870,8 +2870,8 @@ def _normalized_public_string(value: str | None, *, default: str = "") -> str:
 
 def _normalized_events_public_query(request: Request) -> list[tuple[str, str]]:
     params = request.query_params
-    limit = _normalized_public_int(params.get("limit"), default=50, minimum=1, maximum=100)
-    page_size = _normalized_public_int(params.get("page_size"), default=limit, minimum=1, maximum=200)
+    limit = _normalized_public_int(params.get("limit"), default=25, minimum=1, maximum=1000)
+    page_size = _normalized_public_int(params.get("page_size"), default=limit, minimum=1, maximum=1000)
     offset = _normalized_public_int(params.get("offset"), default=0, minimum=0, maximum=1_000_000)
     payload = _normalized_public_string(params.get("payload"), default="compact") or "compact"
     if payload not in {"compact", "full"}:
@@ -3388,6 +3388,10 @@ def _public_get_cache_key(request: Request) -> str | None:
         return None
     normalized_path = request.url.path.rstrip("/")
     if normalized_path.lower() == "/api/events":
+        # Explicit sort requests must reach the authenticated Pro check even
+        # if an ordinary public page is already cached.
+        if request.query_params.get("sort_by") or request.query_params.get("sort_dir"):
+            return None
         query_items = _normalized_events_public_query(request)
         return json.dumps([normalized_path, query_items], separators=(",", ":"), sort_keys=True)
     parts = [part for part in normalized_path.lower().split("/") if part]

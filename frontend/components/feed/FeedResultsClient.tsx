@@ -11,11 +11,11 @@ import {
   feedProfileSymbols,
   parsePayload,
   redactPremiumFeedMetrics,
-  sortFeedItems,
   type CompanyNameMap,
 } from "@/lib/feedEventMapper";
 import type { FeedMode } from "@/lib/feedModes";
 import type { FeedItem } from "@/lib/types";
+import type { FeedPageSize } from "@/lib/feedControls";
 
 type FeedParamKey =
   | "symbol"
@@ -35,7 +35,9 @@ type FeedResultsClientProps = {
   queryDebug: boolean;
   debugLifecycle: boolean;
   page: number;
-  pageSize: 25 | 50 | 100;
+  pageSize: FeedPageSize;
+  canExpand: boolean;
+  canSortExport: boolean;
   activeParams: Record<FeedParamKey, string>;
   canViewPremiumMetrics: boolean;
 };
@@ -89,6 +91,8 @@ export function FeedResultsClient({
   pageSize,
   activeParams,
   canViewPremiumMetrics,
+  canExpand,
+  canSortExport,
 }: FeedResultsClientProps) {
   const [state, setState] = useState<FeedState>({
     loading: true,
@@ -157,7 +161,7 @@ export function FeedResultsClient({
       .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
       .map((event) => eventToRenderedFeedItem(event, state.companyNames))
       .filter(Boolean) as FeedItem[];
-    return redactPremiumFeedMetrics(sortFeedItems(mapped, activeParams.sort_by, activeParams.sort_dir), canViewPremiumMetrics);
+    return redactPremiumFeedMetrics(mapped, canViewPremiumMetrics);
   }, [activeParams.sort_by, activeParams.sort_dir, canViewPremiumMetrics, state.companyNames, state.events.items]);
 
   const total = typeof state.events.total === "number" ? state.events.total : null;
@@ -243,6 +247,8 @@ export function FeedResultsClient({
           hasMore={hasMore}
           overlaySignals={{}}
           canViewPremiumMetrics={canViewPremiumMetrics}
+          canExpand={canExpand}
+          canSortExport={canSortExport}
           debugLifecycle={debugLifecycle}
         />
       </div>
