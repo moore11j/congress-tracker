@@ -152,28 +152,22 @@ test("insider feed mapper keeps top-level transaction side payloads", () => {
   assert.match(mapper, /if \(!direction\) return null/);
 });
 
-test("feed list defaults to compact table while preserving card view", () => {
+test("feed list uses a scrollable table at every screen size", () => {
   const list = read("components/feed/FeedList.tsx");
   const table = read("components/feed/FeedTable.tsx");
   const client = read("components/feed/FeedResultsClient.tsx");
 
-  assert.match(list, /useState<FeedViewMode>\("table"\)/);
-  assert.match(list, /const feedViewStorageKey = "walnut:feed:view"/);
   assert.match(list, /<FeedTable/);
-  assert.match(list, /viewMode === "table"/);
-  assert.match(list, /<FeedCard key=\{item\.id\}/);
-  assert.match(list, /Table/);
-  assert.match(list, /Cards/);
+  assert.doesNotMatch(list, /FeedViewMode|feedViewStorageKey|viewMode|FeedCard|Cards/);
   assert.match(table, /feedSortOptions\.map/);
   assert.match(read("lib/feedControls.ts"), /Date[\s\S]*Ticker[\s\S]*Person \/ Entity[\s\S]*Source[\s\S]*Action[\s\S]*Amount[\s\S]*% Delta[\s\S]*Signal/);
   assert.match(table, /Disclosure/);
   assert.match(table, /\{dateLabel\(item\)\}[\s\S]*<AddTickerToWatchlist[\s\S]*\{entityLabel\(item\)\}[\s\S]*\{sourceLabel\(item\)\}[\s\S]*\{actionLabel\(item\)\}[\s\S]*\{amountLabel\(item\)\}/);
-  assert.match(table, /lg:hidden/);
-  assert.match(table, /hidden lg:block/);
+  assert.doesNotMatch(table, /lg:hidden|hidden lg:block|mobile-/);
   assert.match(table, /table-fixed/);
   assert.match(table, /<colgroup>/);
-  assert.doesNotMatch(table, /overflow-x-auto/);
-  assert.doesNotMatch(table, /min-w-\[/);
+  assert.match(table, /overflow-x-auto/);
+  assert.match(table, /min-w-\[1000px\]/);
   assert.match(table, /<FeedCard item=\{item\}/);
   assert.match(table, /expandedItemId === item\.id/);
   assert.match(table, /function institutionalActionLabel/);

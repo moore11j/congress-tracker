@@ -421,8 +421,8 @@ export function FeedTable({
 }: FeedTableProps) {
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/35">
-      <div className="hidden lg:block">
-        <table className="w-full table-fixed border-collapse text-left text-sm">
+      <div className="overflow-x-auto" role="region" aria-label="Feed table" tabIndex={0}>
+        <table className="w-full min-w-[1000px] table-fixed border-collapse text-left text-sm">
           <colgroup>
             <col className="w-[9%]" />
             <col className="w-[12%]" />
@@ -532,45 +532,6 @@ export function FeedTable({
             })}
           </tbody>
         </table>
-      </div>
-
-      <div className="divide-y divide-white/5 lg:hidden">
-        {items.map((item) => {
-          const expanded = expandedItemId === item.id;
-          const symbol = item.security?.symbol?.trim().toUpperCase() || "-";
-          const gainLoss = gainLossLabel(item, canViewPremiumMetrics);
-          const signal = signalLabel(item, canViewPremiumMetrics);
-          const overlay: SignalOverlay = overlaySignals ? overlaySignals[String(item.id)] ?? null : null;
-          return (
-            <div key={`mobile-${item.id}`} className="bg-slate-950/20">
-              <button type="button" className="grid w-full grid-cols-[1fr_auto] gap-3 px-4 py-4 text-left" onClick={() => onToggleExpanded(item.id)} aria-expanded={expanded}>
-                <span className="min-w-0">
-                  <span className="block text-xs uppercase tracking-[0.16em] text-slate-500">
-                    {sourceLabel(item)} / {dateLabel(item)}
-                  </span>
-                  <span className="mt-1 flex items-center gap-2">
-                    {symbol !== "-" ? <AddTickerToWatchlist symbol={symbol} variant="compact" align="left" /> : null}
-                    <span className="font-mono text-sm font-semibold text-emerald-200">{symbol}</span>
-                    <span className="min-w-0 break-words text-sm font-semibold text-slate-100">{entityLabel(item)}</span>
-                  </span>
-                  <span className={`mt-1 block text-sm font-semibold ${actionTone(item)}`}>{actionLabel(item)}</span>
-                  <span className="mt-1 block text-sm text-slate-300">
-                    {amountLabel(item)} / {isGovernmentContract(item) ? contractDescription(item) : companyLabel(item)}
-                  </span>
-                </span>
-                <span className="text-right">
-                  <span className={`block text-sm font-semibold tabular-nums ${gainLoss.tone}`}>{gainLoss.label}</span>
-                  <span className={`mt-1 block text-xs font-semibold tabular-nums ${signal.tone}`}>Sig {signal.label}</span>
-                </span>
-              </button>
-              {expanded ? (
-                <div className="px-3 pb-4">
-                  <ExpandedDetails item={item} overlay={overlay} canViewPremiumMetrics={canViewPremiumMetrics} />
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
       </div>
     </div>
   );

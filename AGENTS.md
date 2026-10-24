@@ -41,7 +41,7 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Decisions and invariants to preserve
 
-- Feed access (owner, October 24): sorting and Excel/CSV/PDF exports require Pro; page sizes above 25 require Premium or Pro. Support up to 1,000 rows, preserve size across filter changes, and retain admin access. Sorting and exports operate on the displayed page. Keep the separate Outcomes preview rules unchanged.
+- Feed access (owner, October 24): sorting and Excel/CSV/PDF exports require Pro; page sizes above 25 require Premium or Pro. Support up to 1,000 rows, preserve size across filter changes, and retain admin access. Sorting and exports operate on the displayed page. The feed uses tables on desktop and mobile, with no Cards selector or card list; row details remain expandable. Keep the separate Outcomes preview rules unchanged.
 
 - Provider choice (owner, October 7): use Massive Stocks on a personal tier for prices now, until Massive says otherwise. This is the selected implementation target, not merely a last-resort candidate; do not repeatedly reopen the commercial-tier shortlist. Free direct sources remain first choice for other data. Preserve accurate plan restrictions and truthful signup/eligibility declarations. Quiver remains excluded; FMP cutover still depends on demonstrated reliability. Starter currently advertises $29/month, five years of history, corporate actions and 15-minute delayed snapshots/aggregates; owner confirms Starter still needs adding. Existing key reads sampled daily history/actions but snapshots return 403; see the latest adapter checkpoint.
 
@@ -93,6 +93,8 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 - Preserve unrelated edits. Inspect generated Next.js files before reverting anything. Treat ignored `artifacts/` evidence as potentially local-only; durable conclusions need tracked summaries.
 
 ## Latest task checkpoint
+
+- 2026-10-24 follow-up: removed the feed Cards selector, saved view preference and card list, including the mobile stacked layout. One horizontally scrollable table now serves every screen size; expandable details and paid controls remain. Seven focused frontend checks, TypeScript and local Chrome desktop/mobile checks pass, including a saved Cards preference and Pro sorting/export/row-size workflows. Updated [PR727/report](docs/feed-controls-2026-10-24.md); not merged or deployed.
 
 - 2026-10-24: [Draft PR727](https://github.com/moore11j/congress-tracker/pull/727) implements Ryan's feed feedback on isolated `codex/feed-controls`, application commit5f2504e6: persistent25-1,000-row sizes for Premium/Pro, Pro column sorting and current-page Excel/CSV/PDF exports, authenticated API and public-cache enforcement.66backend/sixfocusedfrontendchecks, TypeScript, three-tier browser workflows and rendered PDF QA pass; two legacy frontend assertions reproduce on baseline. [Report](docs/feed-controls-2026-10-24.md). Not merged/deployed; production large-page performance unverified. Paused migration and primary application edits preserved.
 

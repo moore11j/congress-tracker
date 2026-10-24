@@ -28,3 +28,9 @@ Ryan's feedback identified page sizes resetting when filters changed, missing ex
 ## Release state
 
 Draft [PR727](https://github.com/moore11j/congress-tracker/pull/727), application commit `5f2504e6`, is ready for review. Review and deployment remain pending. No production data, provider settings, schedules, infrastructure or emails changed. The paused FMP migration remains separate. Production performance with large mixed-source pages has not been measured by these isolated checks.
+
+## October 24 follow-up: tables only
+
+The owner requested removal of the Cards selector and card view. FeedList no longer stores or reads a view preference and always renders FeedTable. The mobile stacked layout is removed; a labeled, keyboard-focusable horizontal scroll region contains the same table at every screen size. Row details remain expandable. Shared detail components used elsewhere are retained.
+
+Seven focused frontend checks pass (the six controls/API checks plus the updated existing layout assertion), as does TypeScript. Local Chrome with synthetic fixtures and a saved `walnut:feed:view=cards` preference confirms the selector is absent, one table remains visible on desktop and mobile, horizontal scrolling and expansion work, and Pro sorting in both directions, export order, filter-size persistence and 1,000 rows still pass. Desktop/mobile screenshots were inspected. No uncaught browser errors; the existing global-search hydration warning remains. Removing the mobile stacked layout also removes its nested watchlist-button markup. No backend changes or new backend test run in this follow-up. Review and deployment remain pending.

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FeedItem } from "@/lib/types";
-import { FeedCard } from "@/components/feed/FeedCard";
 import { FeedTable, feedExportRows, sortFeedTableItems } from "@/components/feed/FeedTable";
 import { downloadFeedExport } from "@/lib/api";
 import { feedPageSizes, type FeedPageSize, type FeedSortKey } from "@/lib/feedControls";
@@ -25,10 +24,6 @@ type FeedListProps = {
 };
 
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
-type SignalOverlay = { score: number; band: string } | null;
-type FeedViewMode = "table" | "cards";
-
-const feedViewStorageKey = "walnut:feed:view";
 const DEFAULT_FEED_PAGE_SIZE = 25;
 
 export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: initialPageSize = DEFAULT_FEED_PAGE_SIZE, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, canViewPremiumMetrics = false, canExpand = false, canSortExport = false, debugLifecycle = false }: FeedListProps) {
@@ -75,13 +70,7 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [total, setTotal] = useState<number | null>(initialTotal);
   const [hasMore, setHasMore] = useState<boolean | null>(initialHasMore);
-  const [viewMode, setViewMode] = useState<FeedViewMode>("table");
   const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem(feedViewStorageKey);
-    if (saved === "cards") setViewMode("cards");
-  }, []);
 
   useEffect(() => {
     setPage(initialPage);
@@ -123,12 +112,6 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function changeViewMode(nextMode: FeedViewMode) {
-    setViewMode(nextMode);
-    setExpandedItemId(null);
-    window.localStorage.setItem(feedViewStorageKey, nextMode);
-  }
-
   function toggleExpandedItem(id: number) {
     setExpandedItemId((current) => (current === id ? null : id));
   }
@@ -140,27 +123,6 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
         enabled={debugLifecycle}
         detail={{ items: items.length, page, pageSize, total: total ?? null }}
       />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-white/10 bg-slate-950/50 p-1" aria-label="Feed view">
-          {(["table", "cards"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => changeViewMode(mode)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] transition ${
-                viewMode === mode ? "bg-emerald-400/15 text-emerald-100" : "text-slate-400 hover:text-slate-100"
-              }`}
-              aria-pressed={viewMode === mode}
-            >
-              {mode === "table" ? "Table" : "Cards"}
-            </button>
-          ))}
-        </div>
-        <div className="text-xs text-slate-500">
-          {viewMode === "table" ? "Compact rows. Open a row for full card details." : "Full card layout."}
-        </div>
-      </div>
-
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
         {canSortExport ? (
           <>
@@ -182,7 +144,7 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
           <div className="text-lg font-semibold">No trades yet</div>
           <p className="mt-2 text-sm text-slate-400">Try broadening your filters or lowering the minimum amount.</p>
         </div>
-      ) : viewMode === "table" ? (
+      ) : (
         <FeedTable
           items={items}
           expandedItemId={expandedItemId}
@@ -194,11 +156,6 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
           sortDir={sortDir}
           onSort={sortColumn}
         />
-      ) : (
-        items.map((item) => {
-          const overlay: SignalOverlay = overlaySignals ? overlaySignals[String(item.id)] ?? null : null;
-          return <FeedCard key={item.id} item={item} signalOverlay={overlay} canViewPremiumMetrics={canViewPremiumMetrics} />;
-        })
       )}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
