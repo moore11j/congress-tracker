@@ -27,5 +27,4 @@ Ryan's feedback identified page sizes resetting when filters changed, missing ex
 
 ## Release state
 
-Review and deployment remain pending. No production data, provider settings, schedules, infrastructure or emails changed. The paused FMP migration remains separate. Production performance with large mixed-source pages has not been measured by these isolated checks.
-
+Draft [PR727](https://github.com/moore11j/congress-tracker/pull/727), application commit `5f2504e6`, is ready for review. Review and deployment remain pending. No production data, provider settings, schedules, infrastructure or emails changed. The paused FMP migration remains separate. Production performance with large mixed-source pages has not been measured by these isolated checks.
