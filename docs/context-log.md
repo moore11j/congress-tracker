@@ -1,3 +1,7 @@
+## October 24, 2026: Responsive export alignment
+
+Owner requested left-aligned export text with right-side placement only on desktop. Commits `632a2adf`/`a159bd8f` use left text alignment throughout, left group placement below1024px and right placement on desktop. The mobile label occupies its own line so all three export buttons remain together. Vercel production succeeded for a159bd8f; final Pro/Free display fixtures verify390/1440px alignment and all mobile buttons on one row beneath the label. Screenshots inspected. This CSS-only correction leaves access and backend behavior unchanged. [Report](feed-controls-2026-10-24.md).
+
 ## October 24, 2026: Static feed rows and right-aligned exports
 
 Owner clarified that table rows should no longer expand and requested exports on the right. Commit `2fc4bdb9` removes expansion state, click/keyboard behavior, expanded card details and unused overlay props, and aligns the export toolbar right. Existing links/watchlist controls and access restrictions remain. Seven focused frontend checks, TypeScript and local Pro browser workflows pass; browser geometry confirms export alignment and row clicks do not expand. Vercel production succeeded under the existing release authorization. Both public versions match `2fc4bdb9`; live desktop/mobile rows stay closed with no uncaught errors. No backend changes. [Report](feed-controls-2026-10-24.md).

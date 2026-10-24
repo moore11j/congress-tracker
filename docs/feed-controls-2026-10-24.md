@@ -55,3 +55,9 @@ These timings are bounded spot checks, not a capacity benchmark. Authenticated p
 The owner clarified that rows should no longer expand. Commit `2fc4bdb9` removes row expansion state, focus/click/keyboard handlers, card details and obsolete overlay props. Ticker/entity/disclosure links and watchlist buttons remain. The export toolbar now aligns to the right edge, including its narrow-screen wrapping.
 
 Seven focused frontend checks and TypeScript pass. Local Pro Chrome fixtures confirm the PDF button's right edge matches the table, clicking a row produces no expansion, and existing sorting, export order, filter persistence and1,000-row behavior still pass. Screenshots inspected. Vercel production and both public versions verify `2fc4bdb9`; live desktop/mobile rows stay closed with no uncaught errors. Backend unchanged.
+
+## October 24 follow-up: responsive export alignment
+
+The owner requested left-aligned text while retaining right-side placement on desktop. Commits `632a2adf`/`a159bd8f` set text alignment left at all widths, use left group alignment below1024px, and right group alignment on desktop. On mobile the label occupies its own line and the three buttons stay together beneath it.
+
+The initial alignment build succeeded on Vercel and Pro/Free display fixtures against the deployed frontend verified computed text alignment and group edge placement at390px and1440px. The visual check identified a wrapped PDF button; the second CSS adjustment gives the label its own mobile line. Vercel production succeeded for a159bd8f; the final Pro/Free fixture checks pass at390/1440px with all mobile buttons on one row below the label. Screenshots inspected. No new unit tests or backend tests are needed for this CSS-only change; whitespace checks pass and Vercel performs the production build/type checks. API access rules remain unchanged.

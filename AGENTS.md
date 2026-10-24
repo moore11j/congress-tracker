@@ -41,7 +41,7 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Decisions and invariants to preserve
 
-- Feed access (owner, October 24): sorting and Excel/CSV/PDF exports require Pro; page sizes above 25 require Premium or Pro. Support up to 1,000 rows, preserve size across filter changes, and retain admin access. Sorting and exports operate on the displayed page. The feed uses tables on desktop and mobile, with no Cards selector, card list or row expansion. Align export controls on the right. Keep the separate Outcomes preview rules unchanged.
+- Feed access (owner, October 24): sorting and Excel/CSV/PDF exports require Pro; page sizes above 25 require Premium or Pro. Support up to 1,000 rows, preserve size across filter changes, and retain admin access. Sorting and exports operate on the displayed page. The feed uses tables on desktop and mobile, with no Cards selector, card list or row expansion. Export text is always left-aligned; position the group on the right on desktop, and on the left with buttons below the label on mobile. Keep the separate Outcomes preview rules unchanged.
 
 - Provider choice (owner, October 7): use Massive Stocks on a personal tier for prices now, until Massive says otherwise. This is the selected implementation target, not merely a last-resort candidate; do not repeatedly reopen the commercial-tier shortlist. Free direct sources remain first choice for other data. Preserve accurate plan restrictions and truthful signup/eligibility declarations. Quiver remains excluded; FMP cutover still depends on demonstrated reliability. Starter currently advertises $29/month, five years of history, corporate actions and 15-minute delayed snapshots/aggregates; owner confirms Starter still needs adding. Existing key reads sampled daily history/actions but snapshots return 403; see the latest adapter checkpoint.
 
@@ -93,6 +93,8 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 - Preserve unrelated edits. Inspect generated Next.js files before reverting anything. Treat ignored `artifacts/` evidence as potentially local-only; durable conclusions need tracked summaries.
 
 ## Latest task checkpoint
+
+- 2026-10-24 responsive follow-up: `632a2adf`/`a159bd8f` left-align export text, keep desktop placement right, and put mobile buttons together below the label. CSS-only correction in FeedList; access and backend unchanged. Initial deployed Pro/Free fixture checks pass at390/1440px. Vercel production succeeded for a159bd8f; final Pro/Free fixture checks pass at390/1440px, including mobile buttons together below the label. Screenshots inspected. [Report](docs/feed-controls-2026-10-24.md).
 
 - 2026-10-24 follow-up: `2fc4bdb9` removes row expansion, card details and obsolete overlay plumbing from the feed, retaining ticker/entity/disclosure links and watchlist controls. Exports align right. Seven focused frontend checks, TypeScript and local Pro browser workflows pass, including a measured right edge and a row click that creates no expansion. Vercel production and both public versions verify `2fc4bdb9`; live desktop/mobile rows stay closed with no uncaught errors. Backend unchanged. [Report](docs/feed-controls-2026-10-24.md).
 
