@@ -245,7 +245,6 @@ export function FeedResultsClient({
           total={total}
           totalPages={totalPages}
           hasMore={hasMore}
-          overlaySignals={{}}
           canViewPremiumMetrics={canViewPremiumMetrics}
           canExpand={canExpand}
           canSortExport={canSortExport}

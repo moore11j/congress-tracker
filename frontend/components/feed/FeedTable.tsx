@@ -1,10 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment } from "react";
-import type { KeyboardEvent } from "react";
 import type { FeedItem } from "@/lib/types";
-import { FeedCard } from "@/components/feed/FeedCard";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { formatCurrencyRange, formatDateShort, formatTransactionLabel } from "@/lib/format";
 import { formatCompanyName } from "@/lib/companyName";
@@ -14,13 +11,8 @@ import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
 import { feedSortOptions, type FeedSortKey } from "@/lib/feedControls";
 
-type SignalOverlay = { score: number; band: string } | null;
-
 type FeedTableProps = {
   items: FeedItem[];
-  expandedItemId: number | null;
-  onToggleExpanded: (id: number) => void;
-  overlaySignals?: Record<string, { score: number; band: string }>;
   canViewPremiumMetrics?: boolean;
   canSortExport?: boolean;
   sortBy?: string;
@@ -386,33 +378,8 @@ export function feedExportRows(items: FeedItem[]): string[][] {
   ]);
 }
 
-function onRowKeyDown(event: KeyboardEvent, id: number, onToggleExpanded: (id: number) => void) {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  onToggleExpanded(id);
-}
-
-function ExpandedDetails({
-  item,
-  overlay,
-  canViewPremiumMetrics,
-}: {
-  item: FeedItem;
-  overlay: SignalOverlay;
-  canViewPremiumMetrics: boolean;
-}) {
-  return (
-    <div className="rounded-2xl border border-emerald-400/20 bg-slate-950/60 p-3">
-      <FeedCard item={item} signalOverlay={overlay} canViewPremiumMetrics={canViewPremiumMetrics} density="compact" />
-    </div>
-  );
-}
-
 export function FeedTable({
   items,
-  expandedItemId,
-  onToggleExpanded,
-  overlaySignals,
   canViewPremiumMetrics = false,
   canSortExport = false,
   sortBy = "filed_after",
@@ -451,83 +418,66 @@ export function FeedTable({
           </thead>
           <tbody className="divide-y divide-white/5">
             {items.map((item) => {
-              const expanded = expandedItemId === item.id;
               const symbol = item.security?.symbol?.trim().toUpperCase() || null;
               const symbolHref = symbol ? tickerHref(symbol) : null;
               const gainLoss = gainLossLabel(item, canViewPremiumMetrics);
               const signal = signalLabel(item, canViewPremiumMetrics);
               const href = disclosureHref(item);
               const profileHref = entityHref(item);
-              const overlay: SignalOverlay = overlaySignals ? overlaySignals[String(item.id)] ?? null : null;
               return (
-                <Fragment key={item.id}>
-                  <tr
-                    tabIndex={0}
-                    className="cursor-pointer bg-slate-950/20 align-top transition hover:bg-emerald-400/[0.06] focus:bg-emerald-400/[0.08] focus:outline-none"
-                    onClick={() => onToggleExpanded(item.id)}
-                    onKeyDown={(event) => onRowKeyDown(event, item.id, onToggleExpanded)}
-                    aria-expanded={expanded}
-                  >
-                    <td className="px-3 py-3 text-slate-300">{dateLabel(item)}</td>
-                    <td className="px-3 py-3">
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {symbol ? <AddTickerToWatchlist symbol={symbol} variant="compact" align="left" /> : null}
-                          {symbolHref ? (
-                            <Link href={symbolHref} prefetch={false} className="min-w-0 font-mono font-semibold text-emerald-200 hover:text-emerald-100" onClick={(event) => event.stopPropagation()}>
-                              {symbol}
-                            </Link>
-                          ) : (
-                            <span className="text-slate-500">-</span>
-                          )}
-                        </div>
-                        <div className="mt-0.5 break-words text-xs leading-4 text-slate-500">
-                          {isGovernmentContract(item) ? contractDescription(item) : companyLabel(item)}
-                        </div>
+                <tr key={item.id} className="bg-slate-950/20 align-top">
+                  <td className="px-3 py-3 text-slate-300">{dateLabel(item)}</td>
+                  <td className="px-3 py-3">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {symbol ? <AddTickerToWatchlist symbol={symbol} variant="compact" align="left" /> : null}
+                        {symbolHref ? (
+                          <Link href={symbolHref} prefetch={false} className="min-w-0 font-mono font-semibold text-emerald-200 hover:text-emerald-100">
+                            {symbol}
+                          </Link>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
                       </div>
-                    </td>
-                    <td className="break-words px-3 py-3 font-medium text-slate-100">
-                      {profileHref ? (
-                        <Link href={profileHref} prefetch={false} className="hover:text-emerald-100" onClick={(event) => event.stopPropagation()}>
-                          {entityLabel(item)}
-                        </Link>
-                      ) : (
-                        entityLabel(item)
-                      )}
-                      {roleLabel(item) ? <div className="mt-0.5 text-xs font-medium leading-4 text-slate-500">{roleLabel(item)}</div> : null}
-                    </td>
-                    <td className="px-3 py-3 font-semibold text-slate-100">{sourceLabel(item)}</td>
-                    <td className={`break-words px-3 py-3 font-semibold uppercase tracking-[0.08em] ${actionTone(item)}`}>
-                      {actionLabel(item)}
-                      {isGovernmentContract(item) ? <div className="mt-1 normal-case tracking-normal text-xs font-medium leading-4 text-slate-500">{contractDescription(item)}</div> : null}
-                    </td>
-                    <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-100">{amountLabel(item)}</td>
-                    <td className={`px-3 py-3 text-right font-semibold tabular-nums ${gainLoss.tone}`}>
-                      {gainLoss.label}
-                      {gainLoss.sublabel ? <div className="text-[11px] font-medium text-slate-500">{gainLoss.sublabel}</div> : null}
-                    </td>
-                    <td className={`px-3 py-3 text-right font-semibold tabular-nums ${signal.tone}`}>
-                      {signal.label}
-                      {signal.sublabel ? <div className="text-[11px] font-medium text-slate-500">{signal.sublabel}</div> : null}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      {href ? (
-                        <a href={href} target="_blank" rel="noreferrer" className="text-xs font-semibold text-emerald-200 hover:text-emerald-100" onClick={(event) => event.stopPropagation()}>
-                          {disclosureLabel(item)}
-                        </a>
-                      ) : (
-                        <span className="text-xs text-slate-500">-</span>
-                      )}
-                    </td>
-                  </tr>
-                  {expanded ? (
-                    <tr>
-                      <td colSpan={9} className="bg-slate-950/40 px-4 py-4">
-                        <ExpandedDetails item={item} overlay={overlay} canViewPremiumMetrics={canViewPremiumMetrics} />
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
+                      <div className="mt-0.5 break-words text-xs leading-4 text-slate-500">
+                        {isGovernmentContract(item) ? contractDescription(item) : companyLabel(item)}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="break-words px-3 py-3 font-medium text-slate-100">
+                    {profileHref ? (
+                      <Link href={profileHref} prefetch={false} className="hover:text-emerald-100">
+                        {entityLabel(item)}
+                      </Link>
+                    ) : (
+                      entityLabel(item)
+                    )}
+                    {roleLabel(item) ? <div className="mt-0.5 text-xs font-medium leading-4 text-slate-500">{roleLabel(item)}</div> : null}
+                  </td>
+                  <td className="px-3 py-3 font-semibold text-slate-100">{sourceLabel(item)}</td>
+                  <td className={`break-words px-3 py-3 font-semibold uppercase tracking-[0.08em] ${actionTone(item)}`}>
+                    {actionLabel(item)}
+                    {isGovernmentContract(item) ? <div className="mt-1 normal-case tracking-normal text-xs font-medium leading-4 text-slate-500">{contractDescription(item)}</div> : null}
+                  </td>
+                  <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-100">{amountLabel(item)}</td>
+                  <td className={`px-3 py-3 text-right font-semibold tabular-nums ${gainLoss.tone}`}>
+                    {gainLoss.label}
+                    {gainLoss.sublabel ? <div className="text-[11px] font-medium text-slate-500">{gainLoss.sublabel}</div> : null}
+                  </td>
+                  <td className={`px-3 py-3 text-right font-semibold tabular-nums ${signal.tone}`}>
+                    {signal.label}
+                    {signal.sublabel ? <div className="text-[11px] font-medium text-slate-500">{signal.sublabel}</div> : null}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {href ? (
+                      <a href={href} target="_blank" rel="noreferrer" className="text-xs font-semibold text-emerald-200 hover:text-emerald-100">
+                        {disclosureLabel(item)}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-500">-</span>
+                    )}
+                  </td>
+                </tr>
               );
             })}
           </tbody>

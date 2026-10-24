@@ -16,17 +16,15 @@ type FeedListProps = {
   total?: number | null;
   totalPages?: number;
   hasMore?: boolean | null;
-  overlaySignals?: SignalOverlayMap;
   canViewPremiumMetrics?: boolean;
   canExpand?: boolean;
   canSortExport?: boolean;
   debugLifecycle?: boolean;
 };
 
-type SignalOverlayMap = Record<string, { score: number; band: string }>;
 const DEFAULT_FEED_PAGE_SIZE = 25;
 
-export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: initialPageSize = DEFAULT_FEED_PAGE_SIZE, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, canViewPremiumMetrics = false, canExpand = false, canSortExport = false, debugLifecycle = false }: FeedListProps) {
+export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: initialPageSize = DEFAULT_FEED_PAGE_SIZE, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, canViewPremiumMetrics = false, canExpand = false, canSortExport = false, debugLifecycle = false }: FeedListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -70,7 +68,6 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [total, setTotal] = useState<number | null>(initialTotal);
   const [hasMore, setHasMore] = useState<boolean | null>(initialHasMore);
-  const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
 
   useEffect(() => {
     setPage(initialPage);
@@ -98,7 +95,6 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
   function goToPage(p: number) {
     const next = total !== null ? Math.min(Math.max(1, p), totalPages) : Math.max(1, p);
     setPage(next);
-    setExpandedItemId(null);
     updateParams(next, pageSize);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -106,14 +102,9 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
   function changePageSize(size: FeedPageSize) {
     if (size > 25 && !canExpand) return;
     setPageSize(size);
-    setExpandedItemId(null);
     setPage(1);
     updateParams(1, size);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function toggleExpandedItem(id: number) {
-    setExpandedItemId((current) => (current === id ? null : id));
   }
 
   return (
@@ -123,7 +114,7 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
         enabled={debugLifecycle}
         detail={{ items: items.length, page, pageSize, total: total ?? null }}
       />
-      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+      <div className="flex flex-wrap items-center justify-end gap-2 text-right text-xs text-slate-400">
         {canSortExport ? (
           <>
             <span>Sort and export this page ({items.length} rows).</span>
@@ -147,9 +138,6 @@ export function FeedList({ items: rawItems, page: initialPage = 1, pageSize: ini
       ) : (
         <FeedTable
           items={items}
-          expandedItemId={expandedItemId}
-          onToggleExpanded={toggleExpandedItem}
-          overlaySignals={overlaySignals}
           canViewPremiumMetrics={canViewPremiumMetrics}
           canSortExport={canSortExport}
           sortBy={sortBy}

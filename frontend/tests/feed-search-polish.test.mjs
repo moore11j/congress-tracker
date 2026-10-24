@@ -168,8 +168,7 @@ test("feed list uses a scrollable table at every screen size", () => {
   assert.match(table, /<colgroup>/);
   assert.match(table, /overflow-x-auto/);
   assert.match(table, /min-w-\[1000px\]/);
-  assert.match(table, /<FeedCard item=\{item\}/);
-  assert.match(table, /expandedItemId === item\.id/);
+  assert.doesNotMatch(table, /FeedCard|ExpandedDetails|expandedItemId|onToggleExpanded|aria-expanded/);
   assert.match(table, /function institutionalActionLabel/);
   assert.match(table, /Reported Reduction/);
   assert.match(table, /Reported Increase/);

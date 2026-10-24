@@ -71,7 +71,7 @@ test("filter submission, mode links and Reset preserve the selected paid page si
 });
 
 test("table buttons gate sorting and expose ascending/descending state", () => {
-  const props = { items: [item(1, 1000)], expandedItemId: null, onToggleExpanded: () => {}, canViewPremiumMetrics: true };
+  const props = { items: [item(1, 1000)], canViewPremiumMetrics: true };
   const locked = renderToStaticMarkup(React.createElement(FeedTable, props));
   assert.equal((locked.match(/Pro required to sort/g) ?? []).length, 8);
   for (const dir of ["asc", "desc"]) {
