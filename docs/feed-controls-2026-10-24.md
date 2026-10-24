@@ -49,3 +49,9 @@ Public checks after deployment:
 - Fresh Chrome on the production app passed desktop/mobile checks with a saved Cards preference: no selector, one table,25rows, disabled sort headers, no export buttons, horizontally scrollable mobile table and expandable row details. No uncaught browser errors; screenshots inspected. The browser harness waits for hydration after consent dismissal.
 
 These timings are bounded spot checks, not a capacity benchmark. Authenticated paid production sessions and1,000-row production performance were not exercised. Prior paid-tier local browser fixtures and66backend/sevenfrontend checks remain the evidence for those branches. Local-only verification scripts/screenshots are in `artifacts/feed-controls-2026-10-24/` in the primary checkout. This tracked receipt preserves the results.
+
+## October 24 follow-up: static rows and exports on the right
+
+The owner clarified that rows should no longer expand. Commit `2fc4bdb9` removes row expansion state, focus/click/keyboard handlers, card details and obsolete overlay props. Ticker/entity/disclosure links and watchlist buttons remain. The export toolbar now aligns to the right edge, including its narrow-screen wrapping.
+
+Seven focused frontend checks and TypeScript pass. Local Pro Chrome fixtures confirm the PDF button's right edge matches the table, clicking a row produces no expansion, and existing sorting, export order, filter persistence and1,000-row behavior still pass. Screenshots inspected. Vercel production and both public versions verify `2fc4bdb9`; live desktop/mobile rows stay closed with no uncaught errors. Backend unchanged.
