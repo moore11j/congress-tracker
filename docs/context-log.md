@@ -1,3 +1,7 @@
+## October25 Pacific / October26 UTC: Requested migration pause
+
+Owner requested pause after current task. Existing checks completed:320 Linux tests pass,26 focused Windows tests pass;49-source comparison48 unchanged and VTEX baseline/header difference needs review. Ordinary deployed VTEX public panel/current-original parity accepted. New operating-history implementation remains local and uncommitted; no deployment/provider/schedule/subscription change. [Report and resume work](operating-history-recovery-2026-10-25.md) record source-proof cases, broader financial coverage, consumer/capacity and final Massive/FMP gates. Goal to be paused; no local validation still running.
+
 ## October 24, 2026: Responsive export alignment
 
 Owner requested left-aligned export text with right-side placement only on desktop. Commits `632a2adf`/`a159bd8f` use left text alignment throughout, left group placement below1024px and right placement on desktop. The mobile label occupies its own line so all three export buttons remain together. Vercel production succeeded for a159bd8f; final Pro/Free display fixtures verify390/1440px alignment and all mobile buttons on one row beneath the label. Screenshots inspected. This CSS-only correction leaves access and backend behavior unchanged. [Report](feed-controls-2026-10-24.md).

@@ -90,6 +90,10 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
     current = select_statement_revenue(current,effective,company or {},cik=str(cik).zfill(10),
         available_by=available_by,supplement=filing_supplement,preserve_reported_history=preserve_reported_revenue)
     inline.annotate(current,filing_supplement,metrics=metrics,expected_cik=cik,available_by=available_by)
+    if (filing_supplement or {}).get('operating_history'):
+        from app.services.sec_operating_history import apply as operating_history
+        current = operating_history(current, payload, company or {}, cik=str(cik).zfill(10),
+            available_by=available_by, supplement=filing_supplement)
     from app.services.sec_bank_revenue import apply
     current = apply(current,effective,company,available_by=available_by)
     if history_raw is None:
