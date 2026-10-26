@@ -224,6 +224,10 @@ def period_for(text,kind,filed):
     if end>filed:raise TabularFinancialError('column_period_after_filing')
     if kind=='balance':return None,end,None
     matches={DURATIONS[n.lower()] for n in re.findall(r'\b(three|six|nine|twelve|3|6|9|12)\s+months?\s+ended',text,re.I)}
+    if re.search(r'\byears?\s+ended\b',text,re.I):
+        if re.search(r'\b(?:[0-9]+|one|two|three|four|five|six|seven|eight|nine|ten|twelve)\s+years?\s+ended\b',text,re.I):
+            raise TabularFinancialError('column_duration_unsupported')
+        matches.add(12)
     if len(matches)!=1 or end.day!=calendar.monthrange(end.year,end.month)[1]:
         raise TabularFinancialError('column_duration_unsupported')
     months=next(iter(matches));serial=end.year*12+end.month-months

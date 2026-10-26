@@ -1,0 +1,30 @@
+{
+  "AMPL-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001866692.json",
+    "sha256": "551e39d69b94635d529e886482539752b92e29ad437637ca35c20c6811ff1c25",
+    "observed_at": "2026-10-26T05:06:50.039820+00:00",
+    "bytes": 975089,
+    "file": "AMPL-facts.json.gz"
+  },
+  "AMPL-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001866692.json",
+    "sha256": "fba0096b374ebb6e7402b5daf49d3646f2cfb70ddf3006c73ba5dd7c9eaf39d7",
+    "observed_at": "2026-10-26T05:06:50.819368+00:00",
+    "bytes": 84219,
+    "file": "AMPL-company.json.gz"
+  },
+  "AMPL-0000950170-25-104357.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1866692/000095017025104357/ampl-20250630.htm",
+    "sha256": "710ed4c339521d22aa78c00848a5e24bf9791f5802c4d5d7bb42485703c822cd",
+    "observed_at": "2026-10-26T05:10:10.787286+00:00",
+    "bytes": 3259099,
+    "file": "AMPL-0000950170-25-104357.htm.gz"
+  },
+  "AMPL-0001193125-26-057847.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1866692/000119312526057847/ampl-20251231.htm",
+    "sha256": "0b6ab1aa271cf0b4519a7b2394a899cd55512cfc4ae795c8f39a60f47b5e9aa4",
+    "observed_at": "2026-10-26T05:07:36.043030+00:00",
+    "bytes": 4154857,
+    "file": "AMPL-0001193125-26-057847.htm.gz"
+  }
+}

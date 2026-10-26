@@ -403,6 +403,38 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
 
 
 def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include_debt_precision=False):
+    # Share originals with optional historical recovery; the entire acquisition
+    # retains the existing six-document bound and never refetches an original.
+    originals = {}
+    class RetainedClient:
+        issuer_document_urls = getattr(client, 'issuer_document_urls', frozenset())
+        def get(self, url):
+            if url not in originals:
+                if len(originals) >= 6:
+                    raise InlineFactsError('financial_acquisition_source_bound')
+                originals[url] = client.get(url)
+            return originals[url]
+    retained = RetainedClient()
+    result = _acquire(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at,
+                      client=retained, include_debt_precision=include_debt_precision)
+    from app.services import sec_operating_history
+    available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
+    try:
+        history = sec_operating_history.acquire(json.loads(facts_raw), json.loads(company_raw),
+            cik=str(cik).zfill(10), available_by=available, client=retained)
+    except ValueError:
+        # Optional historical proof cannot replace an independently valid source.
+        # Transport errors are not swallowed and retain the collector cooldown.
+        history = None
+    if history is not None:
+        if result is None:
+            result = {'operating_history_only':True, 'evidence':{'cik':str(cik).zfill(10), 'methodology':sec_operating_history.VERSION}}
+        result['operating_history'] = history
+        result['evidence']['operating_statement_history'] = history['evidence']
+    return result
+
+
+def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include_debt_precision=False):
     if symbol == 'SPCX':
         from app.services import sec_registration_history as registration
         try:
@@ -577,7 +609,7 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
 
 
 def merge(payload, supplement, *, available_by):
-    if supplement is None or supplement.get('debt_precision_only'):
+    if supplement is None or supplement.get('debt_precision_only') or supplement.get('operating_history_only'):
         return payload
     evidence = supplement['evidence']
     if str(payload.get('cik','')).zfill(10) != evidence['cik'] or evidence['filed'] > str(available_by):
@@ -605,7 +637,7 @@ def merge(payload, supplement, *, available_by):
 
 
 def annotate(records, supplement, *, metrics=None, expected_cik=None, available_by=None):
-    if supplement is None:
+    if supplement is None or supplement.get('operating_history_only'):
         return records
     from app.services import sec_fundamentals as sec
     if supplement.get('debt_precision_only'):
