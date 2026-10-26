@@ -94,6 +94,8 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
+- 2026-10-26 UTC: Owner resumed migration. Operating-history source review adds foreign-basis, cached-heading and printed-subtotal guards. Corrected baseline comparison49/49 unchanged;335 Linux regression checks and final44 Windows source/cache/consumer checks pass. Final Linux/exact-source checks and release pending. [Report](docs/operating-history-recovery-2026-10-25.md). Work remains in financial-operating-history at base16d9133a; no production/provider change, FMP remains enabled.
+
 - 2026-10-25 Pacific / October26 UTC: Owner requests pause after current task. Existing validation terminal:320 Linux tests pass;49-source replay48 unchanged, VTEX baseline/header difference requires review. Local shared operating-history code remains uncommitted/undeployed at base16d9133a. Ordinary PR726 public VTEX recovery/current-original parity verified; prior core raw-hash caveat remains. [Resume checkpoint](docs/operating-history-recovery-2026-10-25.md). Resume only on owner command; FMP remains enabled.
 
 - 2026-10-24 responsive follow-up: `632a2adf`/`a159bd8f` left-align export text, keep desktop placement right, and put mobile buttons together below the label. CSS-only correction in FeedList; access and backend unchanged. Initial deployed Pro/Free fixture checks pass at390/1440px. Vercel production succeeded for a159bd8f; final Pro/Free fixture checks pass at390/1440px, including mobile buttons together below the label. Screenshots inspected. [Report](docs/feed-controls-2026-10-24.md).
