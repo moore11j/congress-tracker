@@ -18,6 +18,7 @@ TTL = timedelta(hours=24)
 # Match the existing broad-source failure backoff; do not shorten cooldowns.
 CASH_FLOW_RETRY_TTL = timedelta(hours=20)
 CASH_FLOW_RECOVERY_VERSION = 'issuer_cash_flow_transport_isolation_v1'
+DISCOVERY_RETRY_TTL = timedelta(minutes=20)
 METRICS = ('gross_margin', 'operating_margin', 'net_margin', 'revenue_growth',
     'operating_margin_expansion', 'eps_growth', 'current_ratio', 'roe', 'free_cash_flow', 'fcf_margin', 'fcf_growth', 'net_debt_to_ebitda')
 
@@ -120,6 +121,12 @@ def _cached(symbol, now, max_cache_age=TTL):
             return None
         try:
             payload = json.loads(row.payload_json)
+            if 'discovery' in payload:
+                from app.services.sec_financial_discovery_reader import VERSION as discovery_version
+                if (os.getenv('SEC_FINANCIAL_DISCOVERY_ENABLED','0')!='1'
+                        or payload.get('discovery_version')!=discovery_version):return None
+            if payload.get('reason') == 'financial_discovery_pending' and now-stamp >= DISCOVERY_RETRY_TTL:
+                return None
             observed = datetime.fromisoformat(payload['observed_at'])
             cash_flow = payload.get('calculation_evidence', {}).get('issuer_cash_flow', {})
             if (symbol == 'NVDA' and cash_flow.get('reason') == 'cash_flow_source_unavailable'
@@ -138,7 +145,57 @@ def _cached(symbol, now, max_cache_age=TTL):
     return None
 
 
-def prepare(symbol, *, max_cache_age=TTL):
+def _continue_discovery(symbol,cik):
+    """Only failed or already-discovered preparations enter the continuation."""
+    from app.services import sec_financial_discovery_store as discovery_store
+    if not discovery_store.enabled() or symbol in ISSUER_PROFILES:return False
+    from app.services.sec_reporting_policy import reviewed
+    from app.services.sec_currency_ratios import basis
+    from app.services.sec_foreign_statements import profile
+    if reviewed(symbol,cik) or basis(symbol,cik) or profile(symbol,cik):return False
+    with SessionLocal() as db:
+        row=db.get(InsightsSnapshot,f'sec-current-fundamentals:{symbol}:v1')
+        if row is None or row.source!='sec_edgar' or len(row.payload_json)>2_000_000:return False
+        try:payload=json.loads(row.payload_json)
+        except (ValueError,TypeError):return False
+    return (isinstance(payload,dict) and payload.get('symbol')==symbol and
+        (isinstance(payload.get('discovery'),dict) or (payload.get('status')=='unavailable'
+        and not payload.get('values') and payload.get('reason') in {
+            'unsupported_current_financial_coverage','unqualified_html_statement','unreviewed_foreign_statement_currency'})))
+
+
+def _prepare_discovery(payload,company,raw,*,symbol,cik,client,now,dependency):
+    from zoneinfo import ZoneInfo
+    from app.services import sec_financial_discovery_store as store,sec_financial_discovery_reader as reader
+    available=now.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
+    common=dict(symbol=symbol,cik=cik,available_by=available,observed_at=now)
+    progress=store.progress(company,raw,client=client,**common)
+    payload['discovery']=progress
+    payload['discovery_version']=reader.VERSION
+    payload['reason']='financial_discovery_pending' if progress['status']=='pending' else 'financial_discovery_held'
+    if progress['status']=='ready_for_original_revalidation':
+        # Qualification and revalidation share one six-original worker budget.
+        # A newly qualified final filing is restored on the next ordinary run.
+        if progress['phase']!='complete':
+            payload['reason']='financial_discovery_pending'
+        else:
+            filing=reader.restore(company,raw,checkpoint=store.read(symbol,cik),client=client,**common)
+            try:
+                values=sec_fundamentals.project_fundamentals(raw,company,symbol=symbol,cik=cik,
+                    observed_at=now,filing_supplement=filing)
+            except sec_fundamentals.SecFundamentalsCoverageError as exc:
+                payload.update(reason='unsupported_current_financial_coverage',detail=str(exc))
+            else:
+                payload.pop('reason',None)
+                payload['values']={name:values[name] for name in METRICS if name in values}
+                payload['period_date']=str(values['period_date'])
+                payload['calculation_evidence']=json.loads(values['source_evidence_json'])
+                payload['coverage']['available_metrics']=sorted(payload['values'])
+                payload['status']='partial' if payload['values'] else 'unavailable'
+    return _save(symbol,payload,now,dependency)
+
+
+def prepare(symbol, *, max_cache_age=TTL, continue_discovery=False):
     if os.getenv('SEC_FUNDAMENTALS_WARMING_ENABLED', '0') != '1':
         raise ValueError('SEC ratio preparation is disabled')
     symbol = sec_directory._symbol_key(symbol)
@@ -179,6 +236,13 @@ def prepare(symbol, *, max_cache_age=TTL):
             payload['source_evidence']['facts_status'] = 404
         else:
             payload['source_evidence']['facts_sha256'] = hashlib.sha256(raw).hexdigest()
+            if continue_discovery and _continue_discovery(symbol,cik):
+                from app.services.sec_financial_discovery import _inventory
+                from zoneinfo import ZoneInfo
+                available=now.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
+                if _inventory(company,symbol=symbol,cik=cik,available_by=available):
+                    return _prepare_discovery(payload,company,raw,symbol=symbol,cik=cik,
+                        client=client,now=now,dependency=dependency)
             from app.services.sec_financial_continuity import fetch_history
             history = fetch_history(symbol,cik,client=client,observed_at=now)
             from app.services.sec_inline_financials import acquire
@@ -206,7 +270,13 @@ def prepare(symbol, *, max_cache_age=TTL):
                 payload['calculation_evidence'] = json.loads(values['source_evidence_json'])
                 payload['coverage']['available_metrics'] = sorted(payload['values'])
                 payload['status'] = 'partial' if payload['values'] else 'unavailable'
+    return _save(symbol,payload,now,dependency)
+
+
+def _save(symbol,payload,now,dependency):
     # Network operations finish before opening the write transaction.
+    if 'discovery' in payload and os.getenv('SEC_FINANCIAL_DISCOVERY_ENABLED','0')!='1':
+        raise ValueError('SEC financial discovery changed during preparation')
     with SessionLocal() as db:
         if db.get_bind().dialect.name == 'postgresql':
             db.execute(text("SET LOCAL statement_timeout='20s'"))

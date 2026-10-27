@@ -212,6 +212,8 @@ def cached_row_payload(row, symbol, *, now=None):
         return None
     if not isinstance(payload, dict) or payload.get('source') != 'sec_edgar' or payload.get('symbol') != symbol:
         return None
+    if payload.get('reason')=='financial_discovery_pending' and now-stamp>=timedelta(minutes=20):
+        return None
     from app.services.sec_tagged_foreign import CURRENCY_POLICY, cached_currency_valid
     evidence = payload.get('sourceEvidence') or {}
     if not isinstance(evidence, dict):
@@ -339,13 +341,17 @@ def prepared(symbol):
                     payload = project(raw, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history,filing_supplement=filing)
                 except (TaggedCurrencyError, StatementCurrencyError, TabularReportingError) as exc:
                     from app.services.ticker_financials import _unavailable
-                    if isinstance(exc, TabularReportingError):
+                    if isinstance(exc,TabularReportingError) and str(exc) in {'financial_discovery_pending','financial_discovery_held'}:
+                        reason=str(exc)
+                        message='Financial filings are still being verified.'
+                    elif isinstance(exc, TabularReportingError):
                         message = 'Financial statements require verification of their accounting basis, reporting currency or source period.'
                         reason = 'unqualified_html_statement'
                     else:
                         message = 'Financial statements require verification of their reporting currency.'
                         reason = 'unreviewed_foreign_statement_currency'
                     payload = _unavailable(symbol, message=message, reason=reason)
+                    if reason=='financial_discovery_pending':payload['status']='warming'
                     payload.update(source='sec_edgar', updatedAt=now.isoformat(),
                                    sourceEvidence={'factsUrl': facts_url, 'factsSha256': hashlib.sha256(raw).hexdigest(),
                                                    'companySha256': hashlib.sha256(company).hexdigest()})

@@ -291,7 +291,10 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     scale=next(iter(scales))
     candidates=[]
     for index,row in enumerate(header_rows):
-        anchors=[c for c in row if re.fullmatch(r'(?:19|20)\d{2}',c['text']) or re.fullmatch(r'(?:As (?:of|at)\s+)?(?:'+MONTH_PATTERN+r')\s+\d{1,2},?\s+(?:19|20)\d{2}',c['text'],re.I)]
+        # A lone footnote asterisk does not change an explicitly printed year.
+        # Keep the original header in provenance; words, extra dates and other
+        # suffixes are not silently stripped into a valid date anchor.
+        anchors=[c for c in row if re.fullmatch(r'(?:19|20)\d{2}(?:\s*\*)?',c['text']) or re.fullmatch(r'(?:As (?:of|at)\s+)?(?:'+MONTH_PATTERN+r')\s+\d{1,2},?\s+(?:19|20)\d{2}(?:\s*\*)?',c['text'],re.I)]
         if len(anchors)>=2:candidates.append((index,anchors))
     if not candidates:raise TabularFinancialError('table_date_header_unproved')
     last,anchors=candidates[-1]

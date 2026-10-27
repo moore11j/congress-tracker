@@ -211,7 +211,7 @@ def filtered(payload,selection):
 
 
 
-def _document_set(payload,company,company_raw,*,symbol,cik,available_by,client):
+def _document_set(payload,company,company_raw,*,symbol,cik,available_by,client,candidate_accessions=None):
     """Recover an indexed foreign statement omitted from companyfacts.
 
     Only the existing USD US GAAP reporting class is admitted here. Native
@@ -234,7 +234,7 @@ def _document_set(payload,company,company_raw,*,symbol,cik,available_by,client):
     # A lagged report period is more likely to be a statement than a same-day
     # event. This controls bounded discovery order, never financial admission.
     candidates.sort(key=lambda c:(c['report_date']<c['filed'],c['report_date'],c['filed']),reverse=True)
-    for candidate in candidates[:3]:
+    for candidate in sets.bounded_candidates(candidates,candidate_accessions):
         try:
             supplement=sets.acquire_candidate(candidate,company_raw,symbol=symbol,cik=cik,
                 available_by=available_by,client=client)

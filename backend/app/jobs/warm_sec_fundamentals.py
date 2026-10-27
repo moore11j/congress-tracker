@@ -146,17 +146,22 @@ def _run_locked():
         # deadline, including stocks outside the watch/research priority set.
         next_refresh = now + PRIORITY_REFRESH
         try:
+            discovery_options = ({'continue_discovery':True}
+                if os.getenv('SEC_FINANCIAL_DISCOVERY_ENABLED','0')=='1' else {})
             if broad:
-                payload = sec_fundamentals_preparation.prepare(symbol, max_cache_age=PRIORITY_REFRESH)
+                payload = sec_fundamentals_preparation.prepare(symbol, max_cache_age=PRIORITY_REFRESH, **discovery_options)
                 observed = datetime.fromisoformat(payload['observed_at'])
                 if observed.tzinfo is None:
                     raise ValueError('SEC preparation observation must be timezone aware')
                 next_refresh = observed + PRIORITY_REFRESH
             else:
-                payload = sec_fundamentals_preparation.prepare(symbol)
+                payload = sec_fundamentals_preparation.prepare(symbol, **discovery_options)
             result = {'scope': symbol, 'status': payload['status'], 'source': payload['source'],
                       'metrics': len(payload['values']), 'reason': payload.get('reason'),
                       'observed_at': payload['observed_at']}
+            if payload.get('reason')=='financial_discovery_pending':
+                next_refresh=datetime.fromisoformat(payload['observed_at'])+sec_fundamentals_preparation.DISCOVERY_RETRY_TTL
+                result['discovery']=payload.get('discovery')
             cash_flow = payload.get('calculation_evidence', {}).get('issuer_cash_flow', {})
             if (symbol == 'NVDA' and cash_flow.get('reason') == 'cash_flow_source_unavailable'
                     and cash_flow.get('retryable') is True):

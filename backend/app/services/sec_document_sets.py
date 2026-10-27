@@ -90,6 +90,20 @@ def candidates(company_raw,*,symbol,cik,available_by):
     return sorted(found.values(),key=lambda x:(x['report_date'],x['filed'],x['accession']),reverse=True)
 
 
+def bounded_candidates(candidates, accessions=None):
+    """Select a bounded internal scope without changing directory qualification."""
+    from app.services.sec_inline_financials import InlineFactsError
+    if accessions is None:return candidates[:3]
+    if (not isinstance(accessions,tuple) or not 1<=len(accessions)<=3
+            or any(not isinstance(a,str) for a in accessions)
+            or len(set(accessions))!=len(accessions)):
+        raise InlineFactsError('discovery_candidate_scope_invalid')
+    indexed={c['accession']:c for c in candidates}
+    if any(a not in indexed for a in accessions):
+        raise InlineFactsError('discovery_candidate_not_in_directory')
+    return [indexed[a] for a in accessions]
+
+
 def statement_exhibits(raw,metadata):
     """Discover explicitly labelled statement links within this one filing."""
     from app.services.sec_inline_financials import InlineFactsError

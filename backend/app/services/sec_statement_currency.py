@@ -324,7 +324,7 @@ def authorized(payload, company, *, symbol, cik, available_by, supplement):
     return selection
 
 
-def acquire(payload, company_raw, *, symbol, cik, available_by, client):
+def acquire(payload, company_raw, *, symbol, cik, available_by, client, candidate_accessions=None):
     """Discover native statements using the same bounded financial filing rules."""
     import json
     from datetime import date
@@ -347,7 +347,7 @@ def acquire(payload, company_raw, *, symbol, cik, available_by, client):
         candidates = [c for c in candidates if date.fromisoformat(c['report_date']) > max(domestic)]
     candidates.sort(key=lambda c:(c['report_date']<c['filed'],c['report_date'],c['filed']),reverse=True)
     attempts = []
-    for candidate in candidates[:3]:
+    for candidate in sets.bounded_candidates(candidates,candidate_accessions):
         try:
             parsed = acquire_candidate(candidate,company_raw,symbol=symbol,cik=cik,available_by=available_by,client=client)
         except StatementCurrencyError as exc:
