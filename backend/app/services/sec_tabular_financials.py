@@ -87,6 +87,15 @@ def preceding_text(table, *, nonempty=False):
     return texts[-8:] if nonempty else texts
 
 
+def statement_layout_context(text):
+    """Recognize exact page furniture without treating other prose as neutral."""
+    return bool(re.fullmatch(r'\d{1,3}',text) or text in {
+        'Table of Contents',
+        'See accompanying Notes to Consolidated Financial Statements.',
+        'See notes to unaudited condensed consolidated financial statements.',
+    })
+
+
 def statement_prefix(text):
     text=re.sub(r'\bSummary\s+(?=Consolidated (?:Balance Sheets?|Statements? of)\b)', '', text, flags=re.I)
     return re.split(r'\b(?:unaudited|audited|condensed|consolidated)\b',text,maxsplit=1,flags=re.I)[0].strip()
@@ -319,7 +328,8 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
             identified.append(True);scope_used=True
         else:
             if not prefix:
-                prefix=next((v for v in reversed(identity_blocks[:index]) if v.strip()), '')
+                prefix=next((v for v in reversed(identity_blocks[:index])
+                             if v.strip() and not statement_layout_context(v)), '')
             identified.append(company_key(prefix)==issuer_key)
     # The closest statement heading owns this table. An earlier parent-company
     # mention cannot authorize an intervening subsidiary/acquisition statement.

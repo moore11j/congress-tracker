@@ -12,7 +12,7 @@ from datetime import date,datetime
 from lxml import html
 from app.services import sec_financial_discovery as discovery
 
-VERSION='sec_financial_discovery_qualification_v3'
+VERSION='sec_financial_discovery_qualification_v4'
 MAX_ORIGINALS=6
 
 

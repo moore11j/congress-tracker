@@ -1,0 +1,44 @@
+{
+  "CASY-current.html": {
+    "file": "299dd282611a735350399263a6cf628ce8fcd608f7377210d4610e58528723a9.gz",
+    "bytes": 519941,
+    "sha256": "299dd282611a735350399263a6cf628ce8fcd608f7377210d4610e58528723a9",
+    "filing": {
+      "cik": "0000726958",
+      "accession": "0000726958-26-000085",
+      "form": "10-Q",
+      "filed": "2026-09-08",
+      "report_date": "2026-07-31",
+      "url": "https://www.sec.gov/Archives/edgar/data/726958/000072695826000085/casy-20260731.htm",
+      "issuer": "CASEYS GENERAL STORES INC"
+    }
+  },
+  "CASY-annual.html": {
+    "file": "5bfa90f39c3440d370e2646927f73f8c369d8d5608d104a0e79dd250d4891c5f.gz",
+    "bytes": 1305301,
+    "sha256": "5bfa90f39c3440d370e2646927f73f8c369d8d5608d104a0e79dd250d4891c5f",
+    "filing": {
+      "cik": "0000726958",
+      "accession": "0000726958-26-000046",
+      "form": "10-K",
+      "filed": "2026-06-22",
+      "report_date": "2026-04-30",
+      "url": "https://www.sec.gov/Archives/edgar/data/726958/000072695826000046/casy-20260430.htm",
+      "issuer": "CASEYS GENERAL STORES INC"
+    }
+  },
+  "GTX-current.html": {
+    "file": "79c1f44308563c83e5cc90d1db2b573b0a87c1e352d56e967649cd19e730e164.gz",
+    "bytes": 1545608,
+    "sha256": "79c1f44308563c83e5cc90d1db2b573b0a87c1e352d56e967649cd19e730e164",
+    "filing": {
+      "cik": "0001735707",
+      "accession": "0001735707-26-000027",
+      "form": "10-Q",
+      "filed": "2026-07-29",
+      "report_date": "2026-06-30",
+      "url": "https://www.sec.gov/Archives/edgar/data/1735707/000173570726000027/gtx-20260630.htm",
+      "issuer": "Garrett Motion Inc."
+    }
+  }
+}
