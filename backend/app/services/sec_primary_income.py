@@ -13,7 +13,7 @@ BASIS="Reported total earnings in the issuer-owned consolidated income statement
 
 PRETAX={'us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest'}
 LABELS={'pretax':{'income before income taxes','loss before income taxes','income (loss) before income taxes','income before taxes','loss before taxes'},
-        'tax':{'income tax provision','income tax expense','provision for income taxes','income tax benefit','income tax expense (benefit)','provision for (benefit from) income taxes'}}
+        'tax':{'income tax provision','income tax expense','provision for income taxes','income tax benefit','income tax expense (benefit)','provision for (benefit from) income taxes','federal and state income taxes','tax expense'}}
 TAGS={'pretax':PRETAX,'tax':{'us-gaap:IncomeTaxExpenseBenefit'},'income':{'us-gaap:NetIncomeLoss'}}
 
 def statement_rows(raw,filing,issuer):
