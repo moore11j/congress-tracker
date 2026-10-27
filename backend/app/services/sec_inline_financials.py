@@ -415,8 +415,16 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
                 originals[url] = client.get(url)
             return originals[url]
     retained = RetainedClient()
-    result = _acquire(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at,
-                      client=retained, include_debt_precision=include_debt_precision)
+    import os
+    result=None
+    if os.getenv('SEC_FINANCIAL_DISCOVERY_READ_ENABLED','0')=='1':
+        from app.services.sec_financial_discovery_reader import prepared_choice
+        available=observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
+        result=prepared_choice(company_raw,facts_raw,symbol=symbol,cik=cik,available_by=available,
+            observed_at=observed_at,client=retained)
+    if result is None:
+        result = _acquire(facts_raw, company_raw, symbol=symbol, cik=cik, observed_at=observed_at,
+                          client=retained, include_debt_precision=include_debt_precision)
     from app.services import sec_operating_history
     available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
     try:

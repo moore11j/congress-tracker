@@ -165,9 +165,40 @@ def primary_statement_candidate(tree):
     return False
 
 
-def acquire(company_raw, *, symbol, cik, available_by, client):
+def statement_link_candidates(tree, cover_url):
+    """Return explicitly labelled links, preferring actual financial statements.
+
+    This identifies candidates only. Original identity, accounting basis,
+    currency and printed periods still require full statement validation.
+    """
+    from urllib.parse import urljoin, urldefrag
+    links={}
+    priority={'financial_statement':0,'financial_results':1,'press_release':2}
+    for node in tree.xpath('//a[@href]'):
+        label=tables.visible_text(node)
+        row=node.xpath('ancestor::tr[1]')
+        if row and len(row[0].xpath('.//a[@href]'))==1:
+            label=tables.clean(' '.join(row[0].itertext()))
+        if re.search(r'\b(?:to|will)\s+(?:announce|report)\b|\b(?:date|schedule)\s+(?:of|for)\b',label,re.I):
+            continue
+        if re.search(r'\bfinancial\s+(?:statements?|reports?|results?)\b|\b(?:press|earnings)\s+release\b',label,re.I):
+            url=urljoin(cover_url,node.get('href'))
+            if urldefrag(url)[0]==cover_url:continue
+            kind=('financial_statement' if re.search(r'\bfinancial statements?\b',label,re.I)
+                  else 'financial_results' if re.search(r'\bfinancial\s+(?:reports?|results?)\b|\bearnings\s+release\b',label,re.I)
+                  else 'press_release')
+            if url not in links or priority[kind]<priority[links[url]]:links[url]=kind
+    if 'financial_statement' in links.values():
+        links={u:k for u,k in links.items() if k=='financial_statement'}
+    return [{'url':u,'kind':links[u]} for u in sorted(links)]
+
+
+def statement_links(tree, cover_url):
+    return {item['url'] for item in statement_link_candidates(tree,cover_url)}
+
+
+def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessions=None, inspection=None):
     """Inspect at most three filing covers and one exhibit each, caller budgeted."""
-    from urllib.parse import urljoin,urldefrag
     from app.services import sec_document_sets as sets
     from app.services.sec_reporting_policy import reviewed
     from app.services.sec_foreign_statements import profile
@@ -178,6 +209,7 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
         return None
     candidates=sets.candidates(company_raw,symbol=symbol,cik=cik,available_by=available_by)
     candidates.sort(key=lambda c:(c['report_date']<c['filed'],c['report_date'],c['filed']),reverse=True)
+    selected_candidates=sets.bounded_candidates(candidates,candidate_accessions)
     accepted=[];holds=[];held_sources={}
     issuer=json.loads(company_raw)['name']
     def statement_hold(raw,candidate,reason,source_url):
@@ -185,7 +217,7 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
         if reason in {'table_accounting_basis_unproved','table_reporting_currency_unproved','table_native_observations_unavailable'}:
             held_sources[id(hold)]=(raw,source_url)
         return hold
-    for candidate in candidates[:3]:
+    for candidate in selected_candidates:
         cover=client.get(candidate['cover_url'])
         if len(cover)>tables.MAX_BYTES:
             holds.append({'accession':candidate['accession'],'reason':'source_size'});continue
@@ -203,20 +235,7 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
             else:accepted.append((result,cover,args))
         elif len(cover)>2_000_000:
             holds.append({'accession':candidate['accession'],'reason':'cover_size'});continue
-        links=set(); statement_links=set()
-        for node in tree.xpath('//a[@href]'):
-            label=tables.visible_text(node)
-            row=node.xpath('ancestor::tr[1]')
-            if row and len(row[0].xpath('.//a[@href]'))==1:
-                label=tables.clean(' '.join(row[0].itertext()))
-            if re.search(r'\b(?:to|will)\s+(?:announce|report)\b|\b(?:date|schedule)\s+(?:of|for)\b',label,re.I):
-                continue
-            if re.search(r'\bfinancial\s+(?:statements?|reports?|results?)\b|\b(?:press|earnings)\s+release\b',label,re.I):
-                url=urljoin(candidate['cover_url'],node.get('href'))
-                if urldefrag(url)[0]==candidate['cover_url']:continue
-                links.add(url)
-                if re.search(r'\bfinancial statements?\b',label,re.I):statement_links.add(url)
-        links=statement_links or links
+        links=statement_links(tree,candidate['cover_url'])
         if not links:
             continue
         if len(links)!=1:
@@ -234,6 +253,10 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
                 holds.append(statement_hold(raw,candidate,str(exc),url))
             continue
         accepted.append((result,raw,args))
+    if inspection is not None:
+        if not isinstance(inspection,dict):raise TabularReportingError('table_inspection_invalid')
+        inspection.update(inspected_accessions=[c['accession'] for c in selected_candidates],
+            holds=[dict(h) for h in holds],accepted_count=len(accepted),complete_universe_coverage=False)
     if not accepted:
         return None
     # Current and amended statements are ordered by their printed period then
@@ -264,7 +287,9 @@ def acquire(company_raw, *, symbol, cik, available_by, client):
         raise TabularReportingError('table_discovery_has_unqualified_statement')
     proof=result['evidence']
     proof['discovery']={'candidate_bound':3,'total_candidates':len(candidates),
-        'inspected':len(candidates[:3]),'holds':holds,'whole_universe_complete':False}
+        'inspected':len(selected_candidates),'holds':holds,'whole_universe_complete':False}
+    if candidate_accessions is not None:
+        proof['discovery']['explicit_candidate_scope']=list(candidate_accessions)
     supplement={'evidence':{'table_reporting':proof},'table_original':raw,'table_args':args}
     if corroboration is not None:
         proof['discovery']['corroboration']=corroboration
