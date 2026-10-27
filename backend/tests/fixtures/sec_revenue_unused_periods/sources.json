@@ -1,0 +1,26 @@
+{
+  "GCT-facts.json": {
+    "file": "GCT-facts.json.gz",
+    "sha256": "0b6a57930e020708c383c928c36bff115886f04c125e1b8c2fd0052bb225f24c",
+    "bytes": 748739,
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001857816.json"
+  },
+  "GCT-company.json": {
+    "file": "GCT-company.json.gz",
+    "sha256": "0a63e7df55d533b8da790336cb52e0abb6351eeda2538d21599d28c5ab061f26",
+    "bytes": 59010,
+    "url": "https://data.sec.gov/submissions/CIK0001857816.json"
+  },
+  "gct-20260630.htm": {
+    "file": "gct-20260630.htm.gz",
+    "sha256": "0e40a55e0a7ede3abafe0e05b447eb702789be2a04f53b85115c98f7e4813e6f",
+    "bytes": 2043035,
+    "url": "https://www.sec.gov/Archives/edgar/data/1857816/000185781626000074/gct-20260630.htm"
+  },
+  "gct-20251231.htm": {
+    "file": "gct-20251231.htm.gz",
+    "sha256": "d0d5f636c90898bbe56e967b82ac3be304c47ac25bda48a3a3a19dd4cef101ce",
+    "bytes": 2818363,
+    "url": "https://www.sec.gov/Archives/edgar/data/1857816/000185781626000018/gct-20251231.htm"
+  }
+}
