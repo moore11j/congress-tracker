@@ -238,6 +238,36 @@ def period_for(text,kind,filed):
     return start,end,months
 
 
+def column_period(header,texts,shared_periods,kind,filed):
+    """A comparative caption constrains, but cannot merge, explicit columns."""
+    try:
+        return period_for(header,kind,filed)
+    except TabularFinancialError as original:
+        if not shared_periods or str(original) not in {'column_date_ambiguous','column_duration_unsupported'}:
+            raise
+        # Only a self-contained column can resolve a comparative caption.
+        # Year-only columns still require the original shared-header path.
+        result=period_for(' '.join(texts),kind,filed)
+        _,end,months=result
+        for context in shared_periods:
+            dates={(MONTHS[m.lower()],int(d)) for m,d in re.findall(
+                r'\b('+MONTH_PATTERN+r')\s*,?\s*(\d{1,2})\b',context,re.I)}
+            years={int(y) for y in re.findall(r'\b(?:19|20)\d{2}\b',context)}
+            if dates!={(end.month,end.day)} or (years and end.year not in years):
+                raise original
+            durations=set()
+            clauses=re.findall(r'\b((?:[a-z]+|\d+)(?:\s*(?:,|\band\b|\bor\b)\s*(?:[a-z]+|\d+))*)\s+months?\s+ended\b',context,re.I)
+            for clause in clauses:
+                numbers=re.split(r'\s*(?:,|\band\b|\bor\b)\s*',clause.lower())
+                if any(n not in DURATIONS for n in numbers):raise original
+                durations.update(DURATIONS[n] for n in numbers)
+            if re.search(r'\byears?\s+ended\b',context,re.I):
+                if re.search(r'\b(?:[0-9]+|one|two|three|four|five|six|seven|eight|nine|ten|twelve)\s+years?\s+ended\b',context,re.I):raise original
+                durations.add(12)
+            if months is not None and months not in durations:raise original
+        return result
+
+
 def amount(cells,start,end,scale):
     chosen=[c for c in cells if c['start']>=start and c['start']<end]
     if any(c['end']>end for c in chosen):raise TabularFinancialError('value_crosses_column')
@@ -339,7 +369,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
         if not re.search(r'months?\s+ended',header,re.I):
             duration=[s for s in local if re.fullmatch(r'(?:For the )?(?:Three|Six|Nine|Twelve|3|6|9|12) months? ended',s,re.I)]
             if len(duration)==1:header+=' '+duration[0]
-        start,finish,months=period_for(header,kind,filed)
+        start,finish,months=column_period(header,texts,shared_periods,kind,filed)
         if periods_only:
             columns.append({'start':str(start) if start else None,'end':str(finish),'months':months,'header':texts})
             continue
