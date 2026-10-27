@@ -318,6 +318,10 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     all_records, consolidated_income_evidence = sec_parent_income.consolidated_for_leverage(all_records)
     from app.services import sec_statement_income
     all_records, statement_income_evidence = sec_statement_income.apply(all_records, symbol=symbol, cik=cik)
+    if (filing_supplement or {}).get('primary_income'):
+        from app.services.sec_primary_income import apply as primary_income
+        all_records = primary_income(all_records, payload, company, symbol=symbol, cik=str(cik).zfill(10),
+            available_by=available_by, supplement=filing_supplement)
     all_records, parent_income_evidence = sec_parent_income.apply(all_records)
     all_records, parent_statement_evidence = sec_parent_statement_income.apply(all_records, symbol=symbol, cik=cik)
     all_records, parent_equity_evidence = sec_parent_equity.apply(all_records, symbol=symbol, cik=cik, payload=payload)

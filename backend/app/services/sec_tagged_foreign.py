@@ -123,6 +123,10 @@ def cached_currency_valid(evidence):
         from app.services.sec_operating_history import cached_valid as operating_valid
         if not operating_valid(proof.get('operating_statement_history'), cik=proof.get('cik')):
             return False
+    if 'primary_consolidated_income' in proof or proof.get('methodology') == 'sec_primary_consolidated_income_v1':
+        from app.services.sec_primary_income import cached_valid as income_valid
+        if not income_valid(proof.get('primary_consolidated_income'), cik=proof.get('cik')):
+            return False
     if 'native_reporting' in proof:
         from app.services.sec_statement_currency import cached_currency_valid as native_valid
         return native_valid(evidence)
