@@ -207,9 +207,9 @@ def metric_for(label,kind,issuer):
 
 def table_kind(text):
     if re.search(r'non.?gaap|reconciliation|adjusted|pro.?forma|notes to',text,re.I):return None
-    if re.search(r'consolidated (?:interim )?balance sheets?',text,re.I):return 'balance'
-    if re.search(r'consolidated (?:interim )?statements? of cash flows?',text,re.I):return 'cashflow'
-    if re.search(r'consolidated (?:interim )?statements? of (?:operations|income|comprehensive (?:loss|income))',text,re.I):return 'income'
+    if re.search(r'consolidated (?:(?:interim|condensed) )?balance sheets?',text,re.I):return 'balance'
+    if re.search(r'consolidated (?:(?:interim|condensed) )?statements? of cash flows?',text,re.I):return 'cashflow'
+    if re.search(r'consolidated (?:(?:interim|condensed) )?statements? of (?:operations|income|comprehensive (?:loss|income))',text,re.I):return 'income'
     return None
 
 
@@ -262,7 +262,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     header_rows=rows[:boundary]
     intro=' '.join(local+[' '.join(c['text'] for c in r) for r in header_rows])
     identity_blocks=local+[c['text'] for row in header_rows for c in row if c['start']==0]
-    captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(r'consolidated (?:interim )?(?:balance sheets?|statements? of)',b,re.I)]
+    captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(r'consolidated (?:(?:interim|condensed) )?(?:balance sheets?|statements? of)',b,re.I)]
     if not captions:return None
     caption_index,caption=captions[-1];kind=table_kind(caption)
     if kind is None:return None
@@ -309,7 +309,15 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
         for row in header_rows:
             for cell in row:
                 if cell['start']<=anchor['start']<cell['end'] and cell['text'] and cell['text'] not in texts:texts.append(cell['text'])
-        header=' '.join(texts)
+        # A statement may print one month/day above year-only columns. Keep
+        # each column's own year and duration; competing dates still fail the
+        # normal period parser instead of being silently replaced.
+        shared_periods=[s for s in local+[c['text'] for row in header_rows for c in row if c['start']==0]
+                        if re.search(r'\b(?:months?|years?|periods?)\s+ended\b',s,re.I)
+                        and re.search(r'\b(?:'+MONTH_PATTERN+r')\s+\d{1,2}\b',s,re.I)]
+        header=' '.join(shared_periods+texts)
+        if shared_periods:
+            header=re.sub(r'\b(three|six|nine|twelve|3|6|9|12) months?\b(?!\s+ended)',r'\1 months ended',header,flags=re.I)
         # A duration above the whole table applies only if columns have none.
         if not re.search(r'months?\s+ended',header,re.I):
             duration=[s for s in local if re.fullmatch(r'(?:For the )?(?:Three|Six|Nine|Twelve|3|6|9|12) months? ended',s,re.I)]

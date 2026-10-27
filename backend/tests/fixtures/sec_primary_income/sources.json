@@ -1,0 +1,50 @@
+{
+  "COO-company.json": {
+    "file": "COO-company.json.gz",
+    "url": "https://data.sec.gov/submissions/CIK0000711404.json",
+    "sha256": "dee50d4eee129b5d72354beb5c3cf2226bad1d0660c4737e4f88c8023a9e8d9f",
+    "bytes": 161842
+  },
+  "COO-facts.json": {
+    "file": "COO-facts.json.gz",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000711404.json",
+    "sha256": "6afb43201133dcb934decf48b1a099835969d31c57f5c77aee2cfddab0f0caa4",
+    "bytes": 3817101
+  },
+  "COO-coo-20260731.htm": {
+    "file": "COO-coo-20260731.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/711404/000162828026061160/coo-20260731.htm",
+    "sha256": "669c625af435bb1bdbcb2687971c32cfd3248aa86eb1b2a89c9971166ed06301",
+    "bytes": 1326082
+  },
+  "COO-coo-20251031.htm": {
+    "file": "COO-coo-20251031.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/711404/000162828025055615/coo-20251031.htm",
+    "sha256": "31f9bc87bab68787aef8eb34adc42402ac73c42c8927bbe6c51c68cb6b9a7279",
+    "bytes": 2029220
+  },
+  "AMC-company.json": {
+    "file": "AMC-company.json.gz",
+    "url": "https://data.sec.gov/submissions/CIK0001411579.json",
+    "sha256": "afa566a28e719ebe916b98005b652a6975e1b3cec46cd8ae693f41ed8b1a0926",
+    "bytes": 164805
+  },
+  "AMC-facts.json": {
+    "file": "AMC-facts.json.gz",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001411579.json",
+    "sha256": "a232f3e420d7d828acc13c9e8b7e59bd205446e052fd62e49a9a3bff0ecae494",
+    "bytes": 3046009
+  },
+  "AMC-0001411579-26-000059.htm": {
+    "file": "AMC-0001411579-26-000059.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1411579/000141157926000059/amc-20260630x10q.htm",
+    "sha256": "5987708aba83a4815b0b8bf83288dd3c4e784b31a93d61fc38f58e9e1fbac9b3",
+    "bytes": 4116682
+  },
+  "AMC-0001411579-26-000016.htm": {
+    "file": "AMC-0001411579-26-000016.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1411579/000141157926000016/amc-20251231x10k.htm",
+    "sha256": "497f8fb1e9bb9c923b66f0d713b8bc2109fca149a934bf22735fe329ec8ffa8c",
+    "bytes": 6201703
+  }
+}
