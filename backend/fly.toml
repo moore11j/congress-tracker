@@ -32,10 +32,10 @@ processes = ["app"]
   SCHEDULED_JOB_PRELOAD_ENABLED = "1"
   ISSUER_TRANSCRIPT_WARMING_ENABLED = "true"
   ISSUER_TRANSCRIPT_DISCOVERY_ENABLED = "1"
-  # Reuse the serialized SEC ratio job: at most eight free metrics requests/run.
+  # Reuse the serialized SEC ratio job: at most ten free metrics requests/run.
   # Preparation only; public fundamentals selection stays separately gated.
   FINNHUB_METRICS_WARMING_ENABLED = "1"
-  FINNHUB_METRICS_BATCH_SIZE = "8"
+  FINNHUB_METRICS_BATCH_SIZE = "10"
   # Verified public IPO status dates; uses the existing free calendar warmer.
   IPO_CALENDAR_PROVIDER = "finnhub"
   DIRECT_FEEDS_MODE = "shadow"

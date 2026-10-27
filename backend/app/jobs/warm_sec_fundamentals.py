@@ -43,7 +43,7 @@ def scope_batch(due, limit, *, priority, changed_dependencies, changed_versions)
 
 def metric_batch_limit():
     try:
-        return max(1, min(8, int(os.getenv('FINNHUB_METRICS_BATCH_SIZE', '2'))))
+        return max(1, min(10, int(os.getenv('FINNHUB_METRICS_BATCH_SIZE', '2'))))
     except ValueError:
         return 2
 

@@ -276,10 +276,36 @@ def test_global_metric_failure_stops_without_deferring_unattempted_symbols(facto
         assert json.loads(db.get(InsightsSnapshot,job.KEY).payload_json)['metric_attempted_at']=={}
 
 
-@pytest.mark.parametrize('configured,expected',[('999',8),('8',8),('0',1),('bad',2)])
+@pytest.mark.parametrize('configured,expected',[('999',10),('10',10),('8',8),('0',1),('bad',2)])
 def test_metric_configuration_has_hard_request_cap(monkeypatch,configured,expected):
     monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE',configured)
     assert job.metric_batch_limit()==expected
+
+
+def test_current_universe_rotates_daily_with_delayed_runs(monkeypatch):
+    from datetime import datetime,timedelta,timezone
+    now=datetime(2026,10,27,tzinfo=timezone.utc)
+    symbols=[f'S{i:04}' for i in range(2490)]
+    priority=set(symbols[-36:])
+    attempts={}
+    monkeypatch.setenv('FINNHUB_METRICS_BATCH_SIZE','10')
+    limit=job.metric_batch_limit()
+    daily_seen=[set() for _ in range(3)]
+    for tick in range(3*288):
+        # Twenty-four missed runs per day model two hours of lost capacity.
+        if tick%12==11:
+            continue
+        at=now+timedelta(minutes=5*tick)
+        selected=job.metric_scopes(symbols,priority,attempts,at,limit)
+        assert len(selected)<=10
+        if tick%288==0:
+            assert set(selected)<=priority
+        for symbol in selected:
+            if symbol in attempts:
+                assert at-datetime.fromisoformat(attempts[symbol])>=timedelta(hours=24)
+            attempts[symbol]=at.isoformat()
+            daily_seen[tick//288].add(symbol)
+    assert all(seen==set(symbols) for seen in daily_seen)
 
 
 def test_metric_elapsed_budget_does_not_mark_unattempted_scopes(factory,monkeypatch):
