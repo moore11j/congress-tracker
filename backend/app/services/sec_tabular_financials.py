@@ -78,10 +78,13 @@ def grid(table):
     return out
 
 
-def preceding_text(table):
+def preceding_text(table, *, nonempty=False):
     # Only local text blocks, not a whole ancestor DIV containing other tables.
-    nodes=table.xpath('preceding::*[self::p or self::div][not(ancestor::table)][not(.//table)][not(.//p)][not(.//div)]')[-8:]
-    return [visible_text(n) for n in nodes if visible_text(n)]
+    # A bounded fallback ignores empty layout paragraphs without crossing an
+    # intervening issuer caption; parse_table still checks the nearest owner.
+    nodes=table.xpath('preceding::*[self::p or self::div][not(ancestor::table)][not(.//table)][not(.//p)][not(.//div)]')[-64 if nonempty else -8:]
+    texts=[text for n in nodes if (text:=visible_text(n))]
+    return texts[-8:] if nonempty else texts
 
 
 def statement_prefix(text):
@@ -248,10 +251,10 @@ def amount(cells,start,end,scale):
     return float(value)
 
 
-def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False):
+def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False):
     rows=grid(table)
     if not rows:return None
-    local=preceding_text(table)
+    local=preceding_text(table, nonempty=_nonempty_context)
     # Find the first monetary row before treating later years as header labels.
     def data_row(row):
         if not row or row[0]['start']!=0 or not re.search(r'[A-Za-z]',row[0]['text']):return False
@@ -265,6 +268,14 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(r'consolidated (?:(?:interim|condensed) )?(?:balance sheets?|statements? of)',b,re.I)]
     if not captions:return None
     caption_index,caption=captions[-1];kind=table_kind(caption)
+    if (kind is None and re.search(r'consolidated (?:(?:interim|condensed) )?statements? of comprehensive$',caption,re.I)
+            and caption_index+1<len(identity_blocks)
+            and re.fullmatch(r'(?:income|loss)',identity_blocks[caption_index+1],re.I)):
+        # A printed title can wrap into two adjacent blocks. Join only its
+        # exact missing final word, retaining the original blocks in evidence.
+        caption=caption+' '+identity_blocks[caption_index+1]
+        identity_blocks[caption_index:caption_index+2]=[caption]
+        kind=table_kind(caption)
     if kind is None:return None
     issuer_key=company_key(issuer)
     if any(company_key(b)==issuer_key for b in identity_blocks[caption_index+1:]):
@@ -283,6 +294,9 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     # The closest statement heading owns this table. An earlier parent-company
     # mention cannot authorize an intervening subsidiary/acquisition statement.
     if not issuer_key or not identified or not identified[-1]:
+        if not _nonempty_context:
+            return parse_table(table,issuer=issuer,filed=filed,document_scope=document_scope,
+                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True)
         raise TabularFinancialError('table_issuer_unproved')
     scales={Decimal('1000') for _ in re.finditer(r'\bin thousands\b',intro,re.I)}
     scales.update(Decimal('1000000') for _ in re.finditer(r'\bin millions\b',intro,re.I))

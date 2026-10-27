@@ -60,7 +60,8 @@ def declaration(raw, observations):
         # of regex passes to each scheduled preparation.
         atom = r'(?<![A-Za-z])(?:' + '|'.join(tables.CURRENCIES.values()) + r')(?![A-Za-z])'
         currency = atom + r'(?:\s*\(' + atom + r'\))?'
-        pattern = (r'\b(?:translations?\s+(?:of (?:(?![.;]).){0,230}?\s+)?from|conversion\s+of)\s+'
+        legacy_start = r'(?:translations?\s+(?:of (?:(?![.;]).){0,230}?\s+)?from|conversion\s+of)'
+        pattern = (r'\b(?:translations?\s+of(?:\s+certain)?|' + legacy_start + r')\s+'
                    r'(?P<source>' + currency + r')\s+(?:amounts?\s+)?(?:into|to)\s+'
                    r'(?P<destination>' + currency + r')')
         for match in re.finditer(pattern, text, re.I):
@@ -83,6 +84,11 @@ def declaration(raw, observations):
         currency, convenience = next(iter(pairs))
         if currency not in units or not units <= {currency, convenience}:
             raise TabularReportingError('table_translation_columns_unproved')
+        # Check every explicit direction above, but preserve established proof
+        # bytes when an already supported declaration exists. Newly recognized
+        # equivalent wording must not invalidate an otherwise valid cache.
+        legacy = [r for r in translations if re.match(legacy_start + r'\b', r['declaration'], re.I)]
+        translations = legacy or translations
     elif len(units) == 1:
         currency = next(iter(units))
     else:
