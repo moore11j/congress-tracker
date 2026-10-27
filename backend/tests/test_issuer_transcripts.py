@@ -28,6 +28,15 @@ def setup(monkeypatch):
         row=discover(db,'issuer_earnings',metadata)
         text,parsed,reasons=parse_document('issuer_earnings',raw,metadata);assert not reasons
         record_document(db,row,raw,text,parsed);db.commit()
+        # These reader/consumer cases need an actual fresh current directory,
+        # not an implicit bypass of discovery health via a static transcript.
+        from app.services import issuer_discovery as discovery
+        company=next(c for c in json.loads(issuer.REGISTRY.read_bytes()) if c['symbol']=='MSFT')
+        index_metadata=discovery.index_metadata(company,None)
+        index_raw=('<main><h1>Microsoft Investor Relations</h1><a href="'+metadata['url']+'">Webcast</a></main>').encode()
+        index_row=discover(db,discovery.INDEX_FEED,index_metadata)
+        candidates=discovery.parse_index(index_raw,company,None,datetime.now(timezone.utc))
+        record_document(db,index_row,index_raw,index_raw.decode(),{'candidates':candidates});db.commit()
         yield db,security.id,row.id,metadata,raw
     engine.dispose()
 
@@ -93,7 +102,7 @@ def test_changed_evidence_fails_before_canonical_write(setup,case):
 def test_missing_future_and_before_cutoff_are_explicit_unavailable_or_held(setup):
     db,security_id,*_=setup
     assert issuer.prepared_transcript(db,'AAPL')['reason']=='issuer_not_configured'
-    assert issuer.prepared_transcript(db,'MSFT',observed_by=datetime(2026,1,1,tzinfo=timezone.utc))['reason']=='source_not_yet_observed'
+    assert issuer.prepared_transcript(db,'MSFT',observed_by=datetime(2026,1,1,tzinfo=timezone.utc))['reason']=='latest_issuer_index_not_fresh'
     result=issuer.prepare_research_document(db,security_id=security_id,publish_since=date(2026,7,30))
     assert result['reason']=='before_issuer_publication_boundary'
     assert db.scalar(select(func.count()).select_from(ResearchSourceDocument))==0

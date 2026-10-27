@@ -1,5 +1,5 @@
 """Bounded discovery from reviewed issuer indexes, with pinned source evidence."""
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone
 import calendar
 import hashlib
 import json
@@ -275,6 +275,43 @@ def verified_metadata(db, company, metadata):
     return base
 
 
+def current_index_hold(db, company, observed):
+    """Old source permission is not proof that latest-period discovery is healthy.
+
+    Validate the current directory before consulting retained period receipts.
+    An unchanged original keeps its original observation time; freshness comes
+    from the successful checked_at, never by rewriting the immutable revision.
+    """
+    if observed.tzinfo is None or observed.utcoffset() is None:
+        raise DirectSourceError('Issuer observation must be timezone aware')
+    year = None if company['symbol'] in {'MSFT', 'MRNA', 'IBM'} else observed.year
+    expected = index_metadata(company, year)
+    row = db.scalar(select(DirectFeedDocument).where(
+        DirectFeedDocument.feed == INDEX_FEED,
+        DirectFeedDocument.source_key == expected['key']))
+    if row is None or row.status != 'parsed':
+        return {'preparation_hold': 'latest_issuer_index_not_verified'}
+    if row.source_url != expected['url'] or json.loads(row.metadata_json) != expected:
+        raise DirectSourceError('Issuer latest index identity changed')
+    checked = row.checked_at
+    if checked is not None and checked.tzinfo is None:
+        checked = checked.replace(tzinfo=timezone.utc)
+    if checked is None or checked > observed or observed-checked > timedelta(hours=48):
+        return {'preparation_hold': 'latest_issuer_index_not_fresh'}
+    revision = db.scalar(select(DirectFeedRevision).where(
+        DirectFeedRevision.document_id == row.id,
+        DirectFeedRevision.content_hash == row.content_hash))
+    if (revision is None or not revision.source_bytes or len(revision.source_bytes) > 2_000_000
+            or hashlib.sha256(revision.source_bytes).hexdigest() != row.content_hash):
+        raise DirectSourceError('Issuer latest index checksum mismatch')
+    first = revision.fetched_at
+    if first.tzinfo is None:
+        first = first.replace(tzinfo=timezone.utc)
+    if first > observed:
+        return {'preparation_hold': 'source_not_yet_observed'}
+    return None
+
+
 def latest_metadata(db, registry, symbol, static, *, observed_by=None):
     company = next((c for c in registry if c['symbol'] == symbol and enabled_company(c)), None)
     if company is None:
@@ -285,6 +322,9 @@ def latest_metadata(db, registry, symbol, static, *, observed_by=None):
     if symbol == 'MGA':
         from app.services.issuer_sec_discovery import latest_metadata as latest_sec_metadata
         return latest_sec_metadata(db, company, observed=observed_by or utcnow())
+    hold = current_index_hold(db, company, observed_by or utcnow())
+    if hold:
+        return hold
     # At most two years/four periods each. Pending newest periods deliberately
     # block falling back to an older prepared quarter.
     feeds = ['issuer_earnings', EVENT_FEED] if symbol == 'IBM' else ['issuer_earnings']

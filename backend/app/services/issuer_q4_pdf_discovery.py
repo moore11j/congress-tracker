@@ -94,9 +94,16 @@ def parse_index(raw, company, year, observed):
             url = item.get('DocumentPath', '')
             subdir = r'(?:Transcripts/)?' if symbol == 'META' else ''
             allowed = re.escape(spec['cdn'])+rf'{year}/q{quarter}/'+subdir+r'[A-Za-z0-9_-]+\.pdf'
+            # Meta's current investor index also links named transcripts from
+            # its content_files directory. Keep the tenant, issuer, exact fiscal
+            # period and earnings-call document type in the permitted filename.
+            if symbol == 'META':
+                content = (r'https://s21\.q4cdn\.com/399680738/files/content_files/'
+                           + rf'META-Q{quarter}-{year}-Earnings-Call-Transcript\.pdf')
+                allowed = rf'(?:{allowed}|{content})'
             if (not isinstance(url, str) or not re.fullmatch(allowed, url)
                     or item.get('DocumentCategory') != spec['category'] or item.get('DocumentFileType') != 'PDF'
-                    or item.get('DocumentType') != 'File' or item.get('LanguageId') != 1):
+                    or item.get('DocumentType') not in {'File', 'file'} or item.get('LanguageId') != 1):
                 raise DirectSourceError('Unreviewed issuer PDF link, label or type')
             period = rf'\b{label} {year}\b' if symbol == 'META' else rf'\b(?:Q{quarter}|{label})\s+{year}\s+Earnings\b'
             found.append({'key': f'{symbol}:earnings_transcript:{year}:Q{quarter}', 'symbol': symbol,
