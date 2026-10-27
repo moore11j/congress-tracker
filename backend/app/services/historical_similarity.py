@@ -13,7 +13,7 @@ from statistics import median
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.models import ConfirmationScoreSnapshot
 from app.services.confirmation_score import SOURCE_LABELS, SOURCE_ORDER
@@ -291,6 +291,49 @@ def _episode_deduped(rows: list[ConfirmationScoreSnapshot]) -> list[Confirmation
     return kept
 
 
+def _episode_candidates(db: Session, methodology_id: int, today: date, direction: str) -> list[ConfirmationScoreSnapshot]:
+    """Select the same bounded episodes before loading their large evidence JSON.
+
+    Snapshot rows are immutable. Freeze the existing 5,000-row candidate window
+    first; filtering by direction before that limit would change the cohort.
+    """
+    scope = (
+        ConfirmationScoreSnapshot.calculation_type == "live",
+        ConfirmationScoreSnapshot.methodology_version_id == methodology_id,
+        ConfirmationScoreSnapshot.market_date < today,
+    )
+    order = (ConfirmationScoreSnapshot.market_date.desc(), ConfirmationScoreSnapshot.id.desc())
+    # load_only retains the ORM object contract used by episode selection, but
+    # raiseload prevents an accidental per-row fetch of deferred evidence.
+    headers = db.execute(
+        select(ConfirmationScoreSnapshot)
+        .options(load_only(
+            ConfirmationScoreSnapshot.id, ConfirmationScoreSnapshot.ticker_at_time,
+            ConfirmationScoreSnapshot.direction, ConfirmationScoreSnapshot.market_date,
+            ConfirmationScoreSnapshot.calculated_at, raiseload=True,
+        ))
+        .where(*scope).order_by(*order).limit(MAX_CANDIDATES)
+    ).scalars().all()
+    selected = [row for row in _episode_deduped(headers) if _directional_side(row.direction) == direction]
+    if not selected:
+        return []
+    def identity(row):
+        return (row.ticker_at_time, row.direction, row.market_date, row.calculated_at)
+    expected = {row.id: identity(row) for row in selected}
+    loaded = {row.id: row for row in db.execute(
+        select(ConfirmationScoreSnapshot).where(*scope, ConfirmationScoreSnapshot.id.in_(expected))
+        .execution_options(populate_existing=True)
+    ).scalars().all()}
+    if set(loaded) != set(expected) or any(identity(loaded[key]) != value for key, value in expected.items()):
+        # Defensive compatibility with out-of-band changes bypassing snapshot
+        # immutability. Re-read one coherent window instead of mixing cohorts.
+        rows = db.execute(select(ConfirmationScoreSnapshot).where(*scope)
+                          .order_by(*order).limit(MAX_CANDIDATES)
+                          .execution_options(populate_existing=True)).scalars().all()
+        return [row for row in _episode_deduped(rows) if _directional_side(row.direction) == direction]
+    return [loaded[row.id] for row in selected]
+
+
 def _empty_payload(current: dict[str, Any] | None, *, status: str = "building") -> dict[str, Any]:
     return {
         "status": status,
@@ -317,18 +360,9 @@ def build_similar_historical_setups(
         return _empty_payload(None, status="unavailable")
     methodology = current_confirmation_methodology(db)
     today = datetime.now(timezone.utc).date()
-    rows = db.execute(
-        select(ConfirmationScoreSnapshot)
-        .where(
-            ConfirmationScoreSnapshot.calculation_type == "live",
-            ConfirmationScoreSnapshot.methodology_version_id == methodology.id,
-            ConfirmationScoreSnapshot.market_date < today,
-        )
-        .order_by(ConfirmationScoreSnapshot.market_date.desc(), ConfirmationScoreSnapshot.id.desc())
-        .limit(MAX_CANDIDATES)
-    ).scalars().all()
+    rows = _episode_candidates(db, methodology.id, today, current["direction"])
     candidates: list[dict[str, Any]] = []
-    for row in _episode_deduped(rows):
+    for row in rows:
         candidate = _profile_from_snapshot(row)
         if candidate is None or candidate["direction"] != current["direction"]:
             continue
