@@ -45,6 +45,10 @@ MANUAL_JOBS = {
         'command': 'cd /app && python -m app.jobs.check_direct_13f_capacity',
         'environment': {}, 'lane': 'data',
     },
+    'maintenance-institutional-capture-v2': {
+        'command': 'cd /app && python -m app.jobs.capture_direct_13f_evidence',
+        'environment': {}, 'lane': 'data',
+    },
     'maintenance-price-lookup-index-v1': {
         'command': 'cd /app && python -m app.jobs.migrate_price_lookup_index --apply',
         'environment': {},
@@ -130,6 +134,7 @@ def database(path):
 
 RELEASE_PROTECTED_COMMANDS = {
     PORTFOLIO_COMMAND, OUTCOME_COMMAND, 'cd /app && python -m app.ingest_run --job all',
+    'cd /app && python -m app.jobs.capture_direct_13f_evidence',
 }
 
 
@@ -152,10 +157,13 @@ def reserve_release(db, owner, manifest, *, seconds=600, now=None):
                 if manifest.get(row['key'], {}).get('command') in RELEASE_PROTECTED_COMMANDS
                 or row['kind'] in CHECKPOINT_COMMANDS.values()]
         if busy:
+            capture_only = all(manifest.get(row['key'], {}).get('command') ==
+                               'cd /app && python -m app.jobs.capture_direct_13f_evidence' for row in busy)
             outcome_only = all(manifest.get(row['key'], {}).get('command') == OUTCOME_COMMAND
                                or row['kind'] == 'outcome_hydration_v1' for row in busy)
             db.commit()
-            return {'status': 'blocked', 'reason': 'outcome_cycle_unfinished' if outcome_only else 'portfolio_cycle_unfinished'}
+            return {'status': 'blocked', 'reason': 'institutional_capture_active' if capture_only else
+                    'outcome_cycle_unfinished' if outcome_only else 'portfolio_cycle_unfinished'}
         db.execute('INSERT INTO release_hold(id,owner,expires_at) VALUES(1,?,?) '
                    'ON CONFLICT(id) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at',
                    (owner, now + seconds))
