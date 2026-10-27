@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 import json
 import socket
 import pytest
+from issuer_fixture_clock import source_clock
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
 from app.db import Base

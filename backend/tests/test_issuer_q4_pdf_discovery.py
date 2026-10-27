@@ -6,6 +6,7 @@ import re
 import socket
 
 import pytest
+from issuer_fixture_clock import source_clock
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
 
@@ -225,3 +226,23 @@ def test_reviewed_operator_variants_keep_real_qa_requirement(intro):
 def test_captured_sofi_ligature_operator_line_matches_without_text_rewriting():
     line='Operator^ (Operator Instructions) Your \ufb01rst question comes from Devin Ryan with Citizens Bank.'
     assert re.search(policy.POLICIES['SOFI']['qa_pattern'],line,re.I)
+
+@pytest.mark.parametrize('variant', ['valid', 'host', 'tenant', 'year', 'quarter', 'followup', 'query', 'fragment', 'credentials', 'type'])
+def test_meta_current_content_directory_keeps_exact_call_identity(variant):
+    data=index('META');item=data['GetFinancialReportListResult'][0]['Documents'][0]
+    item['DocumentPath']='https://s21.q4cdn.com/399680738/files/content_files/META-Q3-2026-Earnings-Call-Transcript.pdf'
+    item['DocumentType']='file'
+    if variant=='host':item['DocumentPath']=item['DocumentPath'].replace('s21.q4cdn.com','example.com')
+    if variant=='tenant':item['DocumentPath']=item['DocumentPath'].replace('399680738','999999999')
+    if variant=='year':item['DocumentPath']=item['DocumentPath'].replace('2026','2025')
+    if variant=='quarter':item['DocumentPath']=item['DocumentPath'].replace('Q3','Q2')
+    if variant=='followup':item['DocumentPath']=item['DocumentPath'].replace('Earnings','Follow-Up')
+    if variant=='query':item['DocumentPath']+='?x=1'
+    if variant=='fragment':item['DocumentPath']+='#x'
+    if variant=='credentials':item['DocumentPath']=item['DocumentPath'].replace('https://','https://user@')
+    if variant=='type':item['DocumentType']='Link'
+    if variant=='valid':
+        result=policy.parse_index(json.dumps(data).encode(),company('META'),2026,NOW)
+        assert len(result)==1 and result[0]['url']==item['DocumentPath']
+    else:
+        with pytest.raises(DirectSourceError):policy.parse_index(json.dumps(data).encode(),company('META'),2026,NOW)
