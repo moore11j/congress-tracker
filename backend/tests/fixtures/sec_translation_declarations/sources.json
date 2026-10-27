@@ -1,0 +1,24 @@
+{
+  "cover": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1625414/000110465926102080/tm2624188d1_6k.htm",
+    "file": "93421853b02dd7b3ed4e44f3bd6c928054e4a28bca4b962bdfa5d9407cf40956.gz",
+    "sha256": "93421853b02dd7b3ed4e44f3bd6c928054e4a28bca4b962bdfa5d9407cf40956",
+    "bytes": 12463
+  },
+  "statement": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1625414/000110465926102080/tm2624188d1_ex99-1.htm",
+    "file": "02d6f835dfd5803f7a16d8ea9f386c7cd6831f0969f1a915bd55590fc4565cc0.gz",
+    "sha256": "02d6f835dfd5803f7a16d8ea9f386c7cd6831f0969f1a915bd55590fc4565cc0",
+    "bytes": 309275
+  },
+  "company": {
+    "file": "59f7bd8ec0a73afc436ba9c2182025a17cdc8119ed835b8deea2a879be237f5a.gz",
+    "sha256": "59f7bd8ec0a73afc436ba9c2182025a17cdc8119ed835b8deea2a879be237f5a",
+    "bytes": 78492
+  },
+  "facts": {
+    "file": "bdc36a85c02e0fc06f1fea065b119aee256cc00bc96b220eeecb46f2b1f15199.gz",
+    "sha256": "bdc36a85c02e0fc06f1fea065b119aee256cc00bc96b220eeecb46f2b1f15199",
+    "bytes": 1057074
+  }
+}
