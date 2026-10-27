@@ -27,6 +27,11 @@ MODULES = frozenset('app.jobs.' + name for name in (
 _template_environment = None
 _preload_failed = False
 
+# These control a shell/cron launcher, not Python's already initialized import
+# path. Every child still receives its exact job environment before execution.
+# Keep PYTHONPATH, TZ, credentials and every application setting in the identity.
+LAUNCHER_ENVIRONMENT = frozenset({'SHELL', 'PATH', 'CRON_TZ'})
+
 
 def selected_module(command):
     if command == 'cd /app && python -m app.ingest_run --job portfolio-simulation-refresh':
@@ -81,7 +86,7 @@ def _record_identity(pid, token):
 def preload(environment):
     """Import definitions only. Never share task state or an open DB connection."""
     global _template_environment, _preload_failed
-    fingerprint = {k: v for k, v in environment.items() if k not in {'WALNUT_JOB_TOKEN', 'WALNUT_JOB_KEY', 'WALNUT_JOB_CYCLE', 'WALNUT_PORTFOLIO_CONTINUATION', 'WALNUT_OUTCOME_CONTINUATION'}}
+    fingerprint = {k: v for k, v in environment.items() if k not in LAUNCHER_ENVIRONMENT | {'WALNUT_JOB_TOKEN', 'WALNUT_JOB_KEY', 'WALNUT_JOB_CYCLE', 'WALNUT_PORTFOLIO_CONTINUATION', 'WALNUT_OUTCOME_CONTINUATION'}}
     if _preload_failed:
         return False
     if _template_environment is not None:
@@ -93,6 +98,9 @@ def preload(environment):
     try:
         os.environ.clear()
         os.environ.update(fingerprint)
+        # Use the scheduler's stable launcher values while preparing definitions;
+        # do not let whichever job arrives first choose import-time shell state.
+        os.environ.update({k: v for k, v in original_environment.items() if k in LAUNCHER_ENVIRONMENT})
         # These imports only define models/transports. Job modules are deliberately
         # absent, and every child gets a fresh copy of subsequent mutable state.
         importlib.import_module('app.models')
