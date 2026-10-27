@@ -78,6 +78,12 @@ def _plan(payload, company, *, available_by, cik):
         if str(key[0]) < floor:
             continue
         right = candidate.get(key)
+        # A period absent from the replacement concept need not block a TTM
+        # calculation that never uses it. Keep actual conflicts, including a
+        # present-but-ambiguous candidate, held. Nothing is spliced into the
+        # selected series; every admitted period still needs original proof.
+        if left and key not in candidate and (str(key[0]), str(key[1])) not in needed:
+            continue
         if not left or not right or any(left[k] != right[k] for k in IDENTITY):
             raise ValueError('revenue_series_total_contract_conflict')
         overlaps.append({'start':left['start'], 'end':left['end'], **{k:left[k] for k in IDENTITY}})
@@ -251,3 +257,46 @@ def apply(records, payload, company, *, cik, available_by, supplement, preserve_
         # always receive only the single qualified concept above.
         selected = {**records['revenue'], **selected}
     return {**records, 'revenue':selected}
+
+
+def cached_valid(proof, *, cik):
+    """Validate persisted proof without requesting sources in a public reader."""
+    from app.services.sec_statement_currency import source_identity
+    from app.services import sec_fundamentals as sec
+    try:
+        if (proof['methodology'] != VERSION or proof['cik'] != cik
+                or proof['basis_spliced'] is not False or proof['selected_concept'] != CONTRACT
+                or proof['superseded_concept'] != TOTAL or len(proof['overlap']) < 2):
+            return False
+        end = date.fromisoformat(proof['period_end']); records = {}; hashes = {}; overlap = set()
+        for p in proof['overlap']:
+            key = (p['start'],p['end'])
+            if (key in overlap or p['unit'] != 'USD' or type(p['value']) not in (int,float)
+                    or not math.isfinite(p['value']) or not re.fullmatch(r'\d{10}-\d{2}-\d{6}',p['accession'])
+                    or not date.fromisoformat(p['start']) <= date.fromisoformat(p['end']) <= end
+                    or date.fromisoformat(p['end']) > date.fromisoformat(p['filed'])):
+                return False
+            overlap.add(key)
+        for p in proof['rows']:
+            original = p['original_statement']; key = (date.fromisoformat(p['start']),date.fromisoformat(p['end']))
+            if (key in records or not key[0] <= key[1] <= end or key[1] > date.fromisoformat(p['filed'])
+                    or p['tag'] != CONTRACT or p['unit'] != 'USD' or type(p['value']) not in (int,float)
+                    or not math.isfinite(p['value']) or any(original[k] != p[k] for k in IDENTITY+('start','end'))
+                    or original['source_cik'] != cik or source_identity(original['source_url']) != (cik,p['accession'])
+                    or not re.fullmatch(r'[a-f0-9]{64}',original['source_sha256'])
+                    or not isinstance(original['context_id'],str) or not original['context_id']
+                    or original['row_label'] not in LABELS or not _primary_heading(original['statement_heading'])):
+                return False
+            url=original['source_url']; digest=original['source_sha256']
+            if url in hashes and hashes[url] != digest:return False
+            hashes[url]=digest
+            if original['row_label']=='revenue from services':
+                r=original['service_total_reconciliation']
+                if (r['revenue']!=p['value'] or r['unit']!='USD' or r['start']!=p['start'] or r['end']!=p['end']
+                        or any(type(r[k]) not in (int,float) or not math.isfinite(r[k]) for k in ('cost_of_services','gross_profit'))
+                        or r['cost_of_services']<0 or not math.isclose(p['value']-r['cost_of_services'],r['gross_profit'],rel_tol=1e-12,abs_tol=.01)):
+                    return False
+            records[key]=p
+        return 1<=len(hashes)<=6 and sec._ttm(records,end) is not None
+    except (KeyError,ValueError,TypeError,AttributeError):
+        return False

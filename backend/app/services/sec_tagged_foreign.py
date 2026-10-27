@@ -119,6 +119,10 @@ def cached_currency_valid(evidence):
     proof = evidence.get('inline_filing_supplement') or {}
     if not isinstance(proof, dict):
         return False
+    if 'revenue_series_selection' in proof:
+        from app.services.sec_revenue_series import cached_valid as revenue_valid
+        if not revenue_valid(proof['revenue_series_selection'], cik=proof.get('cik')):
+            return False
     if 'operating_statement_history' in proof or proof.get('methodology') == 'sec_original_operating_history_v1':
         from app.services.sec_operating_history import cached_valid as operating_valid
         if not operating_valid(proof.get('operating_statement_history'), cik=proof.get('cik')):

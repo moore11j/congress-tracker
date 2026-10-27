@@ -43,6 +43,7 @@ def test_complete_original_totals_and_actual_reader_projection(symbol):
  with patch.object(socket.socket,'connect',side_effect=AssertionError('Unexpected network')):
   before=sec.project_fundamentals(raw(symbol+'-facts.json'),raw(symbol+'-company.json'),symbol=symbol,cik=cik,observed_at=NOW)
   supplement=inline.acquire(raw(symbol+'-facts.json'),raw(symbol+'-company.json'),symbol=symbol,cik=cik,observed_at=NOW,client=client)
+  assert series.cached_valid(supplement['evidence']['revenue_series_selection'],cik=cik)
   assert 'revenue_series_hold' not in supplement['evidence']
   assert len(client.calls)==len(set(client.calls))<=6
   result=sec.project_fundamentals(raw(symbol+'-facts.json'),raw(symbol+'-company.json'),symbol=symbol,cik=cik,observed_at=NOW,filing_supplement=supplement)
@@ -72,6 +73,10 @@ def test_complete_original_totals_and_actual_reader_projection(symbol):
 
 def test_conflicting_actual_total_is_held_without_original_requests():
  facts,company=sources('GCT');client=Client()
+ # An actual disagreement on a required leg remains a conflict. An absent
+ # unused quarter is separately covered by test_sec_revenue_unused_periods.
+ for row in facts['facts']['us-gaap'][series.TOTAL]['units']['USD']:
+  if row.get('start')=='2026-01-01' and row['end']=='2026-06-30':row['val']+=1
  with pytest.raises(ValueError,match='total_contract_conflict'):
   series.acquire(facts,company,cik=str(company['cik']).zfill(10),available_by=AVAILABLE,client=client)
  assert client.calls==[]
