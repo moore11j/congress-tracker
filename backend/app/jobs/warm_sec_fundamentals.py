@@ -21,11 +21,31 @@ METRIC_MAX_SECONDS = 20
 PRIORITY_REFRESH = timedelta(hours=20)
 
 
+def order_due_scopes(due, *, now, attempts, refresh_after, priority, changed_dependencies):
+    """Order already eligible work by its deadline across different retry TTLs.
+
+    Eligibility, source deadlines and batch size are decided elsewhere. Keep
+    changed issuer evidence and watched/researched scopes ahead of ordinary work.
+    """
+    def eligible_at(symbol):
+        try:
+            deadline = (datetime.fromisoformat(refresh_after[symbol]) if symbol in refresh_after
+                        else datetime.fromisoformat(attempts[symbol]) + PRIORITY_REFRESH)
+            if deadline.tzinfo is None or deadline-now > PRIORITY_REFRESH:
+                return now
+            return deadline
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return now
+    return sorted(due, key=lambda symbol: (
+        symbol not in changed_dependencies, symbol not in priority,
+        eligible_at(symbol), str(attempts.get(symbol, '') or ''), symbol))
+
+
 def scope_batch(due, limit, *, priority, changed_dependencies, changed_versions):
     """Give a waiting parser update one ordinary slot without expanding work.
 
     Active watch/research scopes and changed issuer evidence retain priority.
-    All other slots preserve oldest-attempt order. After an update is attempted,
+    All other slots preserve the supplied order. After an update is attempted,
     the existing version receipt and deadline remove its special eligibility.
     """
     selected = due[:limit]
@@ -121,11 +141,16 @@ def _run_locked():
                 return not timedelta(0) <= now-last < PRIORITY_REFRESH
             except (KeyError, ValueError, TypeError):
                 return True
-        symbols.sort(key=lambda s: (s not in changed_dependencies, 0 if s in priority_symbols and due_scope(s) else 1, attempts.get(s, ''), s))
+        if not broad:
+            symbols.sort(key=lambda s: (s not in changed_dependencies, 0 if s in priority_symbols and due_scope(s) else 1, attempts.get(s, ''), s))
         batch_limit = 5
         if broad:
             batch_limit = max(1, min(10, int(os.getenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE', '5'))))
         due_symbols = [s for s in symbols if not broad or due_scope(s)]
+        if broad:
+            due_symbols = order_due_scopes(due_symbols, now=now, attempts=attempts,
+                refresh_after=refresh_after, priority=priority_symbols,
+                changed_dependencies=changed_dependencies)
         changed_versions = {s for s in due_symbols if broad and
             versions.get(s) != sec_fundamentals_preparation.version_for_symbol(s)}
         selected = scope_batch(due_symbols, batch_limit, priority=priority_symbols,
