@@ -618,7 +618,13 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
         exhibit = exhibit_url(cover, url, cik=cik)
         return parse(client.get(exhibit), cik=cik, accession=accession, filed=filed, report_date=report,
             form=form, url=exhibit, basis=native_basis, cover_raw=cover, cover_url=url)
-    result = parse(retained.get(url),cik=cik,accession=accession,filed=filed,report_date=report,form=form,url=url,basis=native_basis)
+    if native_basis is None and form in {'10-K','10-K/A','10-Q','10-Q/A'}:
+        from app.services.sec_document_sets import acquire_domestic
+        result=acquire_domestic(company_raw,symbol=symbol,available_by=available,client=retained,
+            cover=retained.get(url),metadata={'cik':str(cik).zfill(10),'accession':accession,
+                'filed':filed,'report_date':report,'form':form,'cover_url':url})
+    else:
+        result = parse(retained.get(url),cik=cik,accession=accession,filed=filed,report_date=report,form=form,url=url,basis=native_basis)
     from app.services.sec_revenue_concept_parity import PROFILES as reviewed_revenue_profiles
     if native_basis is None and form in FORMS and symbol not in reviewed_revenue_profiles:
         from app.services import sec_revenue_series

@@ -1,0 +1,30 @@
+{
+  "CLX-company.json": {
+    "file": "CLX-company.json.gz",
+    "bytes": 148752,
+    "sha256": "9729a1e91070d63ccb3f1f341cacc285d22475f82d8278e9bf2dce8153239b51",
+    "observed_at": "2026-10-31T23:44:00.201556+00:00",
+    "url": "https://data.sec.gov/submissions/CIK0000021076.json"
+  },
+  "CLX-facts.json": {
+    "file": "CLX-facts.json.gz",
+    "bytes": 3719281,
+    "sha256": "6266f3c4882d5a8daaf0f5b8bf9fca6764788400ac55972f210d004fdc539834",
+    "observed_at": "2026-10-31T23:44:02.131704+00:00",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000021076.json"
+  },
+  "CLX-clx-20260630.htm": {
+    "file": "CLX-clx-20260630.htm.gz",
+    "bytes": 822559,
+    "sha256": "6c5e60d737ac2823e8cb1c99ed163ae99403ae828eed94fe3e173e57a4c16053",
+    "observed_at": "2026-10-31T23:44:04.354946+00:00",
+    "url": "https://www.sec.gov/Archives/edgar/data/21076/000002107626000034/clx-20260630.htm"
+  },
+  "CLX-clx-20260630_d2.htm": {
+    "file": "CLX-clx-20260630_d2.htm.gz",
+    "bytes": 2158773,
+    "sha256": "2fa47055d35ba72bd916476e4ae773f0cb01a93002987bbfe62f63623850bed4",
+    "observed_at": "2026-10-31T23:45:44.466639+00:00",
+    "url": "https://www.sec.gov/Archives/edgar/data/21076/000002107626000034/clx-20260630_d2.htm"
+  }
+}
