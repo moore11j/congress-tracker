@@ -7,13 +7,13 @@ import hashlib
 import json
 import math
 
-VERSION = 'sec_independent_financials_v2'
+VERSION = 'sec_independent_financials_v3'
 # Legacy per-symbol cache versions only, never an eligibility allowlist.
 PROFILES = {'ANIX': '0000715446', 'BCDA': '0000925741'}
 
 
 def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_at, available_by, filing_supplement=None, currency="USD", namespace="us-gaap", source_context=None, native_selection=None):
-    from app.services.sec_fundamentals import _ttm, SecFundamentalsCoverageError
+    from app.services.sec_fundamentals import _ttm, _prior_end, SecFundamentalsCoverageError
     if native_selection is None and (currency != 'USD' or namespace != 'us-gaap'):
         raise SecFundamentalsCoverageError('Independent financial metrics require supported reporting currency and taxonomy')
     recent = company.get('filings', {}).get('recent', {})
@@ -70,6 +70,7 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
     tickers, exchanges = company.get('tickers', []), company.get('exchanges', [])
     values['exchange'] = exchanges[tickers.index(symbol)] if symbol in tickers and len(exchanges) == len(tickers) else None
     calculations = {}
+    prior = {}
     def save(name, value, formula):
         if math.isfinite(value):
             values[name] = value
@@ -88,6 +89,17 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
     if currency == 'USD' and cash and capex and cash['start'] == capex['start'] and capex['value'] >= 0:
         save('free_cash_flow', cash['value']-capex['value'],
              'TTM operating cash flow minus TTM cash paid for property, plant and equipment')
+        prior_end = _prior_end(records['operating_cash_flow'], end)
+        if prior_end is not None:
+            prior = {name: _ttm(records[name], prior_end) for name in ('operating_cash_flow', 'capex')}
+            old_cash, old_capex = prior['operating_cash_flow'], prior['capex']
+            if (old_cash and old_capex and old_cash['start'] == old_capex['start']
+                    and 350 <= (date.fromisoformat(cash['start'])-date.fromisoformat(old_cash['start'])).days <= 378
+                    and old_capex['value'] >= 0):
+                old_fcf = old_cash['value']-old_capex['value']
+                if old_fcf > 0 and 'free_cash_flow' in values:
+                    save('fcf_growth', (values['free_cash_flow']/old_fcf-1)*100,
+                         '(TTM free cash flow / prior TTM free cash flow - 1) * 100')
     if not calculations:
         raise SecFundamentalsCoverageError('No independently supported partial financial metrics')
     evidence = {'methodology': VERSION, 'financial_status': 'partial', 'cik': cik,
@@ -96,7 +108,7 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
         'company': {'url': f'https://data.sec.gov/submissions/CIK{cik}.json', 'sha256': hashlib.sha256(company_raw).hexdigest()},
         'reporting_currency': currency, 'period_end': str(end),
         'period_start': (income or cash or {}).get('start'),
-        'current': current, 'prior': {}, 'instant': balance, 'calculations': calculations,
+        'current': current, 'prior': prior, 'instant': balance, 'calculations': calculations,
         'partial_financial_basis': {'accession': accession, 'filed': str(filed), 'form': form,
             'reason': 'current_revenue_unavailable', 'eligibility': 'verified_identity_and_current_filing_inputs'},
         'limitations': ['Current revenue and revenue-dependent ratios are unavailable, not zero.',
