@@ -8,10 +8,11 @@ import re
 
 TABLES=('documents','filings','positions','mapping_positions','mapping_filings',
         'changes','activity','events','holders','summaries')
-MAX_DOCUMENTS=6000
-MAX_SOURCE_BYTES=750_000_000
+MAX_DOCUMENTS=8500
+MAX_SOURCE_BYTES=1_000_000_000
 MAX_RECORD_BYTES=50_000_000
 MAX_TRANSPORT_BYTES=2_000_000_000
+_NO_BODY=object()
 
 
 def row_bound(table):
@@ -39,18 +40,38 @@ def decode(raw):
 
 
 class RecordStream:
-    """Plain JSONL for a single outer gzip stream, without per-record compression."""
+    """Version 2 JSONL or version 3 length-framed originals under one gzip stream."""
     def __init__(self,output):
         self.output=output;self.digest=hashlib.sha256();self.counts=Counter();self.bytes=0;self.done=False
+        self.version=None
 
     def write(self,table,row):
+        if table=='documents' and self.version==3:
+            raise ValueError('Version 3 originals require write_document')
+        self._write(table,row)
+
+    def write_document(self,row,raw):
+        if self.version!=3:raise ValueError('Raw originals require version 3')
+        if not isinstance(row,dict) or {'raw_base64','raw_length'} & row.keys():
+            raise ValueError('Ambiguous original encoding')
+        if raw is not None and (not isinstance(raw,bytes) or not 1<=len(raw)<=30_000_000):
+            raise ValueError('Source byte bound')
+        self._write('documents',{**row,'raw_length':len(raw) if raw is not None else None},
+                    b'' if raw is None else raw)
+
+    def _write(self,table,row,body=_NO_BODY):
         if self.done:raise ValueError('Record after terminal receipt')
         if table not in (*TABLES,'metadata') or not isinstance(row,dict):raise ValueError('Invalid record')
         if (table=='metadata' and self.counts) or (table!='metadata' and self.counts['metadata']!=1):raise ValueError('Metadata must be first and unique')
+        if table=='metadata':self.version=row.get('transport_version')
         raw=encode({'table':table,'row':row})
-        if len(raw)>MAX_RECORD_BYTES or self.bytes+len(raw)>MAX_TRANSPORT_BYTES:raise ValueError('Transport byte bound')
+        size=len(raw)+(len(body) if body is not _NO_BODY else 0)
+        if size>MAX_RECORD_BYTES or self.bytes+size>MAX_TRANSPORT_BYTES:raise ValueError('Transport byte bound')
         if self.counts[table]>=row_bound(table):raise ValueError('Row count exceeds bound')
-        self.output.write(raw+b'\n');self.digest.update(raw+b'\n');self.bytes+=len(raw);self.counts[table]+=1
+        self.output.write(raw+b'\n');self.digest.update(raw+b'\n')
+        if body is not _NO_BODY:
+            self.output.write(body);self.output.write(b'\n');self.digest.update(body);self.digest.update(b'\n')
+        self.bytes+=size;self.counts[table]+=1
 
     def finish(self,**extra):
         if self.done:raise ValueError('Duplicate terminal receipt')
@@ -103,7 +124,33 @@ class StreamReceiver:
             self.required_periods.add((period.year,(period.month-1)//3+1))
         self.originals_verified+=1
 
-    def accept(self,line):
+    def read(self,source):
+        """Read bounded headers and exact raw bodies; embedded newlines are data."""
+        while line:=source.readline(MAX_RECORD_BYTES+2):
+            if len(line)>MAX_RECORD_BYTES+1 or not line.endswith(b'\n'):
+                raise ValueError('Record byte bound or incomplete frame')
+            item=decode(line[:-1])
+            if (self.metadata is not None and self.metadata['transport_version']==3 and
+                    isinstance(item,dict) and item.get('table')=='documents'):
+                row=item.get('row')
+                if not isinstance(row,dict) or 'raw_length' not in row:
+                    raise ValueError('Missing original length')
+                length=row['raw_length']
+                if length is not None and (type(length) is not int or not 1<=length<=30_000_000):
+                    raise ValueError('Source byte bound')
+                size=length or 0
+                if len(line)-1+size>MAX_RECORD_BYTES or self.bytes+len(line)-1+size>MAX_TRANSPORT_BYTES:
+                    raise ValueError('Transport byte bound')
+                body=bytearray()
+                while len(body)<size:
+                    chunk=source.read(min(1024*1024,size-len(body)))
+                    if not chunk:raise ValueError('Truncated original body')
+                    body.extend(chunk)
+                if source.read(1)!=b'\n':raise ValueError('Missing original delimiter')
+                self.accept(line,source_bytes=bytes(body))
+            else:self.accept(line)
+
+    def accept(self,line,*,source_bytes=_NO_BODY):
         if self.receipt is not None:raise ValueError('Data after terminal receipt')
         if not isinstance(line,bytes) or not line.endswith(b'\n'):raise ValueError('Incomplete JSONL frame')
         raw=line[:-1]
@@ -111,6 +158,7 @@ class StreamReceiver:
         item=decode(raw)
         if not isinstance(item,dict):raise ValueError('Invalid frame')
         if set(item)=={'complete'}:
+            if source_bytes is not _NO_BODY:raise ValueError('Unexpected original body')
             r=item['complete']
             if not isinstance(r,dict):raise ValueError('Invalid receipt')
             counts=r.get('counts')
@@ -138,20 +186,36 @@ class StreamReceiver:
         if set(item)!={'table','row'}:raise ValueError('Unknown frame')
         table,row=item['table'],item['row']
         if table not in (*TABLES,'metadata') or not isinstance(row,dict):raise ValueError('Unknown record')
+        normalized=row
+        size=len(raw)
+        if table=='documents' and self.metadata is not None and self.metadata['transport_version']==3:
+            length=row.get('raw_length',_NO_BODY)
+            if ('raw_base64' in row or length is _NO_BODY or
+                (length is not None and (type(length) is not int or not 1<=length<=30_000_000)) or
+                not isinstance(source_bytes,bytes) or len(source_bytes)!=(length or 0)):
+                raise ValueError('Invalid original frame')
+            size+=len(source_bytes)
+            normalized={k:v for k,v in row.items() if k!='raw_length'}
+            normalized['raw_base64']=base64.b64encode(source_bytes).decode() if length is not None else None
+        elif source_bytes is not _NO_BODY:raise ValueError('Unexpected original body')
+        if size>MAX_RECORD_BYTES or self.bytes+size>MAX_TRANSPORT_BYTES:raise ValueError('Transport byte bound')
         if table=='metadata':
-            if self.counts or type(row.get('transport_version')) is not int or row['transport_version']!=2 or row.get('transaction_read_only') is not True:raise ValueError('Invalid initial metadata')
+            if self.counts or type(row.get('transport_version')) is not int or row['transport_version'] not in (2,3) or row.get('transaction_read_only') is not True:raise ValueError('Invalid initial metadata')
             if type(row.get('document_count')) is not int or not 1<=row['document_count']<=MAX_DOCUMENTS:raise ValueError('Inventory count bound')
             if row.get('filing_date')!='2026-10-07':raise ValueError('Unexpected cutover boundary')
             self.metadata=row
         elif self.metadata is None:raise ValueError('Missing initial metadata')
         elif table=='documents':
             if self.canonical_started:raise ValueError('Sources after canonical records')
-            self._document(row)
+            self._document(normalized)
         else:self.canonical_started=True
         if self.counts[table]>=row_bound(table):raise ValueError('Row count exceeds bound')
-        if self.bytes+len(raw)>MAX_TRANSPORT_BYTES:raise ValueError('Transport byte bound')
-        self.digest.update(line);self.bytes+=len(raw);self.counts[table]+=1
-        self.destination.write(line)
+        self.digest.update(line)
+        if source_bytes is not _NO_BODY:self.digest.update(source_bytes);self.digest.update(b'\n')
+        self.bytes+=size;self.counts[table]+=1
+        # Preserve the accepted local replay contract; only the wire format changes.
+        if table=='metadata' and row['transport_version']==3:normalized={**row,'transport_version':2}
+        self.destination.write(line if normalized is row else encode({'table':table,'row':normalized})+b'\n')
 
     def finish(self,returncode):
         if returncode!=0 or self.receipt is None:raise ValueError('Incomplete export; partial spool is not a baseline')

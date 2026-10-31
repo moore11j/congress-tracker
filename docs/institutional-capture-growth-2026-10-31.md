@@ -1,0 +1,44 @@
+# Institutional validation capture growth, October 31, 2026
+
+The approved-for-installation manual capture package is still gated against execution without separate owner approval. Current installed verification `capture-queue-runtime-1793481232.json` matches five hashes to productionebbe1787 and rejects missing approval before importing the database. No request file, enqueue, payload export or OneDrive transfer was made.
+
+Fresh bounded read-only inventory at21:15UTC contains6,712 documents:6,472 parsed and240 quarantined. The capture includes the entire institutional source inventory, so it cannot silently omit quarantined sources or take the first6,000. Both installed producer and receiver cap the inventory at6,000documents/750,000,000raw bytes; the current900,225,473raw bytes independently exceed the second limit. This is a verified preflight blocker, not a failed production export.
+
+The stored source-related JSON totals776,183,578bytes; it is query/input volume, not the compressed wire payload. Largest original3,328,754bytes and largest combined source row6,226,936bytes remain below the per-row guards. Actual compressed size and current-cohort producer CPU are unknown. Do not infer that increasing two constants will satisfy the unchanged85CPU-second/480wall-second/1GB-address-space/750MiB-headroom/250MB-compressed-output gates.
+
+The entire institutional-summary table has128,127rows under the150,000export subset ceiling. This safely closes the prior inability to establish a summary-count upper bound without running the expensive distinct-symbol query; it is not proof of exact captured summary membership. The older CIK-variant preflight helper also observes192filings,46,559positions,35,624changes,2,677activity rows,70holders and4events in its scope. That helper's width-based matching is not a substitute for the exporter's exact legacy-CIK normalization or a complete-current-cohort consumer comparison.
+
+Receipts: `institutional-capture-bounds-1793481211.json`, `institutional-inventory-1793481317.json`, `capture-queue-runtime-1793481232.json`. Transactions are read-only with three-second statement bounds; only counts/sizes/statuses leave production. No provider request or record payload export occurred.
+
+Next prepare and benchmark a complete bounded transport/capture revision against current growth, including full retained-original and canonical-row parity, delivery-lane availability and API resource limits. Consider avoiding repeated raw-source encoding/transfer of already verified immutable originals, but no new transport design or enlarged limit is approved by this report. Do not truncate the cohort, merely raise caps, increase host cost or bypass the earlier explicit export/OneDrive approval requirement. Finish a concrete tested package before requesting its final approval. Institutional publication remains disabled and FMP remains selected for its current dependency.
+
+
+## Raw-source transport candidate, October 31
+
+Local branch `codex/institutional-capture-growth` prepares version 3: a bounded JSON header followed by the exact declared original bytes and a delimiter, under the existing single gzip stream. This removes base64 expansion and JSON escaping of original payloads on the production producer. All source statuses remain included. The producer and receiver share explicit limits of 8,500 documents and 1,000,000,000 original bytes; the 2 GB transport, 250 MB compressed file, 85 CPU seconds, 480 wall seconds, per-row memory bounds and queue/approval controls remain unchanged.
+
+The receiver accepts both version 2 and 3, independently verifies source hashes, reparses every parsed original, and proves complete CIK/CUSIP/period query scope. Its local spool restores the exact legacy `raw_base64` record contract for existing validation consumers. New `backend/scripts/receive_institutional_capture.py` verifies the approved downloaded file, receipt and original scope before materializing an exclusive local baseline. It has no production or network access and does not authorize a transfer. Missing, malformed, interleaved or incomplete inputs cannot become an accepted baseline. Receipt comparisons are explicit checks, not optimization-sensitive assertions.
+
+### Offline capacity evidence
+
+Simply increasing the old base64 transport's document/source limits failed the unchanged 2 GB transport ceiling on the larger repeated-source workload. No production attempt was made.
+
+The new Linux3.12 transport benchmark completes 8,500 repeated parsed originals, 983,116,085 raw bytes and 855,401,937 cached-parse JSON bytes. It includes cached JSON decoding, source checksums and enlarged canonical arrays (5,000 filings, 46,559 positions, 100,000 mapping positions, 5,000 mapping filings, 35,624 changes, 2,677 activity rows, 70 holders and 150,000 summaries). Output: 1,682,250,868 record bytes and 184,891,158 compressed bytes; 80.675 CPU/80.829 wall seconds. Whole-process peak RSS677,304KiB includes retained-fixture preparation. This case is close to the unchanged CPU ceiling and excludes database-query cost; it is not production capacity acceptance. Receipt `artifacts/capture-oct27/bounded-transport-v3-growth-oct31.json`.
+
+The actual application export/transaction/bounded-file pipeline on owned local PostgreSQL16.15 completes 8,459 documents, 927,073,114 raw bytes, including retained quarantined rows, plus the smaller retained canonical cohort. It uses469queries, 41.156CPU/61.172wall seconds, sampled peak RSS285,544,448bytes and118,900,867compressed bytes. The transaction closes before the terminal receipt. Transfer hash verification passes; this growth run does not independently receive/reparse all8,459 repeated sources. Receipt `artifacts/capture-oct27/application-postgres-v3-growth-oct31.json`. The two capacity experiments cover different workloads and cannot be added or presented as a measured complete-current-cohort run.
+
+Both use repeated already retained local source data; neither exports current production records. The older accepted769-document fixture remains unchanged. Early experiment setup failures (missing Windows memory library, then a ctypes handle declaration) occurred before export measurement; each removed its owned schema and stopped its local server. The corrected memory probe was separately verified before the successful run. No workload limit was relaxed after failure.
+
+### Checks and release status
+
+Initial Windows transport/file/job regression:103pass/four Linux-only skips; matching Linux regression plus initial portable receiver:110pass. The final Linux portable-receiver regression passes four checks, including explicit manifest-mismatch rejection; three overlap the initial110-check run. A preliminary Windows collection attempt lacked the backend import path and ran no tests; the corrected backend-directory run is the103-pass result above. No full-suite or current-production-cohort acceptance is claimed.
+
+Application files: institutional capture exporter/transport, portable offline receiver, and focused tests. No source publication, provider selection, hosting, schedule, customer send or video setting changes. Complete-source parity is verified below. This candidate is not yet deployed. Finish review and the guarded release; only then request the still-required explicit production snapshot/OneDrive approval for the concrete installed package.
+
+### Complete retained-source and canonical parity
+
+Actual PostgreSQL16.15 reference/candidate/repeat comparisons preserve every canonical row hash, complete original scope and identical repeat for all769retained documents/718parsed originals/84,279,374source bytes. Matching counts include16filings,2,371positions,7,292mapping positions,229mapping filings,1,141changes,238activity rows,two synthetic matching events,10holders (including a legacy11-digit zero-paddedCIK) and21,070summaries. The old exporter and the new producer both use138queries; no CIK predicate or canonical query changed.
+
+The full new application pipeline produces24,457,196compressed bytes in10.531CPU seconds, closes its read-only transaction before the receipt, verifies the completed file hash, reparses all718originals and restores every record exactly to the legacy contract. These figures are the retained fixture, not today's production cohort. Reference/candidate/repeat query CPU13.578/11.891/9.906seconds. Owned schema and local server cleanup verified. Receipt `artifacts/capture-oct27/application-postgres-raw-parity-oct31.json`.
+
+Current-source/publication/consumer acceptance remains gated on the separately approved capture and subsequent complete replay. The release installs a dormant diagnostic and local receiver; it cannot create an approval file, run a capture, transfer records, or publish institutions on its own.

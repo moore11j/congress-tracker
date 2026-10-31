@@ -1,10 +1,9 @@
 """Stream a bounded, repeatable read of public institutional cutover evidence.
 
-Plain JSONL records use a single outer gzip stream. The final digest/count receipt
+Length-framed originals and JSON rows use a single outer gzip stream. The final digest/count receipt
 is required: an interrupted stream is never a complete validation baseline.
 No staging, canonical, subscription, or customer records are changed.
 """
-import base64
 from datetime import date, datetime, timezone
 import hashlib
 import json
@@ -17,7 +16,7 @@ from app.models import (Event, InstitutionalFiling, InstitutionalPosition,
 from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, dumps
 
 
-from app.services.institutional_capture_transport import RecordStream
+from app.services.institutional_capture_transport import MAX_DOCUMENTS, MAX_SOURCE_BYTES
 
 
 def export_records(db, stream):
@@ -36,12 +35,12 @@ def export_records(db, stream):
         func.coalesce(func.octet_length(DirectFeedRevision.source_bytes),0).label('raw_size'),
         (func.coalesce(func.octet_length(DirectFeedRevision.parsed_json),0)+
          func.coalesce(func.octet_length(DirectFeedDocument.metadata_json),0)+
-         func.coalesce(func.octet_length(DirectFeedDocument.reconciliation_json),0)).label('json_size')).limit(6001)).mappings())
-    if not 1<=len(sizes)<=6000 or sum(r['raw_size'] for r in sizes)>750_000_000:
+         func.coalesce(func.octet_length(DirectFeedDocument.reconciliation_json),0)).label('json_size')).limit(MAX_DOCUMENTS+1)).mappings())
+    if not 1<=len(sizes)<=MAX_DOCUMENTS or sum(r['raw_size'] for r in sizes)>MAX_SOURCE_BYTES:
         raise ValueError('Source inventory exceeds reviewed document/byte bounds')
     if any(r['raw_size']>30_000_000 or r['raw_size']+r['json_size']>80_000_000 for r in sizes):
         raise ValueError('Source row exceeds reviewed memory bound')
-    stream.write('metadata', dict(captured_at=captured_at, transport_version=2,
+    stream.write('metadata', dict(captured_at=captured_at, transport_version=3,
         transaction_read_only=True, filing_date='2026-10-07', document_count=len(sizes),
         summary_scope='original_source_report_periods_since_cutover', summary_history_in_receipt=True))
     def source_rows():
@@ -58,14 +57,14 @@ def export_records(db, stream):
             yield from db.execute(query.where(DirectFeedDocument.id.in_(ids))).mappings()
     for row in source_rows():
         count += 1
-        if count > 6000:
-            raise ValueError('Source cohort exceeds6000document bound')
+        if count > MAX_DOCUMENTS:
+            raise ValueError('Source cohort exceeds reviewed document bound')
         metadata = json.loads(row['metadata_json'])
         raw = row['source_bytes']
         if raw:
             total += len(raw)
-            if len(raw) > 30_000_000 or total > 750_000_000:
-                raise ValueError('Source cohort exceeds reviewed750MB bound')
+            if len(raw) > 30_000_000 or total > MAX_SOURCE_BYTES:
+                raise ValueError('Source cohort exceeds reviewed source byte bound')
             if hashlib.sha256(raw).hexdigest() != row['content_hash']:
                 raise ValueError('Source checksum changed')
             # Cached parse only proposes query scope. The offline receiver must
@@ -78,10 +77,10 @@ def export_records(db, stream):
                 period=date.fromisoformat(parsed['metadata']['report_period'])
                 target_periods.add((period.year,(period.month-1)//3+1))
         if raw:del parsed
-        stream.write('documents', dict(id=row['id'], metadata=metadata,
+        stream.write_document(dict(id=row['id'], metadata=metadata,
             content_hash=row['content_hash'], status=row['status'], error=row['error'],
-            prior_collection=json.loads(row['reconciliation_json'] or '{}').get('_prior_collection'),
-            raw_base64=base64.b64encode(raw).decode() if raw else None))
+            prior_collection=json.loads(row['reconciliation_json'] or '{}').get('_prior_collection')),
+            raw if raw else None)
     if not count:
         raise ValueError('No institutional source documents')
     # Drop the last source payload before canonical row export.
