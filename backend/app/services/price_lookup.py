@@ -11,13 +11,14 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import requests
-from sqlalchemy import select as sqlalchemy_select
+from sqlalchemy import and_, case, select as sqlalchemy_select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
+from app.clients.massive_stocks import MassiveStocksClient, MassiveStocksError, _number, selected as massive_stocks_selected
 from app.models import PriceCache
 from app.request_priority import get_request_context
 from app.services.provider_usage import (
@@ -145,6 +146,22 @@ def _safe_cache_upsert(
         update_values["day_volume"] = values["day_volume"]
         values["dollar_volume"] = close_value * volume_value
         update_values["dollar_volume"] = values["dollar_volume"]
+
+    if price_source == 'massive' and adjustment_status == 'split_adjusted_price_return':
+        # A partial selected-provider write cannot inherit a different provider's
+        # OHLC, raw close or split basis. Preserve richer same-source observations
+        # only if identity, adjusted close and basis all still agree exactly.
+        compatible = and_(
+            PriceCache.price_source.in_(['massive', 'massive+corporate_actions']),
+            PriceCache.provider_symbol == provider_symbol,
+            PriceCache.adjustment_status == adjustment_status,
+            PriceCache.close == close_value,
+            PriceCache.adjusted_close == adjusted_close_value,
+        )
+        for name in ('raw_close', 'open_price', 'high_price', 'low_price',
+                     'split_coefficient', 'dividend_amount', 'volume', 'day_volume', 'dollar_volume'):
+            if name not in update_values:
+                update_values[name] = case((compatible, getattr(PriceCache, name)), else_=None)
 
     stmt = _price_cache_insert(db).values(**values)
     stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_=update_values)
@@ -670,10 +687,13 @@ def refresh_recent_price_history(
             "rows": 0,
         }
 
-    cache_symbol = provider_symbol or normalized_symbol
+    cache_symbol = normalized_symbol if massive_stocks_selected() else provider_symbol or normalized_symbol
     wrote_any = False
     for day, close_value in provider_map.items():
-        wrote_any = _safe_cache_upsert(db, cache_symbol, day, close_value, provider_volume_map.get(day)) or wrote_any
+        metadata = ({'adjusted_close_value': close_value, 'price_source': 'massive',
+                     'provider_symbol': provider_symbol, 'adjustment_status': 'split_adjusted_price_return'}
+                    if massive_stocks_selected() else {})
+        wrote_any = _safe_cache_upsert(db, cache_symbol, day, close_value, provider_volume_map.get(day), **metadata) or wrote_any
     if wrote_any:
         try:
             db.commit()
@@ -839,7 +859,10 @@ def _fetch_with_backoff(url: str, params: dict[str, str], retries: int = 2) -> r
 
 
 def get_index_eod_map(symbol: str, start_date: str, end_date: str) -> dict[str, float]:
-    """Fetch historical EOD closes for index using FMP light endpoint."""
+    """Fetch benchmark closes from the selected provider, without substituting symbols."""
+    if massive_stocks_selected():
+        bars, _ = _selected_massive_bars(symbol, start_date, end_date, adjusted=True)
+        return {day: bar.close for day, bar in bars.items()}
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("FMP_API_KEY not configured")
@@ -938,6 +961,30 @@ def get_eod_close_with_meta(
             (date or "").strip(),
             normalized_date,
         )
+
+    if massive_stocks_selected():
+        cached = db.get(PriceCache, (normalized_symbol, normalized_date))
+        if (cached is not None and cached.close is not None and cached.close > 0
+                and (cached.price_source or '').startswith('massive')
+                and cached.adjustment_status == 'split_adjusted_price_return'):
+            return {'close': float(cached.close), 'status': 'ok', 'error': None, 'symbol': normalized_symbol,
+                    'price_date': normalized_date, 'source': cached.price_source}
+        if _is_foreground_request_context():
+            return {'close': None, 'status': 'page_fetch_blocked', 'error': 'page_fetch_blocked', 'symbol': normalized_symbol}
+        start = (datetime.strptime(normalized_date, '%Y-%m-%d').date() - timedelta(days=_max_prior_fallback_days())).isoformat()
+        bars, provider_symbol = _selected_massive_bars(normalized_symbol, start, normalized_date, adjusted=True)
+        if not bars:
+            return {'close': None, 'status': 'provider_unavailable', 'error': 'massive_no_verified_bars', 'symbol': normalized_symbol}
+        day = max(bars)
+        bar = bars[day]
+        if allow_cache_write:
+            # Never write a prior-session observation under the requested date.
+            _safe_cache_upsert(db, normalized_symbol, day, bar.close, bar.volume,
+                               adjusted_close_value=bar.adjusted_close, price_source='massive', provider_symbol=provider_symbol,
+                               adjustment_status='split_adjusted_price_return')
+        return {'close': bar.close, 'status': 'ok', 'error': None, 'symbol': normalized_symbol,
+                'provider_symbol': provider_symbol, 'price_date': day, 'source': 'massive',
+                'fallback_days': (datetime.strptime(normalized_date, '%Y-%m-%d') - datetime.strptime(day, '%Y-%m-%d')).days}
 
     saw_402 = False
     saw_429 = False
@@ -1362,6 +1409,10 @@ def _fetch_provider_corporate_actions(
     *,
     allow_user_request: bool = False,
 ) -> tuple[dict[str, float], dict[str, float]]:
+    if massive_stocks_selected():
+        if _is_foreground_request_context() and not allow_user_request:
+            raise MassiveStocksError('page_fetch_blocked')
+        return MassiveStocksClient().actions(symbol, start_date, end_date)
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         return {}, {}
@@ -1398,6 +1449,10 @@ def _fetch_provider_split_actions(
     allow_user_request: bool = False,
 ) -> dict[str, float]:
     """Fetch only splits for price-return reconstruction; dividends are excluded."""
+    if massive_stocks_selected():
+        if _is_foreground_request_context() and not allow_user_request:
+            raise MassiveStocksError('page_fetch_blocked')
+        return MassiveStocksClient().actions(symbol, start_date, end_date, splits_only=True)[1]
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         return {}
@@ -1529,6 +1584,40 @@ def hydrate_split_adjusted_ohlc(
     return updated
 
 
+def _selected_massive_bars(symbol, start, end, *, adjusted, allow_user_request=False):
+    if _is_foreground_request_context() and not allow_user_request:
+        return {}, None
+    for candidate in symbol_variants(symbol):
+        # Walnut stores share classes with a dash; Massive uses a dot.
+        provider_symbol = candidate.replace('-', '.') if len(candidate.rsplit('-', 1)[-1]) == 1 else candidate
+        try:
+            rows = MassiveStocksClient().bars(provider_symbol, start, end, adjusted=adjusted)
+        except MassiveStocksError as exc:
+            logger.warning('massive_history_unavailable symbol=%s reason=%s', symbol, exc)
+            return {}, None
+        bars = {}
+        latest_complete = get_expected_latest_market_date().isoformat()
+        for row in rows:
+            try:
+                day = datetime.fromtimestamp(float(row['t']) / 1000, tz=timezone.utc).astimezone(ZoneInfo('America/New_York')).date().isoformat()
+            except (KeyError, ValueError, TypeError, OverflowError, OSError):
+                continue
+            close = _number(row.get('c'), positive=True)
+            if close is None or not start <= day <= min(end, latest_complete):
+                continue
+            if day in bars:
+                logger.warning("massive_daily_interval_conflict symbol=%s date=%s", symbol, day)
+                return {}, None
+            bars[day] = EodPriceBar(date=day, close=close, volume=_number(row.get('v')),
+                adjusted_close=close if adjusted else None, raw_close=None if adjusted else close,
+                open_price=_number(row.get('o'), positive=True), high_price=_number(row.get('h'), positive=True),
+                low_price=_number(row.get('l'), positive=True), price_source='massive', provider_symbol=provider_symbol,
+                adjustment_status='split_adjusted_price_return' if adjusted else 'raw')
+        if bars:
+            return dict(sorted(bars.items())), provider_symbol
+    return {}, None
+
+
 def _fetch_massive_eod_price_volume_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], dict[str, float], str | None]:
     api_key = (os.getenv("MASSIVE_API_KEY") or os.getenv("POLYGON_API_KEY") or "").strip()
     if not api_key:
@@ -1622,6 +1711,10 @@ def _fetch_provider_eod_price_volume_series(
     *,
     allow_user_request: bool = False,
 ) -> tuple[dict[str, float], dict[str, float], str | None]:
+    if massive_stocks_selected():
+        bars, provider_symbol = _selected_massive_bars(symbol, start_date, end_date, adjusted=True, allow_user_request=allow_user_request)
+        return ({day: bar.close for day, bar in bars.items()},
+                {day: bar.volume for day, bar in bars.items() if bar.volume is not None}, provider_symbol)
     api_key = os.getenv("FMP_API_KEY", "").strip()
 
     best_map: dict[str, float] = {}
@@ -1698,6 +1791,8 @@ def _fetch_provider_eod_price_bars(
     allow_user_request: bool = False,
     require_adjusted: bool = False,
 ) -> tuple[dict[str, EodPriceBar], str | None]:
+    if massive_stocks_selected():
+        return _selected_massive_bars(symbol, start_date, end_date, adjusted=require_adjusted, allow_user_request=allow_user_request)
     api_key = os.getenv("FMP_API_KEY", "").strip()
 
     best_bars: dict[str, EodPriceBar] = {}
@@ -1755,7 +1850,7 @@ def get_intraday_chart_series_with_fallback(
     limit_days: int = 1,
     allow_user_request: bool = False,
 ) -> list[dict[str, float | str | None]]:
-    """Return short-range 1-minute chart points from FMP historical-chart/1min."""
+    """Return short-range 1-minute chart points from the selected stock provider."""
     status, normalized_symbol, _ = classify_symbol(symbol)
     if status != "eligible" or not normalized_symbol:
         return []
@@ -1766,6 +1861,32 @@ def get_intraday_chart_series_with_fallback(
         return []
     if start_key > end_key:
         start_key, end_key = end_key, start_key
+
+    if massive_stocks_selected():
+        if _is_foreground_request_context() and not allow_user_request:
+            return []
+        try:
+            rows = MassiveStocksClient().bars(normalized_symbol, start_key, end_key, interval='minute')
+        except MassiveStocksError as exc:
+            logger.warning('massive_intraday_unavailable symbol=%s reason=%s', normalized_symbol, exc)
+            return []
+        points = {}
+        for row in rows:
+            try:
+                observed = datetime.fromtimestamp(float(row['t']) / 1000, tz=timezone.utc)
+            except (KeyError, ValueError, TypeError, OverflowError, OSError):
+                continue
+            session_day = observed.astimezone(ZoneInfo('America/New_York')).date().isoformat()
+            close = _number(row.get('c'), positive=True)
+            if observed > datetime.now(timezone.utc) or close is None or not start_key <= session_day <= end_key:
+                continue
+            timestamp = observed.strftime('%Y-%m-%dT%H:%M:%SZ')
+            points[timestamp] = (session_day, {'date': timestamp, 'close': close,
+                'open': _number(row.get('o'), positive=True) or close,
+                'high': _number(row.get('h'), positive=True) or close,
+                'low': _number(row.get('l'), positive=True) or close, 'volume': _number(row.get('v'))})
+        keep_days = set(sorted({day for day, _ in points.values()})[-max(1, int(limit_days or 1)):])
+        return [point for _, (day, point) in sorted(points.items()) if day in keep_days]
 
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
@@ -1869,10 +1990,13 @@ def get_daily_close_series_with_fallback(
             provider_volume_map = {**provider_volume_map, **tail_volume_map}
             provider_symbol = tail_symbol or provider_symbol
     if provider_map:
-        cache_symbol = provider_symbol or normalized_symbol
+        cache_symbol = normalized_symbol if massive_stocks_selected() else provider_symbol or normalized_symbol
         wrote_any = False
         for day, close_value in provider_map.items():
-            wrote_any = _safe_cache_upsert(db, cache_symbol, day, close_value, provider_volume_map.get(day)) or wrote_any
+            metadata = ({'adjusted_close_value': close_value, 'price_source': 'massive',
+                         'provider_symbol': provider_symbol, 'adjustment_status': 'split_adjusted_price_return'}
+                        if massive_stocks_selected() else {})
+            wrote_any = _safe_cache_upsert(db, cache_symbol, day, close_value, provider_volume_map.get(day), **metadata) or wrote_any
         if wrote_any:
             try:
                 db.commit()
@@ -1915,6 +2039,9 @@ def get_daily_volume_series_from_provider(
         return {}
     if start_key > end_key:
         start_key, end_key = end_key, start_key
+
+    if massive_stocks_selected():
+        return _fetch_provider_eod_price_volume_series(normalized_symbol, start_key, end_key)[1]
 
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
