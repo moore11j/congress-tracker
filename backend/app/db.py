@@ -525,6 +525,8 @@ def ensure_quote_cache_market_cap_schema(bind=engine) -> None:
             }
             if "market_cap" not in existing:
                 conn.execute(text("ALTER TABLE quotes_cache ADD COLUMN market_cap FLOAT"))
+            if "quote_metadata_json" not in existing:
+                conn.execute(text("ALTER TABLE quotes_cache ADD COLUMN quote_metadata_json TEXT"))
             return
 
         if dialect_name == "postgresql":
@@ -532,6 +534,7 @@ def ensure_quote_cache_market_cap_schema(bind=engine) -> None:
             if table_exists is None:
                 return
             conn.execute(text("ALTER TABLE quotes_cache ADD COLUMN IF NOT EXISTS market_cap DOUBLE PRECISION"))
+            conn.execute(text("ALTER TABLE quotes_cache ADD COLUMN IF NOT EXISTS quote_metadata_json TEXT"))
 
 
 def ensure_market_pressure_snapshot_schema(bind=engine) -> None:
