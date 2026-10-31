@@ -450,6 +450,17 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
             result = {'primary_income_only':True, 'evidence':{'cik':str(cik).zfill(10), 'methodology':sec_primary_income.VERSION}}
         result['primary_income'] = income
         result['evidence']['primary_consolidated_income'] = income['evidence']
+    from app.services import sec_revenue_periods
+    try:
+        periods = sec_revenue_periods.acquire(json.loads(facts_raw), json.loads(company_raw),
+            cik=str(cik).zfill(10), available_by=available, client=retained)
+    except ValueError:
+        periods = None
+    if periods is not None:
+        if result is None:
+            result = {'revenue_periods_only':True, 'evidence':{'cik':str(cik).zfill(10), 'methodology':sec_revenue_periods.VERSION}}
+        result['revenue_periods'] = periods
+        result['evidence']['reconciled_revenue_periods'] = periods['evidence']
     return result
 
 
@@ -628,7 +639,7 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
 
 
 def merge(payload, supplement, *, available_by):
-    if supplement is None or supplement.get('debt_precision_only') or supplement.get('operating_history_only') or supplement.get('primary_income_only'):
+    if supplement is None or supplement.get('debt_precision_only') or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only'):
         return payload
     evidence = supplement['evidence']
     if str(payload.get('cik','')).zfill(10) != evidence['cik'] or evidence['filed'] > str(available_by):
@@ -656,7 +667,7 @@ def merge(payload, supplement, *, available_by):
 
 
 def annotate(records, supplement, *, metrics=None, expected_cik=None, available_by=None):
-    if supplement is None or supplement.get('operating_history_only') or supplement.get('primary_income_only'):
+    if supplement is None or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only'):
         return records
     from app.services import sec_fundamentals as sec
     if supplement.get('debt_precision_only'):
