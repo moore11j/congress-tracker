@@ -33,7 +33,8 @@ def test_missing_revenue_does_not_block_independent_current_fields(mode,symbol):
     assert result['current_ratio']==2
     assert result['roe']==pytest.approx(13/110*100)
     assert result['free_cash_flow']==32.5
-    assert set(proof['calculations'])=={'current_ratio','roe','free_cash_flow'}
+    assert result['fcf_growth']==pytest.approx((32.5/27.5-1)*100)
+    assert set(proof['calculations'])=={'current_ratio','roe','free_cash_flow','fcf_growth'}
     assert proof['current']['revenue'] is None
     assert proof['financial_status']=='partial'
     assert proof['partial_financial_basis']['accession']=='0000000001-26-000001'

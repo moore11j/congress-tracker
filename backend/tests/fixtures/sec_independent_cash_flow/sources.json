@@ -1,0 +1,38 @@
+{
+  "CMI-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000026172.json",
+    "sha256": "febe85c161aed592fcb06cca2a6f2446a3769ee07fc12eefec882dd3044db19e",
+    "bytes": 4883285,
+    "captured_at": "2026-10-17T02:06:25.511508+00:00"
+  },
+  "CMI-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0000026172.json",
+    "sha256": "9ca0c93a912f7eed6ab64b929788391c0bf5ff94088626f6105736eabb4a2a21",
+    "bytes": 147732,
+    "captured_at": "2026-10-17T02:06:24.823562+00:00"
+  },
+  "FISV-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000798354.json",
+    "sha256": "c5f33c82ce37ea4ff09cdafffce137f485ca5bc10c699a086a4460c4520dea8d",
+    "bytes": 3870514,
+    "captured_at": "2026-10-17T02:06:56.788382+00:00"
+  },
+  "FISV-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0000798354.json",
+    "sha256": "b84d17afe3f55cd2130c412903584532f1bfc5453720f89242530dc9207765e0",
+    "bytes": 158258,
+    "captured_at": "2026-10-17T02:06:55.662330+00:00"
+  },
+  "CMI-current.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/26172/000002617226000029/cmi-20260630.htm",
+    "sha256": "b63ba0bf0a87134d96a505e00221e051f8e0c6313d58688bd48a568c95f1311e",
+    "bytes": 2797425,
+    "report_date": "2026-06-30"
+  },
+  "FISV-current.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/798354/000079835426000031/fisv-20260630.htm",
+    "sha256": "bcb00f74db9f4d1b850c322bdd8fffd3958997e51c2a0929b9ad5e0476a9cfa3",
+    "bytes": 1926929,
+    "report_date": "2026-06-30"
+  }
+}
