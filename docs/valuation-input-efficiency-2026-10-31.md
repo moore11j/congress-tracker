@@ -14,7 +14,7 @@ The unchanged model calculation is separated into `_valuation_model_from_rows`, 
 
 ## Validation
 
-The Windows3.14 and Linux3.12 runs each have31passes and the same three failures in existing valuation expectations. Frozen deployed-source execution independently reproduces all three failures (14passes/3failures); they are not introduced by this cleanup. The failures concern the negative-DCF tax assumption, pre-profit margin expectation and positive-CFO asset-heavy classification. Their product/model reconciliation remains separate; tests were not weakened to hide them.
+The Windows3.14 and Linux3.12 runs each have31passes and the same three failures in existing valuation expectations. Frozen deployed-source execution independently reproduces all three failures (14passes/3failures); they are not introduced by this cleanup. The failures concern the negative-DCF bear-range rounding expectation (79.8023 versus79.8022), pre-profit margin expectation and positive-CFO asset-heavy classification. Their product/model reconciliation remains separate; tests were not weakened to hide them.
 
 Nine new checks cover required annual fallback, failed/restricted TTM responses, independent cash/balance selection, provider shutdown at fallback and offline deterministic model calculation without input mutation. Existing shutdown tests still verify zeroHTTP when disabled. The guard call-count expectation changes from14to12 only because two unused requests are removed.
 
