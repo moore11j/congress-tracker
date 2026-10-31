@@ -1,0 +1,88 @@
+{
+  "https://data.sec.gov/submissions/CIK0001818838.json": {
+    "file": "ADAG-company.json.gz",
+    "bytes": 32251,
+    "sha256": "e4139aea5b991deb3a415586171b8d0295a6892b986a88891b3204f7e7c1d456",
+    "observed_at": "2026-10-31T22:41:43.234061+00:00",
+    "symbol": "ADAG",
+    "kind": "company"
+  },
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0001818838.json": {
+    "file": "ADAG-facts.json.gz",
+    "bytes": 504921,
+    "sha256": "0938e3ee5d10088d0bf8d94c414905c4b4794f0df3a8dde6a7112f8c0df7e115",
+    "observed_at": "2026-10-31T22:41:44.773829+00:00",
+    "symbol": "ADAG",
+    "kind": "facts"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926110982/tm2625847d1_6k.htm": {
+    "file": "8d7f95015479c43877641105bd44628779edaab9a379fb45dbd3d9cecaab2a43.html.gz",
+    "bytes": 9736,
+    "sha256": "8d7f95015479c43877641105bd44628779edaab9a379fb45dbd3d9cecaab2a43",
+    "observed_at": "2026-10-31T22:43:26.613514+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926109485/tm2625845d1_6k.htm": {
+    "file": "9783a92781dce5d880493020afb11b04c3cb077a731566157ca8921e85f76db9.html.gz",
+    "bytes": 11602,
+    "sha256": "9783a92781dce5d880493020afb11b04c3cb077a731566157ca8921e85f76db9",
+    "observed_at": "2026-10-31T22:43:27.936363+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926106554/tm2624950d1_6k.htm": {
+    "file": "ebb7a7bd94233746338fc1bf291a0be5b0c38b6f0498fbe4689a7a1899125b6f.html.gz",
+    "bytes": 11590,
+    "sha256": "ebb7a7bd94233746338fc1bf291a0be5b0c38b6f0498fbe4689a7a1899125b6f",
+    "observed_at": "2026-10-31T22:43:29.377683+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926106137/tm2624926d1_6k.htm": {
+    "file": "ac404608ebd4aefa4ce274f0f44140b5e6387c54c89cbf0b6042dbc6ba155a6e.html.gz",
+    "bytes": 11600,
+    "sha256": "ac404608ebd4aefa4ce274f0f44140b5e6387c54c89cbf0b6042dbc6ba155a6e",
+    "observed_at": "2026-10-31T22:43:30.685490+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926094468/adag-20260812x6k.htm": {
+    "file": "d740f4ebc1bd60655df0ae808d93aa1a41f4e76a34d28056d83b45e041888f9e.html.gz",
+    "bytes": 153559,
+    "sha256": "d740f4ebc1bd60655df0ae808d93aa1a41f4e76a34d28056d83b45e041888f9e",
+    "observed_at": "2026-10-31T22:43:32.068046+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926080580/tm2619738d1_6k.htm": {
+    "file": "04bcfb9a9234eab1b648c1a79908d3f417ac1121cbcd321573ea4afe098d2d2b.html.gz",
+    "bytes": 11278,
+    "sha256": "04bcfb9a9234eab1b648c1a79908d3f417ac1121cbcd321573ea4afe098d2d2b",
+    "observed_at": "2026-10-31T22:43:33.599296+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926109485/tm2625845d1_ex99-1.htm": {
+    "file": "ddeb050af77b97e1447f0b7def7a0f51c0befe71d3e5fcd7e3f59393f8225200.html.gz",
+    "bytes": 15243,
+    "sha256": "ddeb050af77b97e1447f0b7def7a0f51c0befe71d3e5fcd7e3f59393f8225200",
+    "observed_at": "2026-10-31T22:43:35.199403+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926106554/tm2624950d1_ex99-1.htm": {
+    "file": "28839bf0561420b9a07ef56a224c073a3cf0f21a44afa76d0bd16b7c7efc4767.html.gz",
+    "bytes": 11623,
+    "sha256": "28839bf0561420b9a07ef56a224c073a3cf0f21a44afa76d0bd16b7c7efc4767",
+    "observed_at": "2026-10-31T22:43:36.660860+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926106137/tm2624926d1_ex99-1.htm": {
+    "file": "3f4f01fc5912c35e7e01918dae5a09a79ef3b0a39f0246ebf4a033757434ad63.html.gz",
+    "bytes": 10580,
+    "sha256": "3f4f01fc5912c35e7e01918dae5a09a79ef3b0a39f0246ebf4a033757434ad63",
+    "observed_at": "2026-10-31T22:43:38.183567+00:00",
+    "kind": "original"
+  },
+  "https://www.sec.gov/Archives/edgar/data/1818838/000110465926094468/adag-20260812xex99d2.htm": {
+    "file": "7ce2d5a50a334dcba2bfed8aaf1baf4e08d1d1fc522dd16c031fc4c605249273.html.gz",
+    "bytes": 1204650,
+    "sha256": "7ce2d5a50a334dcba2bfed8aaf1baf4e08d1d1fc522dd16c031fc4c605249273",
+    "observed_at": "2026-10-31T22:43:39.792512+00:00",
+    "kind": "original"
+  }
+}
