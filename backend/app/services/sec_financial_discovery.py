@@ -29,6 +29,28 @@ def _json(value):
     return json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=True)
 
 
+def document_proof(raw):
+    from app.services.sec_original_integrity import POLICY, document_digest
+    try: digest=document_digest(raw)
+    except ValueError:return {}
+    return {'document_sha256':digest,'document_integrity_policy':POLICY}
+
+
+def valid_document_proof(proof):
+    from app.services.sec_original_integrity import POLICY
+    present={'document_sha256','document_integrity_policy'} & proof.keys()
+    return not present or (len(present)==2 and proof['document_integrity_policy']==POLICY
+        and isinstance(proof['document_sha256'],str)
+        and re.fullmatch(r'[0-9a-f]{64}',proof['document_sha256']) is not None)
+
+
+def same_document(first,second):
+    return (valid_document_proof(first) and valid_document_proof(second)
+        and first.get('document_sha256') is not None
+        and first.get('document_sha256')==second.get('document_sha256')
+        and first.get('document_integrity_policy')==second.get('document_integrity_policy'))
+
+
 def _fingerprint(candidate):
     # Changed issuer or filing metadata changes identity; unrelated metadata
     # must not repeatedly erase progress through the same immutable accessions.
@@ -70,7 +92,7 @@ def _state(previous, *, symbol, cik, rows, now):
             observed=datetime.fromisoformat(receipt['observed_at'])
             links=receipt['links']
             kinds=receipt['link_kinds']
-            if (receipt['candidate']!=candidate or receipt['status'] not in STATUSES
+            if (not valid_document_proof(receipt) or receipt['candidate']!=candidate or receipt['status'] not in STATUSES
                     or not re.fullmatch(r'[0-9a-f]{64}',receipt['cover_sha256'])
                     or observed.tzinfo is None or observed>now
                     or type(receipt['bytes']) is not int or receipt['bytes']<=0
@@ -100,7 +122,7 @@ def _observe(raw, candidate, now):
         raise DiscoveryError('discovery_source_empty')
     receipt={'candidate':candidate,'cover_sha256':hashlib.sha256(raw).hexdigest(),
         'bytes':len(raw),'observed_at':now.isoformat(),'status':'observed',
-        'primary_statement':False,'links':[],'link_kinds':{}}
+        'primary_statement':False,'links':[],'link_kinds':{},**document_proof(raw)}
     if len(raw)>MAX_COVER_BYTES:
         receipt['status']='cover_size_hold';return receipt
     body=raw

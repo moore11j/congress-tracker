@@ -36,7 +36,7 @@ def test_actual_hidden_statement_passes_existing_readers_and_consumers_with_two_
 
 def test_changed_original_is_rejected_before_exhibit_or_financial_parsing():
     client=Client({COVER:source(COVER)+b' '})
-    with pytest.raises(discovery.DiscoveryError,match='cover_changed'):inspect(client)
+    with pytest.raises(discovery.DiscoveryError,match='cover_document_changed'):inspect(client)
     assert client.calls==[COVER]
 
 
