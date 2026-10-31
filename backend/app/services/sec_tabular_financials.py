@@ -98,7 +98,7 @@ def statement_layout_context(text):
 
 def statement_prefix(text):
     text=re.sub(r'\bSummary\s+(?=Consolidated (?:Balance Sheets?|Statements? of)\b)', '', text, flags=re.I)
-    return re.split(r'\b(?:unaudited|audited|condensed|consolidated)\b',text,maxsplit=1,flags=re.I)[0].strip()
+    return re.split(r'\b(?:unaudited|audited|interim(?= (?:condensed|consolidated))|condensed|consolidated)\b',text,maxsplit=1,flags=re.I)[0].strip()
 
 
 def neutral_statement_context(text):
@@ -126,7 +126,23 @@ def document_statement_scope(tree, issuer):
     titles=[(t,heading.fullmatch(t)) for t in top]
     titles=[(t,m) for t,m in titles if m]
     if len(titles)!=1 or company_key(titles[0][1]['issuer'])!=company_key(issuer):
-        return None
+        from app.services.sec_statement_declarations import named_statement_scope, unnamed_heading
+        # Visible nonquoted declaration only; independently checked local
+        # captions still prevent a different entity from owning a table.
+        scope=named_statement_scope(' '.join(t for n,t in blocks),issuer,company_key)
+        if scope is None:return None
+        # A different explicit statement owner anywhere in the document makes
+        # unnamed tables ambiguous, even when local page furniture separates it.
+        for node,text in blocks:
+            match=heading.fullmatch(text)
+            if match and company_key(match['issuer'])!=company_key(issuer):return None
+            if len(text)<=240 and table_kind(text) is not None and not statement_prefix(text) and not unnamed_heading(text):
+                return None
+            if len(text)<=240 and table_kind(text) is not None and re.search(
+                    r'(?:balance sheets?|statements? of (?:financial position|operations|income|profit or loss|comprehensive (?:loss|income)|cash flows?))(?: \(unaudited\))?$',text,re.I):
+                prefix=statement_prefix(text)
+                if prefix and company_key(prefix)!=company_key(issuer):return None
+        return scope
     for i,(node,text) in enumerate(blocks):
         match=heading.fullmatch(text)
         if match and company_key(match['issuer'])!=company_key(issuer):return None
@@ -219,9 +235,9 @@ def metric_for(label,kind,issuer):
 
 def table_kind(text):
     if re.search(r'non.?gaap|reconciliation|adjusted|pro.?forma|notes to',text,re.I):return None
-    if re.search(r'consolidated (?:(?:interim|condensed) )?balance sheets?',text,re.I):return 'balance'
+    if re.search(r'consolidated (?:(?:interim|condensed) )?(?:balance sheets?|statements? of financial position)',text,re.I):return 'balance'
     if re.search(r'consolidated (?:(?:interim|condensed) )?statements? of cash flows?',text,re.I):return 'cashflow'
-    if re.search(r'consolidated (?:(?:interim|condensed) )?statements? of (?:operations|income|comprehensive (?:loss|income))',text,re.I):return 'income'
+    if re.search(r'consolidated (?:(?:interim|condensed) )?statements? of (?:operations|income|profit or loss|comprehensive (?:loss|income))',text,re.I):return 'income'
     return None
 
 
@@ -320,11 +336,17 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     if any(company_key(b)==issuer_key for b in identity_blocks[caption_index+1:]):
         raise TabularFinancialError('table_issuer_unproved')
     identified=[];scope_used=False
+    def scoped_context(value):
+        if neutral_statement_context(value):return True
+        if not document_scope or document_scope.get('basis')!='explicit_named_statement_preparation':return False
+        from app.services.sec_statement_declarations import neutral_context
+        return neutral_context(value,table_kind,statement_prefix,statement_layout_context)
+
     for index,block in enumerate(identity_blocks):
         if table_kind(block) != kind:
             continue
         prefix=statement_prefix(block)
-        if not prefix and document_scope and company_key(document_scope.get('issuer',''))==issuer_key and all(neutral_statement_context(v) for v in identity_blocks[:index] if v.strip()):
+        if not prefix and document_scope and company_key(document_scope.get('issuer',''))==issuer_key and all(scoped_context(v) for v in identity_blocks[:index] if v.strip()):
             identified.append(True);scope_used=True
         else:
             if not prefix:
@@ -339,7 +361,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
                 currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True)
         raise TabularFinancialError('table_issuer_unproved')
     scales={Decimal('1000') for _ in re.finditer(r'\bin thousands\b',intro,re.I)}
-    scales.update(Decimal('1000000') for _ in re.finditer(r'\bin millions\b',intro,re.I))
+    scales.update(Decimal('1000000') for _ in re.finditer(r'\bin (?:[€£¥]\s+|USD |EUR |CHF )?millions\b',intro,re.I))
     if not scales and re.search(r'\bstated in (?:U\.?S\.? dollars?|USD)\b',intro,re.I):scales={Decimal(1)}
     if len(scales)!=1:raise TabularFinancialError('table_scale_unproved')
     scale=next(iter(scales))

@@ -1,0 +1,65 @@
+{
+  "observed_at": "2026-10-31T21:57:05.583149+00:00",
+  "sources": [
+    {
+      "file": "CINT-original-0.html.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/1868995/000129281426004198/cintfs2q26_6k.htm",
+      "sha256": "78f68edc8103e919e3d7aab7e54e68f7213710889d6568bf0618d8bf29ba2b4c",
+      "bytes": 690546
+    },
+    {
+      "file": "CINT-company.json.gz",
+      "url": "https://data.sec.gov/submissions/CIK0001868995.json",
+      "sha256": "217059073e5189ea3abeb5d1e905e227954e9e66c9960e71c03fd8770b39db18",
+      "bytes": 30749
+    },
+    {
+      "file": "FVRR-original-0.html.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/1762301/000117891326004897/exhibit_99-1.htm",
+      "sha256": "3f33219cfdbc55e8a18cb3b4a8f7e73a6b7082e0ca0358738dd28b9b6f6f1f35",
+      "bytes": 242851
+    },
+    {
+      "file": "FVRR-original-1.html.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/1762301/000117891326004897/zk2636286.htm",
+      "sha256": "0dfa0818b0a847506f9c00293fc34c4de53c3fd295d6f4ebbdc8ad0a148aca84",
+      "bytes": 9479
+    },
+    {
+      "file": "FVRR-company.json.gz",
+      "url": "https://data.sec.gov/submissions/CIK0001762301.json",
+      "sha256": "58f6a7637bccbdaee4ae6a7b6698e2594a27eda8ca56674846dcbd952ee8c9d6",
+      "bytes": 37767
+    },
+    {
+      "file": "ONON-original-0.html.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/1858985/000185898526000018/onholdingag-20260630.htm",
+      "sha256": "0e2028f32247353d7fb4e20900b6924961e8a9816d8c3e161242453b698d39d5",
+      "bytes": 215760
+    },
+    {
+      "file": "ONON-original-1.html.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/1858985/000185898526000018/onholdingag-20260630_d2.htm",
+      "sha256": "41f06b9833b38fa646065b9c5fc9df7bb2a97deb4e1cfbc9d088eed1421d7f18",
+      "bytes": 1163127
+    },
+    {
+      "file": "ONON-company.json.gz",
+      "url": "https://data.sec.gov/submissions/CIK0001858985.json",
+      "sha256": "a032afe2341b7df71ffca9d1a1c31ad66f7a43249634143fefdce2a0700557b2",
+      "bytes": 41719
+    },
+    {
+      "file": "SPOT-original-0.html.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/1639920/000162828026066889/spot-20260930x6xk.htm",
+      "sha256": "9483be234f1bdf09c005bb86c681a99e93b3a866dde3a399715ad43d80942e7f",
+      "bytes": 1347948
+    },
+    {
+      "file": "SPOT-company.json.gz",
+      "url": "https://data.sec.gov/submissions/CIK0001639920.json",
+      "sha256": "6493c57035d9c46ef9672c5afd55bba11916c131baacacdd1e3c6fd13c3ed848",
+      "bytes": 61423
+    }
+  ]
+}

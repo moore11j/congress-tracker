@@ -46,9 +46,17 @@ def declaration(raw, observations):
                if not re.search(r'\b(?:not|never|unlike)\b', m.group(0), re.I)
                and not re.search(r'\b(?:not|never|unlike)\s+(?:\w+\s+){0,3}$',
                                  text[max(0,m.start()-70):m.start()],re.I)]
+    from app.services.sec_statement_declarations import declarations, POLICY
+    ifrs_matches = declarations(text)
+    accounting_basis = 'US GAAP'
     if not matches:
-        raise TabularReportingError('table_accounting_basis_unproved')
-    if re.search(subject + r'.{0,120}(?:' + verb + r'|comply with).{0,40}(?:IFRS|International Financial Reporting Standards)', text, re.I):
+        if not ifrs_matches:
+            raise TabularReportingError('table_accounting_basis_unproved')
+        matches = ifrs_matches
+        accounting_basis = 'IFRS'
+    elif ifrs_matches:
+        raise TabularReportingError('table_accounting_basis_conflict')
+    if accounting_basis == 'US GAAP' and re.search(subject + r'.{0,120}(?:' + verb + r'|comply with).{0,40}(?:IFRS|International Financial Reporting Standards)', text, re.I):
         raise TabularReportingError('table_accounting_basis_conflict')
     units = {f['currency'] for f in observations['facts']}
     translations = []
@@ -93,7 +101,8 @@ def declaration(raw, observations):
         currency = next(iter(units))
     else:
         raise TabularReportingError('table_reporting_currency_unproved')
-    return {'version': VERSION, 'accounting_basis': 'US GAAP', 'currency': currency,
+    return {'version': VERSION, 'accounting_basis': accounting_basis, 'currency': currency,
+            **({'accounting_policy': POLICY} if accounting_basis == 'IFRS' else {}),
             'accounting_declarations': list(dict.fromkeys(matches)),
             'currency_basis': 'explicit_translation' if translations else 'single_explicit_statement_currency',
             'translations': translations}
@@ -430,7 +439,8 @@ def cached_valid(proof, *, symbol=None, cik=None):
             if not corroboration_valid(proof['corroboration'],source):return False
         from app.services.sec_statement_currency import source_identity
         return (proof['methodology']==VERSION and proof['version']==VERSION
-            and proof['accounting_basis']=='US GAAP' and proof['accounting_declarations']
+            and (proof['accounting_basis']=='US GAAP' or (proof['accounting_basis']=='IFRS'
+                 and proof.get('accounting_policy')=='explicit_ifrs_statement_declarations_v1')) and proof['accounting_declarations']
             and proof['currency'] in tables.CURRENCIES
             and (symbol is None or source.get('symbol') == symbol)
             and (cik is None or source['cik'] == str(cik).zfill(10))
