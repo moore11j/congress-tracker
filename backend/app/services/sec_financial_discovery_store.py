@@ -7,12 +7,22 @@ from datetime import datetime,timezone
 import json
 import os
 import re
+import time
 from sqlalchemy import update,text
 from sqlalchemy.exc import IntegrityError
 from app.db import SessionLocal
 from app.models import InsightsSnapshot
 from app.services import sec_financial_discovery as discovery
 from app.utils.symbols import canonical_symbol
+
+
+QUALIFICATION_BATCH_LIMIT = 3
+QUALIFICATION_CONTINUE_SECONDS = 5
+QUALIFICATION_CONTINUE_CPU_SECONDS = 2
+
+
+class _QualificationBudget(discovery.DiscoveryError):
+    pass
 
 
 class DiscoveryConflict(discovery.DiscoveryError):
@@ -102,7 +112,7 @@ def stage(company_raw, *, symbol, cik, available_by, client, observed_at=None):
 
 
 def progress(company_raw,facts_raw,*,symbol,cik,available_by,client,observed_at=None):
-    """One existing worker slot: three covers OR one full filing qualification."""
+    """One slot: three covers OR up to three qualifications within six reads."""
     _worker_guard()
     from app.services import sec_financial_discovery_reader as reader
     observed_at=observed_at or datetime.now(timezone.utc)
@@ -118,25 +128,75 @@ def progress(company_raw,facts_raw,*,symbol,cik,available_by,client,observed_at=
     if selection['next_accession'] is None:
         written=_persist(key,plan['state'],expected,observed_at)
         return {**selection,'phase':'complete','checkpoint_written':written,'inspected':0}
-    try:
-        result=reader.inspect_candidate(company_raw,facts_raw,checkpoint=plan['state'],
-            accession=selection['next_accession'],client=client,**common)
-    except discovery.DiscoveryError as exc:
-        if str(exc)!='discovery_cover_changed':raise
-        # A legacy raw-only pin cannot prove delivery-path-only drift. Replace
-        # only this unqualified hint with a freshly observed complete cover.
-        # No qualification or financial value is admitted in this phase.
-        fingerprint,hint=next((k,r) for k,r in plan['state']['receipts'].items()
-            if r['candidate']['accession']==selection['next_accession'])
-        if hint.get('document_sha256') or 'qualification' in hint:raise
-        fresh=discovery._observe(client.get(hint['candidate']['cover_url']),hint['candidate'],observed_at)
-        plan['state']['receipts'][fingerprint]=fresh
-        written=_persist(key,plan['state'],expected,observed_at)
-        return {**reader.selection_plan(company_raw,checkpoint=plan['state'],**common),
-                'phase':'cover_reobserved','checkpoint_written':written,'inspected':1}
-    receipt=result['receipt'];fingerprint=discovery._fingerprint(receipt['candidate'])
-    plan['state']['receipts'][fingerprint]['qualification']=receipt
+    # Share the existing six-original ceiling across filings. Do not start
+    # another filing after the continuation allowance; a single existing
+    # qualification retains its own source/parser limits and may take longer.
+    started=time.monotonic();cpu_started=time.process_time();requests=0
+    class BoundedClient:
+        def get(self,url):
+            nonlocal requests
+            if requests>=reader.MAX_ORIGINALS:
+                raise _QualificationBudget('discovery_batch_original_bound')
+            requests+=1
+            return client.get(url)
+    bounded=BoundedClient();completed=[];stop_reason=None
+    for _ in range(QUALIFICATION_BATCH_LIMIT):
+        if completed:
+            if not enabled():
+                raise discovery.DiscoveryError('discovery_disabled_during_scan')
+            if requests>=reader.MAX_ORIGINALS:
+                stop_reason='original_budget';break
+            if (time.monotonic()-started>=QUALIFICATION_CONTINUE_SECONDS
+                    or time.process_time()-cpu_started>=QUALIFICATION_CONTINUE_CPU_SECONDS):
+                stop_reason='continuation_budget';break
+        selection=reader.selection_plan(company_raw,checkpoint=plan['state'],**common)
+        if selection['next_accession'] is None:break
+        try:
+            result=reader.inspect_candidate(company_raw,facts_raw,checkpoint=plan['state'],
+                accession=selection['next_accession'],client=bounded,**common)
+        except _QualificationBudget:
+            # Only complete, independently validated receipts can be committed.
+            # The unfinished candidate stays first in line for the next slot.
+            if not completed:raise
+            stop_reason='original_budget';break
+        except discovery.DiscoveryError as exc:
+            if str(exc)!='discovery_cover_changed':raise
+            if completed:
+                stop_reason='legacy_cover_reobservation';break
+            # Upgrade a legacy hint in its own phase. No qualification or
+            # financial value is admitted during this re-observation.
+            fingerprint,hint=next((k,r) for k,r in plan['state']['receipts'].items()
+                if r['candidate']['accession']==selection['next_accession'])
+            if hint.get('document_sha256') or 'qualification' in hint:raise
+            fresh=discovery._observe(bounded.get(hint['candidate']['cover_url']),hint['candidate'],observed_at)
+            plan['state']['receipts'][fingerprint]=fresh
+            reobserved=[hint['candidate']['accession']]
+            # Upgrade additional legacy hints in the same observation-only
+            # phase. Never qualify these newly observed covers in this slot.
+            legacy=sorted(((k,r) for k,r in plan['state']['receipts'].items()
+                if r['status']=='observed' and not r.get('document_sha256')
+                and 'qualification' not in r and r['candidate']['accession'] not in reobserved),
+                key=lambda item:(item[1]['candidate']['filed'],item[1]['candidate']['accession']),reverse=True)
+            for other_key,other_hint in legacy[:QUALIFICATION_BATCH_LIMIT-1]:
+                if not enabled():raise discovery.DiscoveryError('discovery_disabled_during_scan')
+                if (requests>=reader.MAX_ORIGINALS
+                        or time.monotonic()-started>=QUALIFICATION_CONTINUE_SECONDS
+                        or time.process_time()-cpu_started>=QUALIFICATION_CONTINUE_CPU_SECONDS):break
+                raw=bounded.get(other_hint['candidate']['cover_url'])
+                plan['state']['receipts'][other_key]=discovery._observe(raw,other_hint['candidate'],observed_at)
+                reobserved.append(other_hint['candidate']['accession'])
+                del raw
+            written=_persist(key,plan['state'],expected,observed_at)
+            return {**reader.selection_plan(company_raw,checkpoint=plan['state'],**common),
+                    'phase':'cover_reobserved','checkpoint_written':written,'inspected':len(reobserved),
+                    'reobserved_accessions':reobserved,'original_requests':requests}
+        receipt=result['receipt']
+        del result  # Release complete originals before inspecting another filing.
+        fingerprint=discovery._fingerprint(receipt['candidate'])
+        plan['state']['receipts'][fingerprint]['qualification']=receipt
+        completed.append({'accession':receipt['candidate']['accession'],'status':receipt['status']})
     written=_persist(key,plan['state'],expected,observed_at)
     return {**reader.selection_plan(company_raw,checkpoint=plan['state'],**common),
-            'phase':'qualification','checkpoint_written':written,'inspected':1,
-            'qualified_accession':receipt['candidate']['accession'],'qualification_status':receipt['status']}
+            'phase':'qualification','checkpoint_written':written,'inspected':len(completed),
+            'qualified_accession':completed[-1]['accession'],'qualification_status':completed[-1]['status'],
+            'qualifications':completed,'original_requests':requests,'qualification_stop_reason':stop_reason}
