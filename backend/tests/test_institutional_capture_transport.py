@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from app.services.institutional_capture_transport import RecordStream,StreamReceiver,encode
+from app.services.institutional_capture_transport import RecordStream,StreamReceiver,encode,MAX_DOCUMENTS
 
 
 RAW=b'original holdings'
@@ -131,9 +131,106 @@ def test_exact_summary_capacity_and_first_extra_row_are_bounded():
 
 def test_exact_document_capacity_and_first_extra_row_are_bounded():
     output=io.BytesIO();writer=RecordStream(output)
-    writer.write('metadata',{'transport_version':2,'transaction_read_only':True,'filing_date':'2026-10-07','document_count':6000})
-    for i in range(6000):writer.write('documents',{**DOC,'id':i+1})
-    with pytest.raises(ValueError,match='Row count'):writer.write('documents',{**DOC,'id':6001})
-    writer.finish(transaction_read_only=True,production_writes=0,source_bytes=len(RAW)*6000,query_scope=SCOPE)
+    writer.write('metadata',{'transport_version':2,'transaction_read_only':True,'filing_date':'2026-10-07','document_count':MAX_DOCUMENTS})
+    for i in range(MAX_DOCUMENTS):writer.write('documents',{**DOC,'id':i+1})
+    with pytest.raises(ValueError,match='Row count'):writer.write('documents',{**DOC,'id':MAX_DOCUMENTS+1})
+    writer.finish(transaction_read_only=True,production_writes=0,source_bytes=len(RAW)*MAX_DOCUMENTS,query_scope=SCOPE)
     receipt,_=receive(output.getvalue().splitlines(keepends=True))
-    assert receipt['counts']['documents']==6000 and receipt['originals_verified']==6000
+    assert receipt['counts']['documents']==MAX_DOCUMENTS and receipt['originals_verified']==MAX_DOCUMENTS
+
+
+def raw_stream(raw=RAW, status='parsed', scope=SCOPE):
+    output=io.BytesIO();writer=RecordStream(output)
+    writer.write('metadata',dict(transport_version=3,transaction_read_only=True,
+                 filing_date='2026-10-07',document_count=1))
+    row={k:v for k,v in DOC.items() if k!='raw_base64'}
+    row.update(status=status,content_hash=hashlib.sha256(raw).hexdigest() if raw else None)
+    writer.write_document(row,raw)
+    writer.write('positions',{'id':22,'value':100})
+    writer.finish(transaction_read_only=True,production_writes=0,source_bytes=len(raw) if raw else 0,
+                  query_scope=scope)
+    return output.getvalue()
+
+
+def raw_receive(data,parser=parser):
+    destination=io.BytesIO();receiver=StreamReceiver(destination,parser)
+    receiver.read(io.BytesIO(data))
+    return receiver.finish(0),destination.getvalue()
+
+
+def test_raw_transport_preserves_legacy_replay_rows_and_complete_source_scope():
+    proof,actual=raw_receive(raw_stream())
+    _,expected=receive(stream())
+    assert actual==expected and proof['originals_verified']==1
+    assert proof['scope_verified'] and proof['source_bytes']==len(RAW)
+
+
+@pytest.mark.parametrize('raw',[b'\n{"complete":{}}\n',b'\x00\xff\r\n\x80',b'original without newline'])
+def test_original_framing_is_binary_safe(raw):
+    def exact(feed,original,metadata):
+        assert original==raw
+        return parser(feed,RAW,metadata)
+    proof,spool=raw_receive(raw_stream(raw),parser=exact)
+    assert proof['originals_verified']==1
+    row=json.loads(spool.splitlines()[1])['row']
+    assert base64.b64decode(row['raw_base64'])==raw
+
+
+def test_raw_reader_handles_short_body_reads():
+    class ShortReader(io.BytesIO):
+        def read(self,n=-1):return super().read(min(n,3))
+    receiver=StreamReceiver(io.BytesIO(),parser)
+    receiver.read(ShortReader(raw_stream()))
+    assert receiver.finish(0)['originals_verified']==1
+
+
+@pytest.mark.parametrize('mutation',['length_bool','length_float','length_negative','length_oversize',
+                                    'missing_length','ambiguous','truncate_body','delimiter','hash',
+                                    'extra_record','missing_receipt','duplicate_json','source_budget'])
+def test_raw_framing_failures_cannot_accept_a_baseline(mutation,monkeypatch):
+    from app.services import institutional_capture_transport as transport
+    data=raw_stream();header,rest=data.split(b'\n',1);doc,body=rest.split(b'\n',1)
+    record=json.loads(doc)
+    changes={'length_bool':True,'length_float':float(len(RAW)),'length_negative':-1,'length_oversize':30_000_001}
+    if mutation in changes:record['row']['raw_length']=changes[mutation]
+    elif mutation=='missing_length':record['row'].pop('raw_length')
+    elif mutation=='ambiguous':record['row']['raw_base64']=DOC['raw_base64']
+    elif mutation=='truncate_body':body=RAW[:-1]
+    elif mutation=='delimiter':body=RAW+b'!'+body[len(RAW)+1:]
+    elif mutation=='hash':record['row']['content_hash']='0'*64
+    elif mutation=='missing_receipt':body=body[:body.rfind(b'{"complete"')]
+    elif mutation=='source_budget':monkeypatch.setattr(transport,'MAX_SOURCE_BYTES',len(RAW)-1)
+    doc=encode(record)
+    if mutation=='duplicate_json':doc=doc.replace(b'"raw_length":17',b'"raw_length":17,"raw_length":17')
+    changed=header+b'\n'+doc+b'\n'+body
+    if mutation=='extra_record':changed+=b'{"table":"positions","row":{}}\n'
+    with pytest.raises(ValueError):raw_receive(changed)
+
+
+def test_raw_null_quarantine_is_preserved_but_parsed_null_is_rejected():
+    proof,spool=raw_receive(raw_stream(None,'quarantined',{'ciks':['12345'],'cusips':[],'periods':[]}))
+    assert proof['originals_verified']==0 and proof['source_bytes']==0
+    assert json.loads(spool.splitlines()[1])['row']['raw_base64'] is None
+    with pytest.raises(ValueError,match='missing original'):raw_receive(raw_stream(None))
+
+
+@pytest.mark.parametrize('key',['ciks','cusips','periods'])
+def test_raw_sources_still_require_complete_original_query_scope(key):
+    with pytest.raises(ValueError,match='scope is incomplete'):
+        raw_receive(raw_stream(scope={**SCOPE,key:[]}))
+
+
+def test_raw_write_cannot_mix_encodings_or_versions():
+    writer=RecordStream(io.BytesIO())
+    with pytest.raises(ValueError,match='version 3'):writer.write_document({},RAW)
+    writer.write('metadata',dict(transport_version=3))
+    with pytest.raises(ValueError,match='write_document'):writer.write('documents',DOC)
+    with pytest.raises(ValueError,match='Ambiguous'):writer.write_document(DOC,RAW)
+    with pytest.raises(ValueError,match='Source byte'):writer.write_document({},b'')
+
+
+def test_raw_read_retains_the_uncompressed_transport_bound(monkeypatch):
+    from app.services import institutional_capture_transport as transport
+    data=raw_stream();first=data.index(b'\n')
+    monkeypatch.setattr(transport,'MAX_TRANSPORT_BYTES',first+1)
+    with pytest.raises(ValueError,match='Transport byte bound'):raw_receive(data)
