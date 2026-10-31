@@ -94,6 +94,10 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
         from app.services.sec_operating_history import apply as operating_history
         current = operating_history(current, payload, company or {}, cik=str(cik).zfill(10),
             available_by=available_by, supplement=filing_supplement)
+    if (filing_supplement or {}).get('revenue_periods'):
+        from app.services.sec_revenue_periods import apply as reconcile_revenue_periods
+        current = reconcile_revenue_periods(current, payload, company or {}, cik=str(cik).zfill(10),
+            available_by=available_by, supplement=filing_supplement)
     from app.services.sec_bank_revenue import apply
     current = apply(current,effective,company,available_by=available_by)
     if history_raw is None:

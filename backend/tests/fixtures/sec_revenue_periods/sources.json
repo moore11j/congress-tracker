@@ -1,0 +1,27 @@
+{
+  "LHX-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0000202058.json",
+    "sha256": "e6106e8f7242e9a8d6483c05bfa480c73253d7a95bd42f5b6a1d063f07e4b172",
+    "bytes": 159235
+  },
+  "LHX-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000202058.json",
+    "sha256": "b08ec6a5ed85b9022b35eefcb41f71e747c706f0d371fa3cea1439c41ec196d4",
+    "bytes": 4327508
+  },
+  "0000202058-26-000015.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/202058/000020205826000015/hrs-20260102.htm",
+    "sha256": "7ddbd944d3dc44eb1df5dd2fb67cba810da33197e8a070bbd0a49f1317dc8872",
+    "bytes": 2753720
+  },
+  "0000202058-26-000058.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/202058/000020205826000058/hrs-20260703.htm",
+    "sha256": "56c5e14804874c195f73159c74654a7c275d987cd44837fdc1b3aa884a20a571",
+    "bytes": 1536508
+  },
+  "0000202058-26-000087.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/202058/000020205826000087/hrs-20261002.htm",
+    "bytes": 1637830,
+    "sha256": "49d8b13d8686d343658fdc1becd33f533c20aee771abfbdf73d1b1caf5668ddf"
+  }
+}
