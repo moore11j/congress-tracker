@@ -556,13 +556,16 @@ def _fetch_dcf_input_rows(symbol: str) -> dict[str, list[dict[str, Any]]]:
         "annual_balance": ("balance-sheet-statement", {"symbol": symbol, "period": "annual", "page": 0, "limit": 6}),
         "annual_estimates": ("analyst-estimates", {"symbol": symbol, "period": "annual", "page": 0, "limit": 10}),
         "income_growth": ("income-statement-growth", {"symbol": symbol, "period": "annual", "limit": 2}),
-        "cash_growth": ("cash-flow-statement-growth", {"symbol": symbol, "period": "annual", "limit": 2}),
-        "balance_growth": ("balance-sheet-statement-growth", {"symbol": symbol, "period": "annual", "limit": 2}),
         "profile": ("profile", {"symbol": symbol}),
         "dcf_baseline": ("custom-discounted-cash-flow", {"symbol": symbol}),
     }
     rows_by_key: dict[str, list[dict[str, Any]]] = {key: [] for key in specs}
     for key, (endpoint, params) in specs.items():
+        # The model selects TTM first. Annual income is still required for the
+        # estimate horizon, but annual cash/balance are only fallback inputs.
+        fallback_for = {"annual_cash": "ttm_cash", "annual_balance": "ttm_balance"}.get(key)
+        if fallback_for and _latest_row(rows_by_key[fallback_for]):
+            continue
         try:
             rows_by_key[key] = _request_stable_rows(
                 endpoint,
@@ -578,7 +581,15 @@ def _fetch_dcf_input_rows(symbol: str) -> dict[str, list[dict[str, Any]]]:
 
 
 def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
-    rows = _fetch_dcf_input_rows(symbol)
+    return _valuation_model_from_rows(_fetch_dcf_input_rows(symbol))
+
+
+def _valuation_model_from_rows(rows: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    """Apply the existing model to normalized statement inputs without I/O.
+
+    This preserves the existing FMP-shaped contract. A replacement adapter must
+    separately establish period, currency, share basis and source compatibility.
+    """
     income = _first_available_row(rows["ttm_income"], rows["annual_income"])
     cash = _first_available_row(rows["ttm_cash"], rows["annual_cash"])
     balance = _first_available_row(rows["ttm_balance"], rows["annual_balance"])

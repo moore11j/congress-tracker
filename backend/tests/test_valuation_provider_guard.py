@@ -29,7 +29,7 @@ def test_provider_guard_returns_contract_and_stops_requests(monkeypatch, error_t
     assert result["message"] == valuation.TEMPORARILY_UNAVAILABLE_MESSAGE
     assert result["dcf"]["fairValue"] is None
     assert result["dcf"]["cashFlows"] == []
-    assert len(calls) == {"consensus": 1, "inputs": 2, "calculation": 14}[stage]
+    assert len(calls) == {"consensus": 1, "inputs": 2, "calculation": 12}[stage]
     if stage == "consensus":
         assert result["consensus"]["targetConsensus"] is None
     else:
