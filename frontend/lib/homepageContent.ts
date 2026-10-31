@@ -5,18 +5,18 @@
  */
 export const homepageContent = {
   hero: {
-    eyebrow: "Stock Analysis · Insider Trading · Stock Research",
-    title: "Follow the Insiders. Know More Before You Buy.",
-    hook: "Before you buy, see what the headlines leave out.",
+    eyebrow: "Stock Research & Analysis",
+    title: "Know What You’re Buying.",
+    hook: "Stop jumping between financial statements, charts and trading disclosures.",
     description:
-      "Check reported insider trades alongside financials and price trends. See what supports a stock and what deserves a second look.",
+      "Research stocks in one place and see where financials, price trends, insider trades and institutional holdings agree or conflict.",
   },
   metadata: {
-    title: "Stock Analysis & Insider Trading Tracker | Walnut Markets",
+    title: "Stock Analysis & Research Tools | Walnut Markets",
     description:
-      "Track reported insider buying and selling, Congress trades and institutional holdings alongside financials and technicals. Start researching stocks free.",
+      "Research stocks in one place. Compare financials, price trends, insider trades and institutional holdings with Walnut Markets. Start exploring for free.",
     socialDescription:
-      "Follow the insiders. Know more before you buy. Explore reported insider trades, financials, technicals, Congress activity and institutional holdings with Walnut.",
+      "Know what you’re buying. Research stocks in one place and see where financials, price trends and disclosed trading activity agree or conflict.",
   },
   differentiation: {
     description:
