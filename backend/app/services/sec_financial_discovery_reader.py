@@ -12,7 +12,7 @@ from datetime import date,datetime
 from lxml import html
 from app.services import sec_financial_discovery as discovery
 
-VERSION='sec_financial_discovery_qualification_v4'
+VERSION='sec_financial_discovery_qualification_v5'
 MAX_ORIGINALS=6
 
 
@@ -89,13 +89,14 @@ def validate_receipt(receipt,cover,*,now):
         urls=set()
         for original in originals:
             url=original['url']
-            if (not discovery._link_in_scope(url,cover['candidate']) or url in urls
+            if (not discovery.valid_document_proof(original) or not discovery._link_in_scope(url,cover['candidate']) or url in urls
                     or not re.fullmatch(r'[0-9a-f]{64}',original['sha256'])
                     or type(original['bytes']) is not int or not 0<original['bytes']<=20_000_000):
                 raise ValueError('original')
             urls.add(url)
         original=next((r for r in originals if r['url']==cover['candidate']['cover_url']),None)
-        if original is None or original['sha256']!=cover['cover_sha256'] or original['bytes']!=cover['bytes']:
+        if original is None or ((original['sha256']!=cover['cover_sha256'] or original['bytes']!=cover['bytes'])
+                and not discovery.same_document(original,cover)):
             raise ValueError('cover')
         for hold in holds:
             if (not isinstance(hold,dict) or hold.get('accession')!=cover['candidate']['accession']
@@ -136,8 +137,12 @@ def restore(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,checkpoi
             if url not in expected:raise discovery.DiscoveryError('discovery_unqualified_original')
             if url not in originals:
                 raw=client.get(url);proof=expected[url]
-                if (not isinstance(raw,bytes) or len(raw)!=proof['bytes']
-                        or hashlib.sha256(raw).hexdigest()!=proof['sha256']):
+                try:
+                    from app.services.sec_original_integrity import verified_original
+                    verified_original(raw,proof)
+                    if hashlib.sha256(raw).hexdigest()==proof['sha256'] and len(raw)!=proof['bytes']:
+                        raise ValueError('original_size')
+                except (ValueError,TypeError):
                     raise discovery.DiscoveryError('discovery_qualified_original_changed')
                 originals[url]=raw
             return originals[url]
@@ -147,7 +152,15 @@ def restore(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,checkpoi
                                  accession=selected[0],client=retained,**common)
         expected_receipt=deepcopy(qualifications[selected[0]])
         expected_receipt['observed_at']=observed_at.isoformat()
-        if result['receipt']!=expected_receipt:
+        comparison=deepcopy(result['receipt'])
+        # Only proven terminal delivery-path changes may differ on re-fetch.
+        # Return the actual fetched bytes/provenance in the supplement.
+        pinned={r['url']:r for r in expected_receipt['originals']}
+        for original in comparison['originals']:
+            prior=pinned.get(original['url'])
+            if prior and discovery.same_document(original,prior):
+                original['sha256']=prior['sha256'];original['bytes']=prior['bytes']
+        if comparison!=expected_receipt:
             raise discovery.DiscoveryError('discovery_qualification_changed')
         supplement=result['supplement']
     else:
@@ -199,7 +212,17 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
             return originals[url]
     retained=Originals()
     cover=retained.get(candidate['cover_url'])
-    if hashlib.sha256(cover).hexdigest()!=hint['cover_sha256']:
+    try:
+        from app.services.sec_original_integrity import verified_original
+        verified_original(cover,{**hint,'sha256':hint['cover_sha256']})
+    except ValueError:
+        # Legacy observations have no document-level pin. Re-observe those in
+        # a separate worker phase; never grandfather a known content change.
+        reason='discovery_cover_document_changed' if hint.get('document_sha256') else 'discovery_cover_changed'
+        raise discovery.DiscoveryError(reason)
+    if not hint.get('document_sha256') and discovery.document_proof(cover):
+        # Upgrade raw-identical legacy covers too, before recording a new
+        # qualification that must later survive normal delivery-path drift.
         raise discovery.DiscoveryError('discovery_cover_changed')
     # Route by actual source markup. Plain HTML statements must not be sent
     # through the inline-XBRL combined-document parser just because companyfacts
@@ -268,7 +291,7 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
         receipt.update(status='held',kind=None,current_period=None,
                        holds=[{'accession':accession,'filed':candidate['filed'],'reason':str(exc)}])
         supplement=None
-    receipt['originals']=[{'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
+    receipt['originals']=[{'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw),**discovery.document_proof(raw)}
                            for url,raw in sorted(originals.items())]
     receipt=validate_receipt(receipt,hint,now=observed_at)
     return {'receipt':receipt,'supplement':supplement}

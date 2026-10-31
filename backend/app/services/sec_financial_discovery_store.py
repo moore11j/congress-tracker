@@ -118,8 +118,22 @@ def progress(company_raw,facts_raw,*,symbol,cik,available_by,client,observed_at=
     if selection['next_accession'] is None:
         written=_persist(key,plan['state'],expected,observed_at)
         return {**selection,'phase':'complete','checkpoint_written':written,'inspected':0}
-    result=reader.inspect_candidate(company_raw,facts_raw,checkpoint=plan['state'],
-        accession=selection['next_accession'],client=client,**common)
+    try:
+        result=reader.inspect_candidate(company_raw,facts_raw,checkpoint=plan['state'],
+            accession=selection['next_accession'],client=client,**common)
+    except discovery.DiscoveryError as exc:
+        if str(exc)!='discovery_cover_changed':raise
+        # A legacy raw-only pin cannot prove delivery-path-only drift. Replace
+        # only this unqualified hint with a freshly observed complete cover.
+        # No qualification or financial value is admitted in this phase.
+        fingerprint,hint=next((k,r) for k,r in plan['state']['receipts'].items()
+            if r['candidate']['accession']==selection['next_accession'])
+        if hint.get('document_sha256') or 'qualification' in hint:raise
+        fresh=discovery._observe(client.get(hint['candidate']['cover_url']),hint['candidate'],observed_at)
+        plan['state']['receipts'][fingerprint]=fresh
+        written=_persist(key,plan['state'],expected,observed_at)
+        return {**reader.selection_plan(company_raw,checkpoint=plan['state'],**common),
+                'phase':'cover_reobserved','checkpoint_written':written,'inspected':1}
     receipt=result['receipt'];fingerprint=discovery._fingerprint(receipt['candidate'])
     plan['state']['receipts'][fingerprint]['qualification']=receipt
     written=_persist(key,plan['state'],expected,observed_at)
