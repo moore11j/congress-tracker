@@ -105,7 +105,7 @@ test("rendered homepage locks the top two and serializes only ranks three to fiv
     return {ok: true, json: async () => context(symbol, symbol === "AMZN")};
   }});
   const html = renderToStaticMarkup(await load("app/landing/page.tsx").default());
-  assert.match(html, /Follow the Insiders\. Know More Before You Buy\./);
+  assert.match(html, /Know What You’re Buying\./);
   assert.equal((html.match(/<section/g) || []).length, 9);
   assert.equal((html.match(/data-homepage-ranked-stock=/g) || []).length, 3);
   assert.match(html, /Considering AMZN/);

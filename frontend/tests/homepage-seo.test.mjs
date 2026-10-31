@@ -21,12 +21,12 @@ const seo = load("lib/tickerSeo.ts");
 const content = load("lib/homepageContent.ts").homepageContent;
 
 test("homepage metadata fits snippets and keeps the requested positioning", () => {
-  assert.equal(content.hero.title, "Follow the Insiders. Know More Before You Buy.");
-  assert.equal(content.metadata.title, "Stock Analysis & Insider Trading Tracker | Walnut Markets");
+  assert.equal(content.hero.title, "Know What You’re Buying.");
+  assert.equal(content.metadata.title, "Stock Analysis & Research Tools | Walnut Markets");
   assert.ok(content.metadata.title.length <= 65);
   assert.ok(content.metadata.description.length <= 165);
-  assert.match(content.hero.description, /reported insider trades/);
-  assert.match(content.hero.description, /financials and price trends/);
+  assert.match(content.hero.description, /insider trades and institutional holdings agree or conflict/);
+  assert.match(content.hero.description, /financials, price trends/);
 });
 
 test("ticker fallback rejects unavailable, mismatched and undated public snapshots", () => {

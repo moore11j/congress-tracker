@@ -1,3 +1,5 @@
+2026-10-31: Approved research-focused homepage copy is release-ready, with ten focused checks passing. Know What You’re Buying broadens the hero beyond insiders; actions, layout, pricing and entitlements remain. Production verification pending; conversion effect unproven. [Release checkpoint](context-log.md#october-31-2026-approved-homepage-positioning-release).
+
 2026-10-26 UTC: Migration resumed. [Operating-history review](operating-history-recovery-2026-10-25.md) is locally implemented:335 Linux regression checks,44 final Windows source checks and corrected49/49 baseline parity. Final Linux/exact-source/release/ordinary checks pending. No provider switch; broad financial/consumer/capacity and final Massive/FMP gates remain.
 
 2026-10-25 Pacific / October26 UTC: [Requested migration pause](operating-history-recovery-2026-10-25.md). Ordinary VTEX public recovery verified; derived operating-history changes local only,320 Linux checks pass.49-source comparison needs VTEX baseline/header review. Full financial/consumer/capacity/Massive/FMP gates remain; no new deployment.

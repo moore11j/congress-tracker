@@ -94,6 +94,8 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 
 ## Latest task checkpoint
 
+- 2026-10-31: Owner approved commit/deploy of the research-focused homepage. Isolated frontend copy and existing-test updates from the older crawl/measurement workspace on current origin/main. Hero is Know What You’re Buying with Stock Research & Analysis eyebrow, consolidation/alignment copy and matching metadata. Ten focused checks pass; layout/actions/pricing/entitlements unchanged. Release and live verification pending at this checkpoint; conversion lift unproven. This specific approval supersedes the earlier hero freeze for this copy change only.
+
 - 2026-10-26 UTC: Owner resumed migration. Operating-history source review adds foreign-basis, cached-heading and printed-subtotal guards. Corrected baseline comparison49/49 unchanged;335 Linux regression checks and final44 Windows source/cache/consumer checks pass. Final Linux/exact-source checks and release pending. [Report](docs/operating-history-recovery-2026-10-25.md). Work remains in financial-operating-history at base16d9133a; no production/provider change, FMP remains enabled.
 
 - 2026-10-25 Pacific / October26 UTC: Owner requests pause after current task. Existing validation terminal:320 Linux tests pass;49-source replay48 unchanged, VTEX baseline/header difference requires review. Local shared operating-history code remains uncommitted/undeployed at base16d9133a. Ordinary PR726 public VTEX recovery/current-original parity verified; prior core raw-hash caveat remains. [Resume checkpoint](docs/operating-history-recovery-2026-10-25.md). Resume only on owner command; FMP remains enabled.

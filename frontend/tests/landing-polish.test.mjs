@@ -109,8 +109,8 @@ test("landing SEO labels use insights and stock screener copy", () => {
 });
 
 test("landing uses stock research positioning and preserves discovery actions", () => {
-  assert.match(homepageContent, /Follow the Insiders\. Know More Before You Buy\./);
-  assert.match(homepageContent, /Stock Analysis · Insider Trading · Stock Research/);
+  assert.match(homepageContent, /Know What You’re Buying\./);
+  assert.match(homepageContent, /Stock Research & Analysis/);
   assert.match(landingPage, /homepageContent.hero.title/);
   assert.match(landingPage, /homepageContent.hero.description/);
   assert.match(landingPage, /See today&apos;s #1 and #2 stocks/);
@@ -153,8 +153,8 @@ test("landing metadata reflects research and monitoring positioning", () => {
   assert.match(marketingMetadata, /import \{ homepageContent \} from "@\/lib\/homepageContent"/);
   assert.match(marketingMetadata, /WALNUT_MARKETING_TITLE = homepageContent\.metadata\.title/);
   assert.match(marketingMetadata, /WALNUT_MARKETING_DESCRIPTION = homepageContent\.metadata\.description/);
-  assert.match(homepageContent, /title: "Stock Analysis & Insider Trading Tracker \| Walnut Markets"/);
-  assert.match(homepageContent, /Track reported insider buying and selling, Congress trades and institutional holdings/);
+  assert.match(homepageContent, /title: "Stock Analysis & Research Tools \| Walnut Markets"/);
+  assert.match(homepageContent, /Compare financials, price trends, insider trades and institutional holdings/);
   assert.match(marketingMetadata, /canonical: marketingCanonicalUrl\("\/"\)/);
   assert.match(marketingMetadata, /openGraph:/);
   assert.match(marketingMetadata, /twitter:/);
