@@ -40,9 +40,10 @@ def test_full_actual_cohort_advances_boundedly_and_corroborates_same_day_financi
         client=Client();result=progress(client)
         assert len(client.calls)<=6 and len(client.calls)==len(set(client.calls))
         phases.append(result['phase'])
-        if result['phase']=='qualification':qualifications.append(result['qualified_accession'])
+        if result['phase']=='qualification':qualifications.extend(q['accession'] for q in result['qualifications'])
         if result['phase']=='complete':break
-    assert phases==['covers']*5+['qualification']*15+['complete']
+    assert phases[:5]==['covers']*5 and phases[-1]=='complete'
+    assert 5<=phases.count('qualification')<=15 and len(phases)==6+phases.count('qualification')
     assert len(set(qualifications))==15
     assert result['status']=='ready_for_original_revalidation' and result['reason'] is None
     assert not result['financial_publication_eligible']

@@ -35,7 +35,8 @@ def test_full_actual_cohort_qualifies_and_restores_with_rotating_delivery_paths(
         assert len(client.calls)<=6 and len(client.calls)==len(set(client.calls))
         phases.append(result['phase'])
         if result['phase']=='complete':break
-    assert phases==['covers']*5+['qualification']*15+['complete']
+    assert phases[:5]==['covers']*5 and phases[-1]=='complete'
+    assert 5<=phases.count('qualification')<=15 and len(phases)==6+phases.count('qualification')
     assert result['status']=='ready_for_original_revalidation'
     checkpoint=store.read('NBIS','0001513845');client=RotatingClient()
     args=dict(symbol='NBIS',cik='0001513845',available_by=DAY,observed_at=NOW)
