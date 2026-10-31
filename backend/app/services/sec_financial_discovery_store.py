@@ -170,9 +170,26 @@ def progress(company_raw,facts_raw,*,symbol,cik,available_by,client,observed_at=
             if hint.get('document_sha256') or 'qualification' in hint:raise
             fresh=discovery._observe(bounded.get(hint['candidate']['cover_url']),hint['candidate'],observed_at)
             plan['state']['receipts'][fingerprint]=fresh
+            reobserved=[hint['candidate']['accession']]
+            # Upgrade additional legacy hints in the same observation-only
+            # phase. Never qualify these newly observed covers in this slot.
+            legacy=sorted(((k,r) for k,r in plan['state']['receipts'].items()
+                if r['status']=='observed' and not r.get('document_sha256')
+                and 'qualification' not in r and r['candidate']['accession'] not in reobserved),
+                key=lambda item:(item[1]['candidate']['filed'],item[1]['candidate']['accession']),reverse=True)
+            for other_key,other_hint in legacy[:QUALIFICATION_BATCH_LIMIT-1]:
+                if not enabled():raise discovery.DiscoveryError('discovery_disabled_during_scan')
+                if (requests>=reader.MAX_ORIGINALS
+                        or time.monotonic()-started>=QUALIFICATION_CONTINUE_SECONDS
+                        or time.process_time()-cpu_started>=QUALIFICATION_CONTINUE_CPU_SECONDS):break
+                raw=bounded.get(other_hint['candidate']['cover_url'])
+                plan['state']['receipts'][other_key]=discovery._observe(raw,other_hint['candidate'],observed_at)
+                reobserved.append(other_hint['candidate']['accession'])
+                del raw
             written=_persist(key,plan['state'],expected,observed_at)
             return {**reader.selection_plan(company_raw,checkpoint=plan['state'],**common),
-                    'phase':'cover_reobserved','checkpoint_written':written,'inspected':1}
+                    'phase':'cover_reobserved','checkpoint_written':written,'inspected':len(reobserved),
+                    'reobserved_accessions':reobserved,'original_requests':requests}
         receipt=result['receipt']
         del result  # Release complete originals before inspecting another filing.
         fingerprint=discovery._fingerprint(receipt['candidate'])

@@ -19,7 +19,7 @@ def all_covers():
 
 def finish():
     runs=[]
-    for _ in range(22):
+    for _ in range(40):
         client=Client();result=progress(client);runs.append((result,list(client.calls)))
         assert len(client.calls)<=6
         if result['phase']=='qualification':
@@ -28,14 +28,17 @@ def finish():
         if result['phase']=='complete':return runs
     pytest.fail('Full complete cohort did not finish')
 
-def test_complete_actual_cohort_matches_one_filing_baseline(database,monkeypatch):
+@pytest.mark.parametrize('legacy',[False,True])
+def test_complete_actual_cohort_matches_one_filing_baseline(database,monkeypatch,legacy):
     frozen_clock(monkeypatch)
     monkeypatch.setattr(store,'QUALIFICATION_BATCH_LIMIT',1)
+    if legacy:legacy_covers()
     baseline=finish();expected=deepcopy(store.read('NBIS','0001513845'))
     args=dict(symbol='NBIS',cik='0001513845',available_by=DAY,observed_at=NOW)
     original=reader.restore(source(COMPANY),source(FACTS),checkpoint=expected,client=Client(),**args)
     with database() as db:db.execute(delete(InsightsSnapshot));db.commit()
     monkeypatch.setattr(store,'QUALIFICATION_BATCH_LIMIT',3)
+    if legacy:legacy_covers()
     batches=finish();actual=store.read('NBIS','0001513845')
     assert actual==expected
     assert reader.restore(source(COMPANY),source(FACTS),checkpoint=actual,client=Client(),**args)==original
@@ -118,3 +121,30 @@ def test_concurrent_checkpoint_winner_is_not_overwritten(database,monkeypatch):
     monkeypatch.setattr(reader,'inspect_candidate',inspect)
     with pytest.raises(store.DiscoveryConflict,match='checkpoint_changed'):progress()
     assert store.read('NBIS','0001513845')==winner
+
+
+def legacy_covers():
+    all_covers();key=store.key_for('NBIS','0001513845');state,expected=store._read(key)
+    for r in state['receipts'].values():
+        r.pop('document_sha256',None);r.pop('document_integrity_policy',None)
+    store._persist(key,state,expected,NOW)
+
+def test_legacy_batch_only_observes_hints_before_later_qualification(database,monkeypatch):
+    legacy_covers();frozen_clock(monkeypatch);client=Client();result=progress(client)
+    assert result['phase']=='cover_reobserved' and result['inspected']==3
+    assert len(client.calls)==result['original_requests']==4
+    assert not result['financial_publication_eligible']
+    state=store.read('NBIS','0001513845')
+    assert not any('qualification' in r for r in state['receipts'].values())
+    assert sum(bool(r.get('document_sha256')) for r in state['receipts'].values())==3
+    next_result=progress()
+    assert next_result['phase']=='qualification' and next_result['inspected']>=1
+
+def test_later_legacy_observation_denial_preserves_all_old_hints(database,monkeypatch):
+    legacy_covers();frozen_clock(monkeypatch);before=deepcopy(store.read('NBIS','0001513845'))
+    class Denied(Client):
+        def get(self,url):
+            if len(self.calls)==2:raise DirectSourceError('Source HTTP 403')
+            return super().get(url)
+    with pytest.raises(DirectSourceError,match='403'):progress(Denied())
+    assert store.read('NBIS','0001513845')==before
