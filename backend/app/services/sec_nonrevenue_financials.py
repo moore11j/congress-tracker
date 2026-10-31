@@ -16,6 +16,17 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
     from app.services.sec_fundamentals import _ttm, _prior_end, SecFundamentalsCoverageError
     if native_selection is None and (currency != 'USD' or namespace != 'us-gaap'):
         raise SecFundamentalsCoverageError('Independent financial metrics require supported reporting currency and taxonomy')
+    # The full reader already accepts evidence-qualified USD GAAP foreign
+    # filings. Revalidate that same original-bound selection here instead of
+    # falling back to the domestic-only directory filter when revenue is absent.
+    standard_selection = None
+    if native_selection is None and (filing_supplement or {}).get('evidence', {}).get('standard_foreign_reporting'):
+        from app.services.sec_tagged_foreign import authorized
+        standard_selection = authorized(json.loads(facts_raw), company, symbol=symbol, cik=cik,
+            available_by=available_by, supplement=filing_supplement)
+        if standard_selection is None:
+            raise SecFundamentalsCoverageError('Unverified standard foreign partial-financial basis')
+    reporting_selection = native_selection or standard_selection
     recent = company.get('filings', {}).get('recent', {})
     filings = []
     for i, form in enumerate(recent.get('form', [])):
@@ -34,13 +45,14 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
         if (native_selection.get('currency') != currency or native_selection.get('namespace') != namespace
                 or native_selection.get('currency_policy') != REPORTING_POLICY):
             raise SecFundamentalsCoverageError('Unverified native partial-financial basis')
-        current_filing = native_selection['current']
+    if reporting_selection is not None:
+        current_filing = reporting_selection['current']
         filings = [(date.fromisoformat(current_filing['report_date']),date.fromisoformat(current_filing['filed']),
                     current_filing['accession'],current_filing['form'])]
     if not filings:
         raise SecFundamentalsCoverageError('No completed partial-financial filing')
     end, filed, accession, form = max(filings)
-    if native_selection is None and form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}:
+    if reporting_selection is None and form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}:
         raise SecFundamentalsCoverageError('Latest partial-financial reporting form requires supported period rules')
     if (available_by-end).days > 180:
         raise SecFundamentalsCoverageError('Stale partial-financial filing')
@@ -119,6 +131,11 @@ def project(records, company, *, symbol, cik, facts_raw, company_raw, observed_a
         evidence['partial_financial_basis']['reason'] = 'current_ttm_revenue_unavailable'
         evidence['limitations'][0] = 'Current trailing-twelve-month revenue is unavailable; reported shorter periods may remain available in the financial statements.'
         evidence['limitations'].append('No inferred foreign-exchange, ADS or per-share mapping; native cash amounts do not populate USD caches.')
+    if standard_selection is not None:
+        evidence['standard_foreign_reporting'] = standard_selection
+        evidence['standard_partial_policy'] = 'qualified_us_gaap_partial_financials_v1'
+        evidence['partial_financial_basis']['reason'] = 'current_ttm_revenue_unavailable'
+        evidence['limitations'][0] = 'Current trailing-twelve-month revenue is unavailable; reported shorter periods may remain available in the financial statements.'
     if source_context:
         evidence.update({key: value for key, value in source_context.items() if value is not None})
     if filing_supplement is not None:
