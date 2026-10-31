@@ -1,0 +1,30 @@
+[
+  {
+    "symbol": "CINT",
+    "cik": "0001868995",
+    "accession": "0001292814-26-004198",
+    "filed": "2026-08-11",
+    "cover_url": "https://www.sec.gov/Archives/edgar/data/1868995/000129281426004198/cintfs2q26_6k.htm"
+  },
+  {
+    "symbol": "FVRR",
+    "cik": "0001762301",
+    "accession": "0001178913-26-004897",
+    "filed": "2026-10-29",
+    "cover_url": "https://www.sec.gov/Archives/edgar/data/1762301/000117891326004897/zk2636286.htm"
+  },
+  {
+    "symbol": "ONON",
+    "cik": "0001858985",
+    "accession": "0001858985-26-000018",
+    "filed": "2026-08-11",
+    "cover_url": "https://www.sec.gov/Archives/edgar/data/1858985/000185898526000018/onholdingag-20260630.htm"
+  },
+  {
+    "symbol": "SPOT",
+    "cik": "0001639920",
+    "accession": "0001628280-26-066889",
+    "filed": "2026-10-22",
+    "cover_url": "https://www.sec.gov/Archives/edgar/data/1639920/000162828026066889/spot-20260930x6xk.htm"
+  }
+]

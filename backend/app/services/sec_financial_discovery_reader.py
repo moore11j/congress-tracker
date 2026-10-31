@@ -114,6 +114,11 @@ def validate_receipt(receipt,cover,*,now):
         if status=='no_supported_statement' and (cover['primary_statement']
                 or any(k!='press_release' for k in cover['link_kinds'].values())):
             raise ValueError('unqualified_financial_hint')
+        # Retry only legacy accounting-basis holds. Existing successful receipts
+        # retain exact comparison semantics and do not cause a full source reset.
+        if status=='held' and any(h['reason']=='table_accounting_basis_unproved' for h in holds):
+            from app.services.sec_statement_declarations import POLICY
+            if receipt.get('accounting_policy')!=POLICY:return None
         return deepcopy(receipt)
     except (ValueError,TypeError,KeyError,AttributeError) as exc:
         raise discovery.DiscoveryError('discovery_qualification_invalid') from exc
@@ -293,5 +298,8 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
         supplement=None
     receipt['originals']=[{'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw),**discovery.document_proof(raw)}
                            for url,raw in sorted(originals.items())]
+    if receipt['status']=='held' and any(h['reason']=='table_accounting_basis_unproved' for h in receipt['holds']):
+        from app.services.sec_statement_declarations import POLICY
+        receipt['accounting_policy']=POLICY
     receipt=validate_receipt(receipt,hint,now=observed_at)
     return {'receipt':receipt,'supplement':supplement}
