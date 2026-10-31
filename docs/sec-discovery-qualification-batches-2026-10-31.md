@@ -20,6 +20,23 @@ More small filings can be checked per slot, so average work per slot may increas
 
 ## Verification state
 
-Initial seven focused Windows checks pass in146.23seconds, before final source-memory/disable refinements and the added concurrent-writer test. They are preliminary evidence only. Final Windows/Linux discovery checks and complete-source benchmark are running. No new application commit, PR or deployment at this checkpoint. Exact final results and release state must be appended before activation claims.
+Final expanded source `76aad3bd1155ec1c7a977261bc5c026c907eef3e` passes11 focused Linux checks and22 Windows checks. The earlier qualification-only variant passes85 broader Linux discovery checks. These counts overlap and are not additive unique coverage. An initial Linux invocation failed during collection because its default `/data` path was not writable; corrected runs explicitly use isolated SQLite. No failed collection is counted as passing verification.
+
+The first benchmark covered newly collected covers. Review identified that the existing legacy-hint backlog also needed direct measurement. The final implementation therefore batches up to three legacy cover observations in an observation-only phase, within the same read and continuation bounds. None of those newly observed hints is qualified in that phase. Known document changes still fail closed, and denial during a later observation preserves the entire old checkpoint.
+
+Four final comparisons on Python3.12.3 preserve the full15-filing checkpoint and complete restored financial output exactly:
+
+| Initial state | One-filing slots | Batched slots | Original reads before/after | CPU seconds before/after |
+| --- | ---: | ---: | ---: | ---: |
+| New cover inventory | 21 | 12 | 44 / 44 | 52.900 / 48.762 |
+| Existing legacy covers | 31 | 12 | 59 / 50 | 41.863 / 33.939 |
+
+The legacy comparison starts after the initial cover inventory already exists; both modes use that same starting checkpoint. The control sets the batch limit to one. This is local replay evidence, not a production throughput or CPU guarantee. Individual slots can do more work: maximum measured slot CPU is20.488 versus20.364seconds for new inventory and9.217 versus16.338seconds for legacy inventory. The continuation thresholds govern whether another filing starts; they do not interrupt an already-running parser. Public latency and ordinary batching must be observed after release.
+
+Receipts: `discovery-batch-v2-linux-oct31.xml`, `discovery-batch-v2-windows-oct31.xml`, `discovery-batch-final-linux-oct31.xml`, `discovery-batch-v2-benchmark-oct31.json`, `discovery-batch-v2-manifest-oct31.json`. Final regressions cover complete fresh/legacy equality, the seventh-read guard, unfinished-candidate preservation, denial rollback, separate legacy observation, collection disable, concurrent-writer CAS rejection, terminal-script integrity and idempotent repeats. No network requests or production data/writes were used by these tests.
+
+PR746: https://github.com/moore11j/congress-tracker/pull/746 . Both dependency audits, secret scan and preview pass on76aad3bd. Attachment was attempted once and hit the existing100-identity limit. Concurrent PR745 changes homepage content/tests and memory only; its backend/workflow trees matchb0576bcf. No new backend deployment is claimed by these checks. Release preflight `release-blocker-api-1793480329.json` finds no protected/active/continuing work and the latest portfolio job succeeded; the deployment guard must still recheck at rollout.
+
+The repeated20:52UTC public-response sample passes: Feed1.000seconds, Insights0.509,AAPL0.372,NVDA0.284 (`public-render-1793479973326.json`). This does not establish sustained recovery or full client-data latency.
 
 Core financials, transcripts and prices remain selected from FMP; discovery collection is enabled and public discovery reading disabled. Massive draft PR743 stays separate and unactivated. Institutional export remains unapproved. Goal is active: the prior checkpoint's usageLimited observation has been superseded by the current goal-tool result. Next finish exact-source tests/benchmark and review, then ordinary qualification and all retained consumer acceptance; paid Massive activation and zero-FMP/billing closure remain last.
