@@ -1,0 +1,14 @@
+{
+  "funds": {
+    "file": "funds.json.gz",
+    "bytes": 1236582,
+    "sha256": "f77c00f0bb3b15f1d93bab433019c2ea441f27460737419496ab8f90bb9f6778",
+    "url": "https://www.sec.gov/files/company_tickers_mf.json"
+  },
+  "equities": {
+    "file": "equities.json.gz",
+    "bytes": 522737,
+    "sha256": "67da093c67735ef6dd1182a5ab95040559c99456a8724b740196b7cd00e75f77",
+    "url": "https://www.sec.gov/files/company_tickers_exchange.json"
+  }
+}
