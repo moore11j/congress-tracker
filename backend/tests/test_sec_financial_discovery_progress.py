@@ -166,7 +166,14 @@ def test_worker_preparation_uses_existing_slot_then_caches_pending_and_real_fina
         clock[0]+=prep.TTL+timedelta(seconds=1)
         repeated=prep.prepare('NBIS',continue_discovery=True)
         assert repeated['values']==result['values']
-        assert repeated['calculation_evidence']==result['calculation_evidence']
+        # The observation cutoff advances with the real next-day refresh;
+        # every other original, calculation and provenance field is identical.
+        before=deepcopy(result['calculation_evidence']);after=deepcopy(repeated['calculation_evidence'])
+        cutoff=after.pop('available_by')
+        assert cutoff>before.pop('available_by')
+        assert after['table_reporting'].pop('available_by')==cutoff
+        before['table_reporting'].pop('available_by')
+        assert after==before
         assert len(clients[-1].calls)<=8
 
 
