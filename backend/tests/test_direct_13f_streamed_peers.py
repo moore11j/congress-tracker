@@ -351,3 +351,70 @@ def test_spooled_batch_closes_file_on_downstream_failure(db, monkeypatch, failur
             batch.publish_13f_batch(db, identifier_documents=[], limit=2)
     assert created and all(s.file.closed for s in created)
     assert db.scalar(select(func.count()).select_from(DirectFeedPublication)) == 0
+
+
+def _wide_peer_sources(count=10):
+    rows = [(str(i).zfill(9), i * 3, i * 10, '') for i in range(1, 101)]
+    return [document(serial=i, rows=rows) for i in range(1, count + 1)]
+
+
+def test_resident_decimal_and_tuple_cost_spills_before_encoded_budget(monkeypatch):
+    sources = _wide_peer_sources()
+    parsed, ordinary, _ = prepare(sources, sources[0])
+    assert ordinary.summary_bytes < evidence.MAX_STREAM_SUMMARY_BYTES
+    monkeypatch.setattr(evidence, 'MAX_STREAM_RESIDENT_BYTES', 64_000)
+    scopes = {ordinary.period: ordinary.cusips}
+    groups = evidence.prepare_streamed_peer_groups(sources, scopes=scopes, spill_to_disk=True)
+    group = groups[ordinary.period]
+    try:
+        assert group.spool is not None
+        assert group.summary_bytes < evidence.MAX_STREAM_SUMMARY_BYTES
+        assert group.resident_bytes_estimate <= 64_000
+        assert list(group) == list(ordinary)
+        assert list(group.values_for(parsed)) == list(ordinary.values_for(parsed))
+        assert sum(evidence._peer_record_resident_size(r) for r in group.records) < 64_000
+    finally:
+        group.close()
+
+
+def test_old_in_memory_records_are_released_during_spill_not_after_scan(monkeypatch):
+    import weakref
+    sources = _wide_peer_sources()
+    parsed, ordinary, _ = prepare(sources, sources[0])
+    references = []
+    spools = []
+    record_type, spool_type = evidence.VerifiedPeerRecord, evidence._PeerSummarySpool
+    def record(*args):
+        value = record_type(*args); references.append(weakref.ref(value)); return value
+    def spool():
+        value = spool_type(); spools.append(value); return value
+    monkeypatch.setattr(evidence, 'VerifiedPeerRecord', record)
+    monkeypatch.setattr(evidence, '_PeerSummarySpool', spool)
+    monkeypatch.setattr(evidence, 'MAX_STREAM_RESIDENT_BYTES', 64_000)
+    checked = []
+    def originals():
+        for source in sources:
+            yield source
+            if spools:
+                checked.append(len(references))
+                assert all(ref() is None for ref in references), 'Old totals retained during the rest of the scan'
+    groups = evidence.prepare_streamed_peer_groups(originals(), scopes={ordinary.period: ordinary.cusips}, spill_to_disk=True)
+    try:
+        assert checked and checked[0] > 1, 'Exercise a real conversion of retained records'
+        assert list(groups[ordinary.period].values_for(parsed)) == list(ordinary.values_for(parsed))
+    finally:
+        for group in groups.values(): group.close()
+
+
+def test_resident_header_bound_still_fails_closed_and_cleans_up(monkeypatch):
+    sources = _wide_peer_sources(count=100)
+    _, ordinary, _ = prepare(sources[:1], sources[0])
+    created = []
+    original = evidence._PeerSummarySpool
+    def capture():
+        spool = original(); created.append(spool); return spool
+    monkeypatch.setattr(evidence, '_PeerSummarySpool', capture)
+    monkeypatch.setattr(evidence, 'MAX_STREAM_RESIDENT_BYTES', 64_000)
+    with pytest.raises(ValueError, match='memory budget'):
+        evidence.prepare_streamed_peer_groups(sources, scopes={ordinary.period: ordinary.cusips}, spill_to_disk=True)
+    assert created and all(spool.file.closed for spool in created)
