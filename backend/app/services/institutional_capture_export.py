@@ -19,6 +19,29 @@ from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevisio
 from app.services.institutional_capture_transport import MAX_DOCUMENTS, MAX_SOURCE_BYTES
 
 
+
+def position_records(db, query, *, page_size=10000):
+    """Keep sparse CIK filtering inside bounded primary-key ranges.
+
+    A server-side cursor bounds rows returned, not rows scanned by a FETCH.
+    Discover each next range without the CIK predicate so a sparse tail cannot
+    turn a single FETCH into a scan of the rest of the positions table.
+    The caller retains its total matching-row and whole-capture work limits.
+    """
+    if type(page_size) is not int or not 1 <= page_size <= 10000:
+        raise ValueError('invalid_position_page_size')
+    column=InstitutionalPosition.id
+    after=None
+    while True:
+        frontier=select(column).order_by(column).limit(page_size)
+        if after is not None:frontier=frontier.where(column>after)
+        upper=db.scalar(select(func.max(frontier.subquery().c.id)))
+        if upper is None:return
+        bounded=query.where(column<=upper)
+        if after is not None:bounded=bounded.where(column>after)
+        yield from db.execute(bounded.execution_options(yield_per=100)).mappings()
+        after=upper
+
 def export_records(db, stream):
     """Caller owns one read-only snapshot; mapped ORM instances are never retained."""
     captured_at = datetime.now(timezone.utc)
@@ -94,7 +117,9 @@ def export_records(db, stream):
         nonlocal summary_count,summary_excluded
         query = select(*model.__table__.columns).where(condition).order_by(
             *model.__table__.primary_key.columns).limit(maximum+1)
-        for i, record in enumerate(db.execute(query.execution_options(yield_per=100)).mappings(), 1):
+        rows = (position_records(db, query) if name == 'positions' else
+                db.execute(query.execution_options(yield_per=100)).mappings())
+        for i, record in enumerate(rows, 1):
             if i > maximum:
                 raise ValueError(name + ' exceeds reviewed row bound')
             values = dict(record)

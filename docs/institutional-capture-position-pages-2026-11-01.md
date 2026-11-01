@@ -1,0 +1,13 @@
+# Institutional capture position query, November 1, 2026
+
+The owner approved one bounded read-only institutional snapshot and its transfer to the existing OneDrive migration evidence directory. No accepted snapshot exists yet.
+
+The first attempt ended after99 complete originals and a partial100th. Its error reason was not retained; later low memory headroom makes pressure plausible, not proven. After the normal financial PR754 rollout, the same installed package passed a stricter1.1GiB available-memory preflight and a recovery ran. It ended with an OperationalError at69.1036wall/20.9154CPU seconds, exit75, without publication, provider calls or customer sends. No work/source/time limits were relaxed.
+
+The recovery's incomplete83,480,716-byte file contains all6,712source rows and900,225,473original bytes, followed by192canonicalfilings and27,100positions. Gzip closes but no terminal record or completion manifest exists. The artifact is retained solely as incomplete evidence; it cannot pass the receiver or become a baseline. Diagnostic receipt `artifacts/institutional-current-nov1/recovery-incomplete-diagnostic.json`.
+
+Production EXPLAIN, without ANALYZE or query execution, shows the ordered positions query scans the primary-key index while filtering normalized CIKs. There are3,317candidate CIKs and the planner estimates1,834,182matching rows. A streaming FETCH limits returned rows, not examined rows, so a sparse unmatched tail can exceed the unchanged3-second statement budget. Existing raw-CIK indexes cannot directly serve the ltrim predicate. This identifies the problematic query shape; the captured exception did not expose its SQLSTATE, so statement timeout remains an inference. Plan receipt `capture-position-plan-1793556539.json`.
+
+The repair walks complete primary-key ranges of at most10,000physical positions before applying the original CIK predicate. It preserves exact ordering, complete original/canonical scope, arbitrarily zero-padded legacy CIK matching, matching-row caps, memory/CPU/wall limits and read-only transaction isolation. There is no schema/index/schedule/host change. The caller still rejects more than100,000matching positions; pages cannot truncate or evade the total bound.
+
+Validation includes actual SQLite sparse ranges, identity variants, empty inventories, boundary/gap ordering and complete-repeat parity. Complete retained-source/canonical PostgreSQL parity and Linux regression CI remain pending. Current-source capture, full receiver verification and institutional consumer replay remain required. Publication stays disabled and FMP remains selected for institutions.
