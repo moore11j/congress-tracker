@@ -186,7 +186,7 @@ def parse_candidate(raw, metadata, observed):
     exhibit=re.escape(metadata.get('exhibit_number','99.3'))
     envelope=rf'(?:EX-{exhibit}\s+[0-9]+\s+{filename}\s+EXHIBIT {exhibit}\s+)?'
     prefix=r'^'+envelope+r'(?:Exhibit\s+99\.[0-9]+\s+)?'
-    heading=(prefix+r'(?:'+metadata['period_pattern']+r'\s*[\u2013\u2014-]\s*'+metadata['publication_pattern']
+    heading=(prefix+r'(?:'+metadata['period_pattern']+r'(?:\s*[\u2013\u2014-]\s*|\s+)'+metadata['publication_pattern']
              +r'|TRANSCRIPT\s+'+metadata['publication_pattern']+r'\s+'+metadata['period_pattern']+r')\b')
     qa=metadata['qa_pattern']
     if qa==qa_pattern(metadata['fiscal_quarter'],legacy=True):

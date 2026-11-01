@@ -1,0 +1,22 @@
+{
+  "https://data.sec.gov/submissions/CIK0000749098.json": {
+    "file": "submissions.json",
+    "bytes": 138170,
+    "sha256": "bd31ec416a04c36c826d1ad4fdb633a31f911c0e88933038a7bb5982d3275554"
+  },
+  "https://www.sec.gov/Archives/edgar/data/749098/000110465926120638/tm2628312d2_6k.htm": {
+    "file": "cover.html",
+    "bytes": 10244,
+    "sha256": "91a9967d164911e073152e8c70ebd9a55f04ee19c949a493012ec07920a96bc0"
+  },
+  "https://www.sec.gov/Archives/edgar/data/749098/000110465926120638/tm2628312d2_ex99-3.htm": {
+    "file": "transcript.html",
+    "bytes": 138191,
+    "sha256": "537fea439aaea78c8c76666c1a3056b04ffb87a9e2886eb1dca8b4b87dd1ba18"
+  },
+  "https://www.sec.gov/Archives/edgar/data/749098/000110465926120352/tm2628312d1_6k.htm": {
+    "file": "0001104659-26-120352.html",
+    "bytes": 13041,
+    "sha256": "4139fd0e8c4edfde6280ea4c41528b0b775f36841f462cf74d80befc10f24d7e"
+  }
+}
