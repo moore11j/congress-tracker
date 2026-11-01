@@ -6,6 +6,8 @@ from decimal import Decimal
 import hashlib
 import json
 import re
+import tempfile
+from threading import Lock
 from statistics import median
 from xml.etree import ElementTree as ET
 
@@ -98,6 +100,84 @@ class VerifiedPeerRecord:
     compact: tuple | None
 
 
+MAX_STREAM_SPOOL_BYTES = 128_000_000
+
+
+class _PeerSummarySpool:
+    """Private batch-local storage; never reuse a persisted derived cache.
+
+    TemporaryFile is unlinked immediately on POSIX and delete-on-close on
+    Windows. A killed worker leaves no named cache to trust on another run.
+    Only freshly verified original-derived immutable values enter this file.
+    """
+    def __init__(self):
+        self.file = tempfile.TemporaryFile(mode='w+b')
+        self.size = 0
+        self.sealed = False
+        self.lock = Lock()
+
+    def append(self, compact):
+        if self.sealed:
+            raise ValueError('Verified peer spool is sealed')
+        if compact is None:
+            return None
+        raw = json.dumps(compact, default=str, separators=(',', ':')).encode()
+        if len(raw) > MAX_STREAM_SUMMARY_BYTES:
+            raise ValueError('Single peer summary exceeds memory budget')
+        if self.size + len(raw) > MAX_STREAM_SPOOL_BYTES:
+            raise ValueError('Complete peer summaries exceed temporary storage budget')
+        offset = self.size
+        self.file.seek(offset)
+        if self.file.write(raw) != len(raw):
+            raise OSError('Incomplete peer summary write')
+        self.size += len(raw)
+        return offset, len(raw), hashlib.sha256(raw).hexdigest()
+
+    def read(self, location):
+        if location is None:
+            return None
+        if not self.sealed:
+            raise ValueError('Verified peer spool is not sealed')
+        offset, length, digest = location
+        if offset < 0 or length < 0 or length > MAX_STREAM_SUMMARY_BYTES or offset + length > self.size:
+            raise DirectSourceError('Invalid peer summary location')
+        with self.lock:
+            self.file.seek(offset)
+            raw = self.file.read(length)
+        if len(raw) != length or hashlib.sha256(raw).hexdigest() != digest:
+            raise DirectSourceError('Verified peer summary checksum mismatch')
+        metadata, reasons, totals = json.loads(raw)
+        return metadata, reasons, tuple((cusip, Decimal(shares), Decimal(value))
+                                       for cusip, shares, value in totals)
+
+    def seal(self):
+        self.file.flush()
+        self.sealed = True
+
+    def close(self):
+        self.file.close()
+
+
+@dataclass(frozen=True)
+class _SpooledPeerRecord:
+    identity: str
+    metadata_json: str
+    content_hash: str
+    source_bytes: int
+    location: tuple | None
+    spool: _PeerSummarySpool
+
+    @property
+    def compact(self):
+        return self.spool.read(self.location)
+
+
+def _peer_record_size(record):
+    payload = record.location if isinstance(record, _SpooledPeerRecord) else record.compact
+    return len(json.dumps((record.identity, record.metadata_json, record.content_hash,
+                           record.source_bytes, payload), default=str).encode())
+
+
 @dataclass(frozen=True)
 class VerifiedPeerCohort:
     """Immutable values derived from every verified original in one cohort.
@@ -110,6 +190,12 @@ class VerifiedPeerCohort:
     period: str | None
     cusips: frozenset | None
     summary_bytes: int
+    cusip_names: tuple | None = None
+    spool: _PeerSummarySpool | None = None
+
+    def close(self):
+        if self.spool is not None:
+            self.spool.close()
 
     def __len__(self):
         return len(self.records)
@@ -128,14 +214,22 @@ class VerifiedPeerCohort:
         if ((self.period is not None and parsed['metadata']['report_period'] != self.period)
                 or (self.cusips is not None and not wanted <= self.cusips)):
             raise DirectSourceError('Target falls outside verified peer evidence scope')
+        # One immutable name dictionary replaces repeated CUSIP strings in
+        # peer rows. Decimal totals remain unchanged; divide in caller context.
+        wanted_ids = ({index for index, name in enumerate(self.cusip_names) if name in wanted}
+                      if self.cusip_names is not None else None)
         for record in self.records:
-            if record.compact is None:
+            compact = record.compact
+            if compact is None:
                 continue
-            metadata, reasons, totals = record.compact
-            yield json.loads(metadata), json.loads(reasons), _equity_prices(totals, wanted)
+            metadata, reasons, totals = compact
+            prices = (_equity_prices(totals, wanted) if wanted_ids is None else
+                {self.cusip_names[index]: value / shares for index, shares, value in totals
+                 if index in wanted_ids and shares > 0 and value > 0})
+            yield json.loads(metadata), json.loads(reasons), prices
 
 
-def prepare_streamed_peer_groups(documents, *, scopes):
+def prepare_streamed_peer_groups(documents, *, scopes, spill_to_disk=False):
     """Scan complete originals, retaining bounded summaries instead of raw files.
 
     scopes maps report periods to target CUSIPs; None retains complete values
@@ -144,47 +238,79 @@ def prepare_streamed_peer_groups(documents, *, scopes):
     """
     from app.services.direct_feed_worker import _source_url
     groups = {period: [] for period in sorted(scopes)} if scopes is not None else {None: []}
-    sizes = {period: 0 for period in groups}
-    total_size = 0
-    for document in documents:
-        if document.get('feed') != 'sec_13f':
-            raise ValueError('Wrong comparison evidence feed')
-        _source_url(document['metadata'])
-        identity = _evidence_key(document)
-        compact = None
-        periods = groups
-        try:
-            _, parsed, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
-        except DirectSourceError:
-            pass
-        else:
-            period = parsed['metadata']['report_period']
-            periods = [period] if period in groups else []
-            if scopes is None:
-                periods = [None]
-            if periods:
-                wanted = scopes[period] if scopes is not None else None
-                totals = tuple(row for row in _equity_totals(parsed['positions'])
-                               if wanted is None or row[0] in wanted)
-                compact = (json.dumps(parsed['metadata'], default=str), json.dumps(reasons), totals)
-            del parsed
-        if not periods:
-            continue
-        record = VerifiedPeerRecord(identity, json.dumps(document['metadata'], sort_keys=True),
-                                    document['content_hash'], len(document['raw']), compact)
-        size = len(json.dumps((record.identity, record.metadata_json, record.content_hash,
-                              record.source_bytes, record.compact), default=str).encode())
-        for period in periods:
-            total_size += size
-            if total_size > MAX_STREAM_SUMMARY_BYTES:
-                raise ValueError('Complete streamed peer summaries exceed memory budget')
-            groups[period].append(record)
-            sizes[period] += size
-    if any(not records for records in groups.values()):
-        raise ValueError('Missing staged comparison period evidence')
-    return {period: VerifiedPeerCohort(tuple(records), period,
-                frozenset(scopes[period]) if scopes is not None else None, sizes[period])
-            for period, records in groups.items()}
+    names = ({period: tuple(sorted(scopes[period])) for period in groups}
+             if scopes is not None else {None: None})
+    indexes = {period: {name: index for index, name in enumerate(pool)}
+               for period, pool in names.items() if pool is not None}
+    sizes = {period: len(json.dumps(pool).encode()) if pool is not None else 0
+             for period, pool in names.items()}
+    total_size = sum(sizes.values())
+    if total_size > MAX_STREAM_SUMMARY_BYTES:
+        raise ValueError('Complete streamed peer summaries exceed memory budget')
+    spool = None
+    def spill(record):
+        return _SpooledPeerRecord(record.identity, record.metadata_json, record.content_hash,
+                                  record.source_bytes, spool.append(record.compact), spool)
+    try:
+        for document in documents:
+            if document.get('feed') != 'sec_13f':
+                raise ValueError('Wrong comparison evidence feed')
+            _source_url(document['metadata'])
+            identity = _evidence_key(document)
+            compact = None
+            periods = groups
+            try:
+                _, parsed, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
+            except DirectSourceError:
+                pass
+            else:
+                period = parsed['metadata']['report_period']
+                periods = [period] if period in groups else []
+                if scopes is None:
+                    periods = [None]
+                if periods:
+                    wanted = scopes[period] if scopes is not None else None
+                    totals = tuple(row for row in _equity_totals(parsed['positions'])
+                                   if wanted is None or row[0] in wanted)
+                    if wanted is not None:
+                        totals = tuple((indexes[period][cusip], shares, value)
+                                       for cusip, shares, value in totals)
+                    compact = (json.dumps(parsed['metadata'], default=str), json.dumps(reasons), totals)
+                del parsed
+            if not periods:
+                continue
+            record = VerifiedPeerRecord(identity, json.dumps(document['metadata'], sort_keys=True),
+                                        document['content_hash'], len(document['raw']), compact)
+            size = _peer_record_size(record)
+            if spool is None and total_size + size * len(periods) > MAX_STREAM_SUMMARY_BYTES and spill_to_disk:
+                spool = _PeerSummarySpool()
+                for saved_period, records in groups.items():
+                    groups[saved_period] = [spill(saved) for saved in records]
+                    sizes[saved_period] = (len(json.dumps(names[saved_period]).encode())
+                                           if names[saved_period] is not None else 0)
+                    sizes[saved_period] += sum(_peer_record_size(saved) for saved in groups[saved_period])
+                total_size = sum(sizes.values())
+            if spool is not None:
+                record = spill(record)
+                size = _peer_record_size(record)
+            for period in periods:
+                total_size += size
+                if total_size > MAX_STREAM_SUMMARY_BYTES:
+                    raise ValueError('Complete streamed peer summaries exceed memory budget')
+                groups[period].append(record)
+                sizes[period] += size
+        if any(not records for records in groups.values()):
+            raise ValueError('Missing staged comparison period evidence')
+        if spool is not None:
+            spool.seal()
+        return {period: VerifiedPeerCohort(tuple(records), period,
+                    frozenset(scopes[period]) if scopes is not None else None, sizes[period], names[period], spool)
+                for period, records in groups.items()}
+
+    except BaseException:
+        if spool is not None:
+            spool.close()
+        raise
 
 
 @dataclass(frozen=True)

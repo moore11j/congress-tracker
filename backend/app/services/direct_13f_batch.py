@@ -304,27 +304,33 @@ def prepare_13f_batch(db, *, ids, identifier_documents, use_staged_references=Fa
             checkpoint('complete_peer_scan')
             yield document
     groups = prepare_streamed_peer_groups(sources(),
-        scopes=value_scopes if report_periods is not None else None)
-    checkpoint('references_and_evidence')
-    references = []
-    if use_staged_references:
-        from app.services.institutional_reference import load_reference_batch
-        references = load_reference_batch(db, set().union(*reference_scopes.values()) if reference_scopes else set())
-    # All originals are checked before the first writer transaction. Mixed
-    # quarter batches retain complete peer summaries and target order.
-    evidence = {period: Prepared13FEvidence.build_for_cohort(identifier_documents, cohort)
-                for period, cohort in groups.items()}
-    comparisons = {record.identity: record for cohort in groups.values() for record in cohort.records}
-    checkpoint('complete')
-    return dict(groups=groups, evidence=evidence, references=references,
-        target_periods=target_periods, reference_scopes=reference_scopes,
-        summary={
-            'comparison_periods': sorted(report_periods) if report_periods is not None else None,
-            'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},
-            'reference_documents': len(references),
-            'comparison_documents': len(comparisons),
-            'comparison_bytes': sum(record.source_bytes for record in comparisons.values()),
-        })
+        scopes=value_scopes if report_periods is not None else None, spill_to_disk=True)
+    try:
+        checkpoint('references_and_evidence')
+        references = []
+        if use_staged_references:
+            from app.services.institutional_reference import load_reference_batch
+            references = load_reference_batch(db, set().union(*reference_scopes.values()) if reference_scopes else set())
+        # All originals are checked before the first writer transaction. Mixed
+        # quarter batches retain complete peer summaries and target order.
+        evidence = {period: Prepared13FEvidence.build_for_cohort(identifier_documents, cohort)
+                    for period, cohort in groups.items()}
+        comparisons = {record.identity: record for cohort in groups.values() for record in cohort.records}
+        checkpoint('complete')
+        return dict(groups=groups, evidence=evidence, references=references,
+            target_periods=target_periods, reference_scopes=reference_scopes,
+            summary={
+                'comparison_periods': sorted(report_periods) if report_periods is not None else None,
+                'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},
+                'reference_documents': len(references),
+                'comparison_documents': len(comparisons),
+                'comparison_bytes': sum(record.source_bytes for record in comparisons.values()),
+            })
+
+    except BaseException:
+        for cohort in groups.values():
+            cohort.close()
+        raise
 
 
 def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False, include_waiting=False):
@@ -339,19 +345,24 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
     prepared = prepare_13f_batch(db, ids=ids, identifier_documents=identifier_documents,
         use_staged_references=use_staged_references)
-    db.rollback()  # Recheck durable ownership inside every filing transaction.
-    groups, evidence, references = prepared['groups'], prepared['evidence'], prepared['references']
-    target_periods, reference_scopes = prepared['target_periods'], prepared['reference_scopes']
-    report_periods = prepared['summary']['comparison_periods']
-    def group_key(document_id):
-        return target_periods[document_id] if report_periods is not None else None
-    results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
-        identifier_documents=identifier_documents, comparison_documents=groups[group_key(document_id)],
-        prepared_evidence=evidence[group_key(document_id)],
-        reference_documents=[r for r in references if (r['query']['cusip'], r['query']['date']) in reference_scopes.get(document_id, set())])) for document_id in ids]
-    if retry_ids:
-        _save_retry_position(db, generation, expected_state, retry_ids[-1])
-    return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
-        **prepared['summary'],
-        'processed': len(results), 'feed_events': sum(r.get('feed_events', 0) for r in results),
-        'results': results, 'email_deliveries': 0}
+    try:
+        db.rollback()  # Recheck durable ownership inside every filing transaction.
+        groups, evidence, references = prepared['groups'], prepared['evidence'], prepared['references']
+        target_periods, reference_scopes = prepared['target_periods'], prepared['reference_scopes']
+        report_periods = prepared['summary']['comparison_periods']
+        def group_key(document_id):
+            return target_periods[document_id] if report_periods is not None else None
+        results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
+            identifier_documents=identifier_documents, comparison_documents=groups[group_key(document_id)],
+            prepared_evidence=evidence[group_key(document_id)],
+            reference_documents=[r for r in references if (r['query']['cusip'], r['query']['date']) in reference_scopes.get(document_id, set())])) for document_id in ids]
+        if retry_ids:
+            _save_retry_position(db, generation, expected_state, retry_ids[-1])
+        return {'status': 'partial' if any(r['status'] in {'held', 'waiting'} for r in results) else 'ok',
+            **prepared['summary'],
+            'processed': len(results), 'feed_events': sum(r.get('feed_events', 0) for r in results),
+            'results': results, 'email_deliveries': 0}
+
+    finally:
+        for cohort in prepared['groups'].values():
+            cohort.close()
