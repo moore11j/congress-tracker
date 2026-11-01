@@ -49,6 +49,10 @@ MANUAL_JOBS = {
         'command': 'cd /app && python -m app.jobs.capture_direct_13f_evidence',
         'environment': {}, 'lane': 'data',
     },
+    'maintenance-institutional-peers-v1': {
+        'command': 'cd /app && python -m app.jobs.capture_institutional_peers',
+        'environment': {}, 'lane': 'data',
+    },
     'maintenance-price-lookup-index-v1': {
         'command': 'cd /app && python -m app.jobs.migrate_price_lookup_index --apply',
         'environment': {},
@@ -135,6 +139,7 @@ def database(path):
 RELEASE_PROTECTED_COMMANDS = {
     PORTFOLIO_COMMAND, OUTCOME_COMMAND, 'cd /app && python -m app.ingest_run --job all',
     'cd /app && python -m app.jobs.capture_direct_13f_evidence',
+    'cd /app && python -m app.jobs.capture_institutional_peers',
 }
 
 
@@ -157,8 +162,9 @@ def reserve_release(db, owner, manifest, *, seconds=600, now=None):
                 if manifest.get(row['key'], {}).get('command') in RELEASE_PROTECTED_COMMANDS
                 or row['kind'] in CHECKPOINT_COMMANDS.values()]
         if busy:
-            capture_only = all(manifest.get(row['key'], {}).get('command') ==
-                               'cd /app && python -m app.jobs.capture_direct_13f_evidence' for row in busy)
+            capture_only = all(manifest.get(row['key'], {}).get('command') in {
+                'cd /app && python -m app.jobs.capture_direct_13f_evidence',
+                'cd /app && python -m app.jobs.capture_institutional_peers'} for row in busy)
             outcome_only = all(manifest.get(row['key'], {}).get('command') == OUTCOME_COMMAND
                                or row['kind'] == 'outcome_hydration_v1' for row in busy)
             db.commit()
