@@ -15,6 +15,7 @@ from app.jobs.collect_direct_feeds import collector_lock
 from app.clients.direct_sources import DirectSourceError
 from app.services.finnhub_news_warming import _owner, _lease_active
 from app.utils.symbols import normalize_symbol, classify_symbol
+from app.services.fundamentals_snapshots import SNAPSHOT_MUTUAL_FUND_LIKE_RE
 
 KEY = 'sec-fundamentals:warming:v1'
 METRIC_MAX_SECONDS = 20
@@ -154,7 +155,12 @@ def _run_locked():
         batch_limit = 5
         if broad:
             batch_limit = sec_batch_limit()
-        due_symbols = [s for s in symbols if not broad or due_scope(s)]
+        # Apply the existing company-financial snapshot policy only to SEC
+        # statement preparation. Keep the complete universe and prior receipts,
+        # Finnhub metric work, canonical records and market-data paths intact.
+        excluded_sec_scopes = [s for s in symbols if SNAPSHOT_MUTUAL_FUND_LIKE_RE.fullmatch(s)]
+        excluded_sec = set(excluded_sec_scopes)
+        due_symbols = [s for s in symbols if s not in excluded_sec and (not broad or due_scope(s))]
         if broad:
             due_symbols = order_due_scopes(due_symbols, now=now, attempts=attempts,
                 refresh_after=refresh_after, priority=priority_symbols,
@@ -264,6 +270,7 @@ def _run_locked():
     receipt = {'status': 'partial' if truncated or metric_stop or sec_stop or any(r['status'] not in {'ok','partial'} for r in [*results, *metric_results]) else 'ok',
         'observed_at': now.isoformat(), 'universe_size': len(symbols), 'universe_truncated': truncated, 'ranking_universe_enabled': broad, 'priority_universe_size': len(priority_symbols), 'ranking_cache_symbols': min(len(ranked),5000), 'batch_limit': batch_limit,
         'planned_scopes': len(selected), 'due_scopes': len(due_symbols), 'completed_scopes': len(results), 'results': results,
+        'excluded_sec_scopes': excluded_sec_scopes, 'sec_exclusion_reason': 'existing_company_financial_fund_policy',
         'metric_results': metric_results,
         'planned_metric_scopes': metric_planned, 'completed_metric_scopes': len(metric_results),
         'metric_batch_limit': metric_limit, 'metric_elapsed_seconds': round(time.monotonic()-metric_started, 3),

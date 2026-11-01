@@ -46,6 +46,8 @@ jobs:
           python -m pytest
           tests/test_sec_comparative_basis.py
           tests/test_sec_refresh_capacity.py
+          tests/test_sec_fund_queue_selection.py
+          tests/test_fundamentals_snapshots.py
           tests/test_sec_rollover_discovery.py
           tests/test_sec_tabular_reporting.py
           tests/test_sec_financial_discovery_reader.py
