@@ -36,6 +36,8 @@ processes = ["app"]
   # Preparation only; public fundamentals selection stays separately gated.
   FINNHUB_METRICS_WARMING_ENABLED = "1"
   FINNHUB_METRICS_BATCH_SIZE = "10"
+  # Existing five-minute SEC queue: at most sixteen scopes, stop starting work after 30s.
+  SEC_FUNDAMENTALS_WARMING_BATCH_SIZE = "16"
   # Advance missed financial filings within existing SEC worker slots.
   # Public readers stay separately gated until ordinary collection is verified.
   SEC_FINANCIAL_DISCOVERY_ENABLED = "1"

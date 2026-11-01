@@ -18,6 +18,7 @@ from app.utils.symbols import normalize_symbol, classify_symbol
 
 KEY = 'sec-fundamentals:warming:v1'
 METRIC_MAX_SECONDS = 20
+SEC_MAX_SECONDS = 30
 PRIORITY_REFRESH = timedelta(hours=20)
 
 
@@ -59,6 +60,13 @@ def scope_batch(due, limit, *, priority, changed_dependencies, changed_versions)
             selected[index] = update
             break
     return selected
+
+
+def sec_batch_limit():
+    try:
+        return max(1, min(16, int(os.getenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE', '5'))))
+    except ValueError:
+        return 5
 
 
 def metric_batch_limit():
@@ -145,7 +153,7 @@ def _run_locked():
             symbols.sort(key=lambda s: (s not in changed_dependencies, 0 if s in priority_symbols and due_scope(s) else 1, attempts.get(s, ''), s))
         batch_limit = 5
         if broad:
-            batch_limit = max(1, min(10, int(os.getenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE', '5'))))
+            batch_limit = sec_batch_limit()
         due_symbols = [s for s in symbols if not broad or due_scope(s)]
         if broad:
             due_symbols = order_due_scopes(due_symbols, now=now, attempts=attempts,
@@ -166,7 +174,13 @@ def _run_locked():
     # Planning commits before nested directory/panel cache transactions.
     results = []
     sec_stop = None
+    sec_started = time.monotonic()
     for symbol in selected:
+        # Do not begin another source acquisition after this run's time budget.
+        # The in-flight source retains its own existing transport/work limits.
+        if time.monotonic()-sec_started >= SEC_MAX_SECONDS:
+            sec_stop = 'elapsed_budget'
+            break
         # Attempts order due work. Cache access never resets an observation's
         # deadline, including stocks outside the watch/research priority set.
         next_refresh = now + PRIORITY_REFRESH
@@ -209,6 +223,7 @@ def _run_locked():
             break
         if str(result.get('reason', '')).startswith(('Source transport failed', 'Source cooldown', 'Source HTTP ')):
             break
+    sec_elapsed_seconds = round(time.monotonic()-sec_started, 3)
     metric_results = []
     metric_limit = metric_batch_limit()
     metric_started = time.monotonic()
@@ -253,7 +268,7 @@ def _run_locked():
         'planned_metric_scopes': metric_planned, 'completed_metric_scopes': len(metric_results),
         'metric_batch_limit': metric_limit, 'metric_elapsed_seconds': round(time.monotonic()-metric_started, 3),
         'metric_stop_reason': metric_stop,
-        'sec_stop_reason': sec_stop,
+        'sec_stop_reason': sec_stop, 'sec_elapsed_seconds': sec_elapsed_seconds,
         'fundamentals_selection': os.getenv('FUNDAMENTALS_PROVIDER', 'fmp'),
         'canonical_writes': 0, 'model_calls': 0, 'emails': 0}
     with SessionLocal() as db:

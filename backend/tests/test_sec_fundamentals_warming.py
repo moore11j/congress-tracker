@@ -132,11 +132,11 @@ def test_opt_in_ranking_universe_prepares_without_starving_due_watch_symbols(fac
 
 def test_universe_batch_limit_is_bounded_and_opt_in(factory,monkeypatch):
     monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_BATCH_SIZE','999')
-    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['T'+chr(65+i) for i in range(15)])
+    monkeypatch.setattr(queue,'DEFAULT_PREWARM_SYMBOLS',['T'+chr(65+i) for i in range(21)])
     monkeypatch.setattr(sec_fundamentals_preparation,'prepare',lambda s, **kwargs:{'status':'partial','source':'sec_edgar','values':{},'observed_at':'2026-10-10T00:00:00+00:00'})
     assert job.run()['completed_scopes']==5
     monkeypatch.setenv('SEC_FUNDAMENTALS_UNIVERSE_WARMING_ENABLED','1')
-    result=job.run();assert result['completed_scopes']==result['batch_limit']==10
+    result=job.run();assert result['completed_scopes']==result['batch_limit']==16
 
 
 def test_new_parser_version_refreshes_priority_once_then_resumes_universe(factory,monkeypatch):
