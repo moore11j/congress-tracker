@@ -122,9 +122,13 @@ def test_malformed_qualification_rejected_before_source_requests(database,mutati
     assert not client.calls
 
 
-def test_worker_preparation_uses_existing_slot_then_caches_pending_and_real_financials(database,monkeypatch):
+@pytest.mark.parametrize('annual_rollover',[False,True])
+def test_worker_preparation_uses_existing_slot_then_caches_pending_and_real_financials(database,monkeypatch,annual_rollover):
     from app.services import sec_directory
     company=single_directory();clients=[];clock=[NOW]
+    if annual_rollover:
+        from app.services import sec_foreign_statements
+        monkeypatch.setattr(sec_foreign_statements,'profile',lambda symbol,cik:{'currency':'USD','namespace':'us-gaap'})
     class Clock(datetime):
         @classmethod
         def now(cls,tz=None):return clock[0]
@@ -141,6 +145,9 @@ def test_worker_preparation_uses_existing_slot_then_caches_pending_and_real_fina
     with database() as db:
         payload={'symbol':'NBIS','status':'unavailable','values':{},'reason':'unsupported_current_financial_coverage',
                  'observed_at':(NOW-timedelta(days=2)).isoformat()}
+        if annual_rollover:
+            payload.update(source='sec_edgar',version=prep.version_for_symbol('NBIS'),
+                source_evidence={'cik':'0001513845'},detail='nbis_newer_or_amended_report_requires_review')
         db.add(InsightsSnapshot(kind='sec-current-fundamentals:NBIS:v1',source='sec_edgar',
             fetched_at=NOW-timedelta(days=2),payload_json=json.dumps(payload)));db.commit()
     for phase in ('covers','qualification','complete'):
@@ -153,6 +160,14 @@ def test_worker_preparation_uses_existing_slot_then_caches_pending_and_real_fina
     assert result['status']=='partial' and result['values']['current_ratio']==pytest.approx(4.029839487029043)
     assert result['period_date']=='2026-06-30' and 'reason' not in result
     assert result['source']=='sec_edgar' and result['coverage']['complete'] is False
+    # A completed partial preparation must remain reachable on its next refresh.
+    if annual_rollover:
+        assert prep._continue_discovery('NBIS','0001513845')
+        clock[0]+=prep.TTL+timedelta(seconds=1)
+        repeated=prep.prepare('NBIS',continue_discovery=True)
+        assert repeated['values']==result['values']
+        assert repeated['calculation_evidence']==result['calculation_evidence']
+        assert len(clients[-1].calls)<=8
 
 
 @pytest.mark.parametrize('suffix',['*','**','e','/2026',' (estimated)'])

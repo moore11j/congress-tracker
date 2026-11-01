@@ -152,12 +152,33 @@ def _continue_discovery(symbol,cik):
     from app.services.sec_reporting_policy import reviewed
     from app.services.sec_currency_ratios import basis
     from app.services.sec_foreign_statements import profile
-    if reviewed(symbol,cik) or basis(symbol,cik) or profile(symbol,cik):return False
+    if reviewed(symbol,cik) or basis(symbol,cik):return False
+    annual_profile=profile(symbol,cik)
     with SessionLocal() as db:
         row=db.get(InsightsSnapshot,f'sec-current-fundamentals:{symbol}:v1')
         if row is None or row.source!='sec_edgar' or len(row.payload_json)>2_000_000:return False
         try:payload=json.loads(row.payload_json)
         except (ValueError,TypeError):return False
+    if annual_profile:
+        # An annual statement profile does not qualify a later interim report.
+        # Permit only a current, identity-bound rollover hold (or its continued
+        # discovery) to collect evidence. Restore still requires a complete
+        # inventory and revalidation of the full original statements.
+        from app.services.sec_financial_discovery_reader import VERSION as discovery_version
+        if (not isinstance(payload,dict) or payload.get('symbol')!=symbol
+                or payload.get('source')!='sec_edgar'
+                or payload.get('version')!=version_for_symbol(symbol)
+                or not isinstance(payload.get('source_evidence'),dict)
+                or payload['source_evidence'].get('cik')!=str(cik).zfill(10)):
+            return False
+        continuation=(isinstance(payload.get('discovery'),dict)
+            and payload.get('discovery_version')==discovery_version)
+        rollover=(payload.get('status')=='unavailable' and not payload.get('values')
+            and payload.get('reason')=='unsupported_current_financial_coverage'
+            and payload.get('detail') in {
+                f'{symbol.lower()}_new_or_amended_report_requires_review',
+                f'{symbol.lower()}_newer_or_amended_report_requires_review'})
+        return continuation or rollover
     return (isinstance(payload,dict) and payload.get('symbol')==symbol and
         (isinstance(payload.get('discovery'),dict) or (payload.get('status')=='unavailable'
         and not payload.get('values') and payload.get('reason') in {
@@ -169,7 +190,9 @@ def _prepare_discovery(payload,company,raw,*,symbol,cik,client,now,dependency):
     from app.services import sec_financial_discovery_store as store,sec_financial_discovery_reader as reader
     available=now.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
     common=dict(symbol=symbol,cik=cik,available_by=available,observed_at=now)
-    progress=store.progress(company,raw,client=client,**common)
+    from app.services.sec_foreign_statements import profile
+    annual_rollover=bool(profile(symbol,cik))
+    progress=store.progress(company,raw,client=client,annual_rollover=annual_rollover,**common)
     payload['discovery']=progress
     payload['discovery_version']=reader.VERSION
     payload['reason']='financial_discovery_pending' if progress['status']=='pending' else 'financial_discovery_held'
@@ -179,7 +202,7 @@ def _prepare_discovery(payload,company,raw,*,symbol,cik,client,now,dependency):
         if progress['phase']!='complete':
             payload['reason']='financial_discovery_pending'
         else:
-            filing=reader.restore(company,raw,checkpoint=store.read(symbol,cik),client=client,**common)
+            filing=reader.restore(company,raw,checkpoint=store.read(symbol,cik),client=client,annual_rollover=annual_rollover,**common)
             try:
                 values=sec_fundamentals.project_fundamentals(raw,company,symbol=symbol,cik=cik,
                     observed_at=now,filing_supplement=filing)

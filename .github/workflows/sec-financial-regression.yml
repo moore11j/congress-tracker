@@ -45,6 +45,8 @@ jobs:
         run: >-
           python -m pytest
           tests/test_sec_refresh_capacity.py
+          tests/test_sec_rollover_discovery.py
+          tests/test_sec_financial_discovery_progress.py
           tests/test_sec_fundamentals_warming.py
           tests/test_sec_universe_freshness.py
           tests/test_sec_priority_cache_refresh.py

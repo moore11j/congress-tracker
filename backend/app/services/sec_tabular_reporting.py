@@ -119,6 +119,11 @@ def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik
     if not observations['tables'] and not observations['holds']:
         raise TabularReportingError('table_no_statements')
     basis = declaration(raw, observations)
+    from app.services.sec_foreign_statements import profile
+    annual_profile=profile(symbol,cik)
+    if annual_profile and (basis['currency']!=annual_profile['currency']
+            or basis['accounting_basis']!={'us-gaap':'US GAAP','ifrs-full':'IFRS'}.get(annual_profile['namespace'])):
+        raise TabularReportingError('table_annual_reporting_basis_conflict')
     source = observations['source']
     chosen = [f for f in observations['facts'] if f['currency'] == basis['currency']]
     if not chosen:
@@ -196,10 +201,11 @@ def statement_link_candidates(tree, cover_url):
             label=tables.clean(' '.join(row[0].itertext()))
         if re.search(r'\b(?:to|will)\s+(?:announce|report)\b|\b(?:date|schedule)\s+(?:of|for)\b',label,re.I):
             continue
-        if re.search(r'\bfinancial\s+(?:statements?|reports?|results?)\b|\b(?:press|earnings)\s+release\b',label,re.I):
+        periodic=re.search(r'\bquarterly\s+statements?\b|\bhalf[ -]year\s+reports?\b',label,re.I)
+        if periodic or re.search(r'\bfinancial\s+(?:statements?|reports?|results?)\b|\b(?:press|earnings)\s+release\b',label,re.I):
             url=urljoin(cover_url,node.get('href'))
             if urldefrag(url)[0]==cover_url:continue
-            kind=('financial_statement' if re.search(r'\bfinancial statements?\b',label,re.I)
+            kind=('financial_statement' if periodic or re.search(r'\bfinancial statements?\b',label,re.I)
                   else 'financial_results' if re.search(r'\bfinancial\s+(?:reports?|results?)\b|\bearnings\s+release\b',label,re.I)
                   else 'press_release')
             if url not in links or priority[kind]<priority[links[url]]:links[url]=kind
@@ -212,13 +218,13 @@ def statement_links(tree, cover_url):
     return {item['url'] for item in statement_link_candidates(tree,cover_url)}
 
 
-def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessions=None, inspection=None):
+def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessions=None, inspection=None, annual_rollover=False):
     """Inspect at most three filing covers and one exhibit each, caller budgeted."""
     from app.services import sec_document_sets as sets
     from app.services.sec_reporting_policy import reviewed
     from app.services.sec_foreign_statements import profile
     from app.services.sec_currency_ratios import basis
-    if reviewed(symbol,cik) or profile(symbol,cik) or basis(symbol,cik):
+    if reviewed(symbol,cik) or (profile(symbol,cik) and not annual_rollover) or basis(symbol,cik):
         return None
     if not any(f in {'6-K','6-K/A'} for f in json.loads(company_raw).get('filings',{}).get('recent',{}).get('form',[])):
         return None
