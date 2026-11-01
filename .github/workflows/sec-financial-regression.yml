@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "backend/app/services/sec_*.py"
+      - "backend/app/jobs/warm_sec_fundamentals.py"
+      - "backend/fly.toml"
       - "backend/app/services/confirmation_score.py"
       - "backend/app/services/custom_alert_rules.py"
       - "backend/tests/test_sec_*.py"
@@ -42,6 +44,14 @@ jobs:
         working-directory: backend
         run: >-
           python -m pytest
+          tests/test_sec_refresh_capacity.py
+          tests/test_sec_fundamentals_warming.py
+          tests/test_sec_universe_freshness.py
+          tests/test_sec_priority_cache_refresh.py
+          tests/test_sec_discovery_deadline_order.py
+          tests/test_sec_version_rotation.py
+          tests/test_sec_cash_flow_isolation.py
+          tests/test_sec_financial_discovery_scheduling.py
           tests/test_sec_core_precision.py
           tests/test_sec_duplicate_overlap.py
           tests/test_sec_inline_financials.py
