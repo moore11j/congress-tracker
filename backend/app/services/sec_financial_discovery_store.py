@@ -111,7 +111,7 @@ def stage(company_raw, *, symbol, cik, available_by, client, observed_at=None):
     return {**result,'checkpoint_written':_persist(key,result['state'],expected,observed_at)}
 
 
-def progress(company_raw,facts_raw,*,symbol,cik,available_by,client,observed_at=None):
+def progress(company_raw,facts_raw,*,symbol,cik,available_by,client,observed_at=None,annual_rollover=False):
     """One slot: three covers OR up to three qualifications within six reads."""
     _worker_guard()
     from app.services import sec_financial_discovery_reader as reader
@@ -153,7 +153,7 @@ def progress(company_raw,facts_raw,*,symbol,cik,available_by,client,observed_at=
         if selection['next_accession'] is None:break
         try:
             result=reader.inspect_candidate(company_raw,facts_raw,checkpoint=plan['state'],
-                accession=selection['next_accession'],client=bounded,**common)
+                accession=selection['next_accession'],client=bounded,annual_rollover=annual_rollover,**common)
         except _QualificationBudget:
             # Only complete, independently validated receipts can be committed.
             # The unfinished candidate stays first in line for the next slot.

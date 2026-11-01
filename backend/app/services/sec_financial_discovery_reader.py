@@ -124,7 +124,7 @@ def validate_receipt(receipt,cover,*,now):
         raise discovery.DiscoveryError('discovery_qualification_invalid') from exc
 
 
-def restore(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,checkpoint,client):
+def restore(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,checkpoint,client,annual_rollover=False):
     """Re-fetch and revalidate selected complete originals, never stored values."""
     common=dict(symbol=symbol,cik=cik,available_by=available_by,observed_at=observed_at)
     plan=selection_plan(company_raw,checkpoint=checkpoint,**common)
@@ -154,7 +154,7 @@ def restore(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,checkpoi
     retained=VerifiedOriginals()
     if len(selected)==1:
         result=inspect_candidate(company_raw,facts_raw,checkpoint=validated['state'],
-                                 accession=selected[0],client=retained,**common)
+                                 accession=selected[0],client=retained,annual_rollover=annual_rollover,**common)
         expected_receipt=deepcopy(qualifications[selected[0]])
         expected_receipt['observed_at']=observed_at.isoformat()
         comparison=deepcopy(result['receipt'])
@@ -173,7 +173,7 @@ def restore(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,checkpoi
             raise discovery.DiscoveryError('discovery_facts_identity')
         from app.services import sec_tabular_reporting as tables
         supplement=tables.acquire(company_raw,symbol=symbol,cik=cik,available_by=available_by,
-                                   client=retained,candidate_accessions=tuple(selected))
+                                   client=retained,candidate_accessions=tuple(selected),annual_rollover=annual_rollover)
         if supplement is None:raise discovery.DiscoveryError('discovery_qualification_changed')
         tables.validate(supplement,company_raw=company_raw,symbol=symbol,cik=cik,available_by=available_by)
     if set(originals)!=set(expected):raise discovery.DiscoveryError('discovery_originals_not_revalidated')
@@ -181,7 +181,7 @@ def restore(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,checkpoi
 
 
 def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,
-                      checkpoint,accession,client):
+                      checkpoint,accession,client,annual_rollover=False):
     from app.services import sec_document_sets as sets,sec_inline_financials as inline
     from app.services import sec_tagged_foreign as standard,sec_statement_currency as native
     from app.services import sec_tabular_reporting as tables
@@ -197,7 +197,8 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
     if hint is None:raise discovery.DiscoveryError('discovery_cover_not_observed')
     if hint['status']!='observed':raise discovery.DiscoveryError('discovery_cover_held')
     # Preserve explicitly reviewed issuer policies and domestic boundaries.
-    if reviewed(symbol,cik) or basis(symbol,cik) or profile(symbol,cik):
+    annual_profile=profile(symbol,cik)
+    if reviewed(symbol,cik) or basis(symbol,cik) or (annual_profile and not annual_rollover):
         raise discovery.DiscoveryError('discovery_reviewed_policy_required')
     company=json.loads(company_raw);payload=json.loads(facts_raw)
     if not isinstance(payload,dict) or str(payload.get('cik','')).zfill(10)!=str(cik).zfill(10):
@@ -250,6 +251,10 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
         'holds':[],'originals':[]}
     supplement=None;scope=(accession,);currency_hold=None
     try:
+        # Annual-profile continuation supports independently qualified HTML
+        # only. Existing inline/issuer policies still require their own review.
+        if annual_profile and has_inline:
+            raise tables.TabularReportingError('discovery_reviewed_inline_policy_required')
         if has_inline:
             try:
                 supplement=standard._document_set(payload,company,company_raw,symbol=symbol,cik=cik,
@@ -267,7 +272,7 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
             else:
                 inspection={}
                 supplement=tables.acquire(company_raw,symbol=symbol,cik=cik,available_by=available_by,
-                    client=retained,candidate_accessions=scope,inspection=inspection)
+                    client=retained,candidate_accessions=scope,inspection=inspection,annual_rollover=annual_rollover)
                 receipt['holds']=inspection.get('holds',[])
                 if supplement is not None:receipt['kind']='html_table'
         if supplement is not None:

@@ -1,0 +1,31 @@
+{
+  "observed_at": "2026-11-01T22:14:13.065446+00:00",
+  "files": {
+    "company": {
+      "file": "original-0.gz",
+      "url": "https://data.sec.gov/submissions/CIK0001000184.json",
+      "bytes": 109931,
+      "sha256": "563c7ef50508c840f620d3901e3ab8b335ca03c49d7da370d0aae58fc2a765a0"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1000184/000110465926118617/tm2628113d1_6k.htm": {
+      "file": "original-1.gz",
+      "bytes": 18379,
+      "sha256": "8f4172ccb7d176d94041a3364a8161d8dd4e30232812872350cff4bb6e86cfb7"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1000184/000110465926087251/tm2621275d1_6k.htm": {
+      "file": "original-2.gz",
+      "bytes": 20416,
+      "sha256": "69d18802599c19c96ca107abcb74671d94fcc9949a74929173e609d97470821c"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1000184/000110465926057442/tm2613731d1_6k.htm": {
+      "file": "original-3.gz",
+      "bytes": 21414,
+      "sha256": "b6ed8140395c31ca9428120e14b8036eea8239dc1e717d5689cb30373ad9e0cc"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1000184/000110465926118617/tm2628113d1_ex99-1.htm": {
+      "file": "original-4.gz",
+      "bytes": 674392,
+      "sha256": "60567a44c61bb4209520c63e684fd362f3c88086f053142768edccefd8c12c5a"
+    }
+  }
+}
