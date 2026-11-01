@@ -135,6 +135,10 @@ def cached_currency_valid(evidence):
         from app.services.sec_primary_income import cached_valid as income_valid
         if not income_valid(proof.get('primary_consolidated_income'), cik=proof.get('cik')):
             return False
+    if ('domestic_linked_statement' in proof or (proof.get('form') in {'10-K','10-K/A','10-Q','10-Q/A'}
+            and proof.get('cover_evidence',{}).get('methodology')=='sec_inline_document_set_v1')):
+        from app.services.sec_document_sets import domestic_cached_valid
+        if not domestic_cached_valid(proof):return False
     if 'native_reporting' in proof:
         from app.services.sec_statement_currency import cached_currency_valid as native_valid
         return native_valid(evidence)

@@ -13,7 +13,7 @@ VERSION='sec_inline_document_set_v1'
 
 def combined_tree(raw,cover_raw,*,url,cover_url,cik,accession,form):
     from app.services.sec_inline_financials import InlineFactsError
-    if form not in {'6-K','6-K/A'}:
+    if form not in {'6-K','6-K/A','10-K','10-K/A','10-Q','10-Q/A'}:
         raise InlineFactsError('document_set_form')
     cik=str(cik).zfill(10)
     if not re.fullmatch(r'[0-9]{10}',cik) or not re.fullmatch(r'[0-9]{10}-[0-9]{2}-[0-9]{6}',accession):
@@ -48,6 +48,10 @@ def combined_tree(raw,cover_raw,*,url,cover_url,cik,accession,form):
     if any(n.tag=='ix:nonfraction' and n.get('name','').split(':',1)[0] in {'us-gaap','ifrs-full'} for n in cover.iter()):
         raise InlineFactsError('document_set_cover_financial_facts')
     for key,value in namespaces.items():cover.set(key,value)
+    if form in {'10-K','10-K/A','10-Q','10-Q/A'}:
+        links=statement_exhibits(cover_raw,{'cover_url':cover_url})
+        if len(links)!=1 or links[0]['url']!=url:
+            raise InlineFactsError('domestic_statement_link_required')
     cover.append(exhibit)
     return cover,{'methodology':VERSION,'source_url':cover_url,'source_sha256':hashlib.sha256(cover_raw).hexdigest(),
         'exhibit_url':url,'exhibit_sha256':hashlib.sha256(raw).hexdigest(),
@@ -158,3 +162,74 @@ def acquire_candidate(metadata,company_raw,*,symbol,cik,available_by,client,basi
         cover_raw=cover,cover_url=metadata['cover_url'],document_set=True)
     result['evidence']['document_set_discovery']={**metadata,'statement_url':url,'statement_label':links[0]['label']}
     return result
+
+
+DOMESTIC_POLICY='domestic_linked_statement_v1'
+
+
+def acquire_domestic(company_raw, *, symbol, metadata, cover, client, available_by):
+    """Read a uniquely linked domestic statement only after a valid empty cover.
+
+    Ordinary complete filings retain their original parse and request behavior.
+    Conflicting/malformed primary financial facts never select this fallback.
+    """
+    import json
+    from datetime import date
+    from app.services.sec_inline_financials import parse,InlineFactsError
+    from app.services.sec_directory import parse_company
+    if metadata['form'] not in {'10-K','10-K/A','10-Q','10-Q/A'}:
+        raise InlineFactsError('domestic_statement_form')
+    kwargs={k:metadata[k] for k in ('cik','accession','filed','report_date','form')}
+    try:
+        return parse(cover,url=metadata['cover_url'],**kwargs)
+    except InlineFactsError as exc:
+        if str(exc)!='latest_reported_revenue_unavailable':raise
+    company=json.loads(company_raw);cik=metadata['cik']
+    parse_company(company,cik=cik,symbol=symbol)
+    recent=company.get('filings',{}).get('recent',{})
+    keys=('accessionNumber','form','filingDate','reportDate','primaryDocument')
+    columns=[recent.get(k,[]) for k in keys]
+    if len({len(c) for c in columns})!=1:
+        raise InlineFactsError('filing_directory_shape')
+    matches=[r for r in zip(*columns) if r[0]==metadata['accession']]
+    if len(matches)!=1:
+        raise InlineFactsError('domestic_statement_directory')
+    accession,form,filed,end,filename=matches[0]
+    prefix=f'https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace("-","")}/'
+    if (any(metadata[k]!=v for k,v in [('form',form),('filed',filed),('report_date',end)])
+            or not date.fromisoformat(end)<=date.fromisoformat(filed)<=available_by
+            or metadata['cover_url']!=prefix+filename):
+        raise InlineFactsError('domestic_statement_directory')
+    links=statement_exhibits(cover,metadata)
+    if not links:raise InlineFactsError('latest_reported_revenue_unavailable')
+    if len(links)!=1:raise InlineFactsError('document_set_statement_ambiguous')
+    url=links[0]['url'];raw=client.get(url)
+    result=parse(raw,url=url,cover_raw=cover,cover_url=metadata['cover_url'],document_set=True,**kwargs)
+    result['evidence']['domestic_linked_statement']={**metadata,'policy':DOMESTIC_POLICY,
+        'directory_sha256':hashlib.sha256(company_raw).hexdigest(),
+        'directory_url':f'https://data.sec.gov/submissions/CIK{cik}.json',
+        'statement_url':url,'statement_label':links[0]['label']}
+    return result
+
+
+def domestic_cached_valid(proof):
+    """Keep both original hashes and the directory binding in cached evidence."""
+    from datetime import date
+    try:
+        d=proof['domestic_linked_statement'];cover=proof['cover_evidence']
+        if d['policy']!=DOMESTIC_POLICY or cover['methodology']!=VERSION:return False
+        cik=d['cik'];acc=d['accession'];prefix=f'https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace("-","")}/'
+        return (re.fullmatch(r'[0-9]{10}',cik) is not None
+            and re.fullmatch(r'[0-9]{10}-[0-9]{2}-[0-9]{6}',acc) is not None
+            and d['form'] in {'10-K','10-K/A','10-Q','10-Q/A'}
+            and all(d[k]==proof[k] for k in ('cik','accession','filed','report_date','form'))
+            and date.fromisoformat(d['report_date'])<=date.fromisoformat(d['filed'])
+            and proof['namespace']=='us-gaap' and proof['currency']=='USD'
+            and d['cover_url']==cover['source_url'] and d['statement_url']==cover['exhibit_url']==proof['url']
+            and d['cover_url']!=d['statement_url']
+            and all(u.startswith(prefix) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.html?',u[len(prefix):]) for u in (d['cover_url'],d['statement_url']))
+            and d['directory_url']==f'https://data.sec.gov/submissions/CIK{cik}.json'
+            and all(re.fullmatch(r'[0-9a-f]{64}',v) for v in (d['directory_sha256'],cover['source_sha256'],cover['exhibit_sha256'],proof['sha256']))
+            and cover['exhibit_sha256']==proof['sha256']
+            and isinstance(d['statement_label'],str) and re.search(r'\bfinancial\s+(?:statements?|reports?)\b',d['statement_label'],re.I) is not None)
+    except (KeyError,TypeError,ValueError,AttributeError):return False
