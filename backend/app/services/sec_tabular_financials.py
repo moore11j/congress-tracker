@@ -45,7 +45,7 @@ def visible_text(node):
 
 def company_key(value):
     value = re.sub(r'^the\s+', '', value, flags=re.I)
-    value = re.sub(r'\s+and subsidiaries$', '', value, flags=re.I)
+    value = re.sub(r'\s+and (?:its )?subsidiaries$', '', value, flags=re.I)
     value = re.sub(r'\b(?:corporation|corp\.?|incorporated|inc\.?|limited|ltd\.?)\b', '', value, flags=re.I)
     return re.sub(r'[^a-z0-9]', '', value.lower())
 

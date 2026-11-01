@@ -44,6 +44,7 @@ jobs:
         working-directory: backend
         run: >-
           python -m pytest
+          tests/test_sec_comparative_basis.py
           tests/test_sec_refresh_capacity.py
           tests/test_sec_rollover_discovery.py
           tests/test_sec_tabular_reporting.py

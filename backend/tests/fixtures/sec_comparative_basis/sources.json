@@ -1,0 +1,858 @@
+{
+  "issuers": {
+    "CHKP": {
+      "symbol": "CHKP",
+      "cik": "0001015922",
+      "company_url": "https://data.sec.gov/submissions/CIK0001015922.json",
+      "candidate": {
+        "symbol": "CHKP",
+        "cik": "0001015922",
+        "accession": "0001178913-26-003696",
+        "form": "6-K",
+        "filed": "2026-07-30",
+        "report_date": "2026-07-30",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/1015922/000117891326003696/zk2635799.htm"
+      },
+      "receipt": {
+        "version": "sec_financial_discovery_qualification_v5",
+        "candidate": {
+          "symbol": "CHKP",
+          "cik": "0001015922",
+          "accession": "0001178913-26-003696",
+          "form": "6-K",
+          "filed": "2026-07-30",
+          "report_date": "2026-07-30",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1015922/000117891326003696/zk2635799.htm"
+        },
+        "cover_sha256": "b003c84f2714b74fb85ceea5277a2d3045df09e6c48081d4b3ea14c19cc8ab1a",
+        "observed_at": "2026-11-01T22:28:47.114909+00:00",
+        "status": "held",
+        "financial_publication_eligible": false,
+        "kind": null,
+        "current_period": null,
+        "holds": [
+          {
+            "accession": "0001178913-26-003696",
+            "filed": "2026-07-30",
+            "reason": "table_accounting_basis_unproved"
+          }
+        ],
+        "originals": [
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/1015922/000117891326003696/zk2635799.htm",
+            "sha256": "b003c84f2714b74fb85ceea5277a2d3045df09e6c48081d4b3ea14c19cc8ab1a",
+            "bytes": 179154,
+            "document_sha256": "742accf472cc6c1eb7850e0fd7dfa6a941ced8c06aa59ac1fd3a761bc3f178c0",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          }
+        ],
+        "accounting_policy": "explicit_ifrs_statement_declarations_v1"
+      },
+      "context": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1015922/000117891326003696/zk2635799.htm",
+          "accounting_context": [
+            "sed credits may be converted into cash grants after a defined period. For information regarding the non-GAAP financial measures discussed in this release, as well as a reconciliation of such non-GAAP financial measures to the most directly comparable GAAP financial measures, please see \u201cUse of Non-GAAP Financial Information\u201d and \u201cReconc",
+            "ding the non-GAAP financial measures discussed in this release, as well as a reconciliation of such non-GAAP financial measures to the most directly comparable GAAP financial measures, please see \u201cUse of Non-GAAP Financial Information\u201d and \u201cReconciliation of GAAP to Non-GAAP Financial Information.\u201d * Remaining Performance Obligation (RP",
+            "se, as well as a reconciliation of such non-GAAP financial measures to the most directly comparable GAAP financial measures, please see \u201cUse of Non-GAAP Financial Information\u201d and \u201cReconciliation of GAAP to Non-GAAP Financial Information.\u201d * Remaining Performance Obligation (RPO) is a measure that represents the total value of non-c",
+            "GAAP financial measures to the most directly comparable GAAP financial measures, please see \u201cUse of Non-GAAP Financial Information\u201d and \u201cReconciliation of GAAP to Non-GAAP Financial Information.\u201d * Remaining Performance Obligation (RPO) is a measure that represents the total value of non-cancellable contracted products and/or services t",
+            "nancial measures, please see \u201cUse of Non-GAAP Financial Information\u201d and \u201cReconciliation of GAAP to Non-GAAP Financial Information.\u201d * Remaining Performance Obligation (RPO) is a measure that represents the total value of non-cancellable contracted products and/or services that are yet to be recognized as Revenue as of June 30, 2026. **",
+            "vices that are yet to be recognized as Revenue as of June 30, 2026. ** Adjusted Free Cash Flow is a non-GAAP financial measure that we define as Net Cash provided by operating activities, less purchases of property, equipment, Capitalization costs, and other assets, net of Acquisition related costs. Conference Call and Webcast Informati",
+            "isclaims any obligation to update any forward-looking statements, except as required by law. Use of Non-GAAP Financial Information In addition to reporting financial results in accordance with generally accepted accounting principles, or GAAP, Check Point uses non-GAAP measures of operating income, net income, earnings per diluted share",
+            "s required by law. Use of Non-GAAP Financial Information In addition to reporting financial results in accordance with generally accepted accounting principles, or GAAP, Check Point uses non-GAAP measures of operating income, net income, earnings per diluted share and adjusted free cash flow, which are adjustments from results base",
+            "Use of Non-GAAP Financial Information In addition to reporting financial results in accordance with generally accepted accounting principles, or GAAP, Check Point uses non-GAAP measures of operating income, net income, earnings per diluted share and adjusted free cash flow, which are adjustments from results based on GAAP to exclude, as",
+            "ancial Information In addition to reporting financial results in accordance with generally accepted accounting principles, or GAAP, Check Point uses non-GAAP measures of operating income, net income, earnings per diluted share and adjusted free cash flow, which are adjustments from results based on GAAP to exclude, as applicable, stock-bas",
+            "s, amortization of debt discount and the related tax affects. Check Point\u2019s management believes the non-GAAP financial information provided in this release is useful to investors\u2019 understanding and assessment of Check Point\u2019s ongoing core operations and prospects for the future. Historically, Check Point has also publicly presented thes",
+            " prospects for the future. Historically, Check Point has also publicly presented these supplemental non-GAAP financial measures to assist the investment community to see the company \u201cthrough the eyes of management,\u201d and thereby enhance understanding of its operating performance. The presentation of this non-GAAP financial information is",
+            "nagement,\u201d and thereby enhance understanding of its operating performance. The presentation of this non-GAAP financial information is not intended to be considered in isolation or as a substitute for results prepared in accordance with GAAP. A reconciliation of the non-GAAP financial measures discussed in this press release to the most ",
+            "l information is not intended to be considered in isolation or as a substitute for results prepared in accordance with GAAP. A reconciliation of the non-GAAP financial measures discussed in this press release to the most directly comparable GAAP financial measures is included with the financial statements contained in this press re",
+            " isolation or as a substitute for results prepared in accordance with GAAP. A reconciliation of the non-GAAP financial measures discussed in this press release to the most directly comparable GAAP financial measures is included with the financial statements contained in this press release. Management uses both GAAP and non-GAAP informat",
+            " of the non-GAAP financial measures discussed in this press release to the most directly comparable GAAP financial measures is included with the financial statements contained in this press release. Management uses both GAAP and non-GAAP information in evaluating and operating business internally and as such has determined that it i"
+          ]
+        }
+      ],
+      "observed_at": "2026-11-01T22:28:47.114909+00:00"
+    },
+    "RSKD": {
+      "symbol": "RSKD",
+      "cik": "0001851112",
+      "company_url": "https://data.sec.gov/submissions/CIK0001851112.json",
+      "candidate": {
+        "symbol": "RSKD",
+        "cik": "0001851112",
+        "accession": "0001628280-26-055937",
+        "form": "6-K",
+        "filed": "2026-08-12",
+        "report_date": "2026-06-30",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm"
+      },
+      "receipt": {
+        "version": "sec_financial_discovery_qualification_v5",
+        "candidate": {
+          "symbol": "RSKD",
+          "cik": "0001851112",
+          "accession": "0001628280-26-055937",
+          "form": "6-K",
+          "filed": "2026-08-12",
+          "report_date": "2026-06-30",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm"
+        },
+        "cover_sha256": "75d592199e8c844e15b0980dfa116d4ceecee87627c090a32f97693ae4e64b91",
+        "observed_at": "2026-11-01T22:28:47.114909+00:00",
+        "status": "held",
+        "financial_publication_eligible": false,
+        "kind": null,
+        "current_period": null,
+        "holds": [
+          {
+            "accession": "0001628280-26-055937",
+            "filed": "2026-08-12",
+            "reason": "table_accounting_basis_unproved"
+          }
+        ],
+        "originals": [
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm",
+            "sha256": "75d592199e8c844e15b0980dfa116d4ceecee87627c090a32f97693ae4e64b91",
+            "bytes": 16630,
+            "document_sha256": "04e7268ae3e634cf7e24925acd44398f99d34ff7b42d3f52cd71d970d8501a32",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          },
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/exhibit991-q22026.htm",
+            "sha256": "4e52a07cf46e1e45cfc9020c3e5d70d184e2ed779a9e97f0b544cd3ef0b624f2",
+            "bytes": 444321,
+            "document_sha256": "9862f91a65cd20741a96266d59295f3f83cf68bd21868db950f295e02157157b",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          }
+        ],
+        "accounting_policy": "explicit_ifrs_statement_declarations_v1"
+      },
+      "context": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm",
+          "accounting_context": []
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/exhibit991-q22026.htm",
+          "accounting_context": [
+            "econciliation to the most directly comparable GAAP measure. (2) We refer to certain forward-looking non-GAAP financial measures in this press release and on our quarterly results conference call. We are not able to provide a reconciliation of forward-looking Adjusted EBITDA, Adjusted EBITDA margin, non-GAAP gross profit, non-GAAP gross ",
+            "in items that are excluded from these non-GAAP metrics but included in the most directly comparable GAAP financial measures, cannot be predicted on a forward-looking basis without unreasonable effort or are not within our control. For example, we are unable to forecast the magnitude of foreign currency transaction gains or losses wh",
+            "able information, which could have a potentially unpredictable and significant impact on our future GAAP financial results. Conference Call and Webcast Details The Company will host a conference call to discuss its financial results today, August 12, 2026 at 8:30 a.m. Eastern Time. A live webcast of the call can be accessed from Ris",
+            "ly comparable to similarly titled captions of other companies due to different calculation methods. Non-GAAP financial measures should not be considered in isolation, as an alternative to, or superior to information prepared and presented in accordance with GAAP. These measures are frequently used by analysts, 3 investors and other inte",
+            "be considered in isolation, as an alternative to, or superior to information prepared and presented in accordance with GAAP. These measures are frequently used by analysts, 3 investors and other interested parties to evaluate companies in our industry. By providing these non-GAAP measures together with a reconciliation to the most ",
+            "results and are viewed as unusual and infrequent. See the tables below for reconciliations of these non-GAAP financial measures to the most directly comparable GAAP measures. 4 Forward Looking Statements This press release and announcement contains forward-looking statements within the meaning of the safe harbor provisions of the U.S. P"
+          ]
+        }
+      ],
+      "observed_at": "2026-11-01T22:28:47.114909+00:00"
+    },
+    "AUDC": {
+      "symbol": "AUDC",
+      "cik": "0001086434",
+      "company_url": "https://data.sec.gov/submissions/CIK0001086434.json",
+      "candidate": {
+        "symbol": "AUDC",
+        "cik": "0001086434",
+        "accession": "0001185185-26-003250",
+        "form": "6-K",
+        "filed": "2026-08-04",
+        "report_date": "2026-08-04",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm"
+      },
+      "receipt": {
+        "version": "sec_financial_discovery_qualification_v5",
+        "candidate": {
+          "symbol": "AUDC",
+          "cik": "0001086434",
+          "accession": "0001185185-26-003250",
+          "form": "6-K",
+          "filed": "2026-08-04",
+          "report_date": "2026-08-04",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm"
+        },
+        "cover_sha256": "d04efcdbff590cd8a4c78ce12c9c639e1f2b5691bf6bd5b4e6d669e30cba1ee5",
+        "observed_at": "2026-11-01T22:28:47.114909+00:00",
+        "status": "held",
+        "financial_publication_eligible": false,
+        "kind": null,
+        "current_period": null,
+        "holds": [
+          {
+            "accession": "0001185185-26-003250",
+            "filed": "2026-08-04",
+            "reason": "table_accounting_basis_unproved"
+          }
+        ],
+        "originals": [
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm",
+            "sha256": "d04efcdbff590cd8a4c78ce12c9c639e1f2b5691bf6bd5b4e6d669e30cba1ee5",
+            "bytes": 18946,
+            "document_sha256": "9337ef09c4efcb412eb32a1b2112cee89d2c414e70b5b7e7aa1de80d1e632bb2",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          },
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltdex1.htm",
+            "sha256": "29e72b2a62db29bbff45db1c1bdf5636d7f3b65da3bcc5f1723d0e7233a9d405",
+            "bytes": 168096,
+            "document_sha256": "7001d166cfed57f1176be8305c300f4eef8fef362635754ac0a8d069337fbce9",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          }
+        ],
+        "accounting_policy": "explicit_ifrs_statement_declarations_v1"
+      },
+      "context": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm",
+          "accounting_context": []
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltdex1.htm",
+          "accounting_context": [
+            "areholders of record at the close of trading on the NASDAQ Global Select Market on August 19, 2026. In accordance with Israeli tax law, the dividend is subject to withholding tax at source at the rate of 25% of the dividend amount payable to each shareholder of record, subject to applicable exemptions. If the recipient of the divid",
+            "AAP measures should be considered in addition to, and not as a substitute for, the results prepared in accordance with GAAP. The Company believes that non-GAAP information is useful because it can enhance the understanding of its ongoing economic performance and therefore uses internally this non-GAAP information to evaluate and ma"
+          ]
+        }
+      ],
+      "observed_at": "2026-11-01T22:28:47.114909+00:00"
+    },
+    "ASX": {
+      "symbol": "ASX",
+      "cik": "0001122411",
+      "company_url": "https://data.sec.gov/submissions/CIK0001122411.json",
+      "candidate": {
+        "symbol": "ASX",
+        "cik": "0001122411",
+        "accession": "0000950103-26-016324",
+        "form": "6-K",
+        "filed": "2026-10-29",
+        "report_date": "2026-10-29",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/1122411/000095010326016324/dp255760_6k.htm"
+      },
+      "receipt": {
+        "version": "sec_financial_discovery_qualification_v5",
+        "candidate": {
+          "symbol": "ASX",
+          "cik": "0001122411",
+          "accession": "0000950103-26-016324",
+          "form": "6-K",
+          "filed": "2026-10-29",
+          "report_date": "2026-10-29",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1122411/000095010326016324/dp255760_6k.htm"
+        },
+        "cover_sha256": "b4cb0ed782bc530791344ea8f489cbff515b15b32d5d85cd66043477a4849b9d",
+        "observed_at": "2026-11-01T22:30:02.301429+00:00",
+        "status": "held",
+        "financial_publication_eligible": false,
+        "kind": null,
+        "current_period": null,
+        "holds": [
+          {
+            "accession": "0000950103-26-016324",
+            "filed": "2026-10-29",
+            "reason": "table_accounting_basis_unproved"
+          }
+        ],
+        "originals": [
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/1122411/000095010326016324/dp255760_6k.htm",
+            "sha256": "b4cb0ed782bc530791344ea8f489cbff515b15b32d5d85cd66043477a4849b9d",
+            "bytes": 222110,
+            "document_sha256": "b0820eaa40caef7fef621918612782b3c9c147482cc485ec1bd53958aac6e01f",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          }
+        ],
+        "accounting_policy": "explicit_ifrs_statement_declarations_v1"
+      },
+      "context": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1122411/000095010326016324/dp255760_6k.htm",
+          "accounting_context": [
+            "1 All financial information presented in this press release is unaudited, consolidated and prepared in accordance with Taiwan-IFRS (International Financial Reporting Standards as endorsed for use in the R.O.C.). Such financial information is generated internally by us and has not been subjected to the same review and scrutiny, incl"
+          ]
+        }
+      ],
+      "observed_at": "2026-11-01T22:30:02.301429+00:00"
+    },
+    "TU": {
+      "symbol": "TU",
+      "cik": "0000868675",
+      "company_url": "https://data.sec.gov/submissions/CIK0000868675.json",
+      "candidate": {
+        "symbol": "TU",
+        "cik": "0000868675",
+        "accession": "0001104659-26-088975",
+        "form": "6-K",
+        "filed": "2026-07-31",
+        "report_date": "2026-07-31",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm"
+      },
+      "receipt": {
+        "version": "sec_financial_discovery_qualification_v5",
+        "candidate": {
+          "symbol": "TU",
+          "cik": "0000868675",
+          "accession": "0001104659-26-088975",
+          "form": "6-K",
+          "filed": "2026-07-31",
+          "report_date": "2026-07-31",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm"
+        },
+        "cover_sha256": "c0e732bc3569dbc50b6a04724d71d2baac53b45c1e8e5cee54a50238f2affcca",
+        "observed_at": "2026-11-01T22:30:02.301429+00:00",
+        "status": "held",
+        "financial_publication_eligible": false,
+        "kind": null,
+        "current_period": null,
+        "holds": [
+          {
+            "accession": "0001104659-26-088975",
+            "filed": "2026-07-31",
+            "reason": "table_accounting_basis_unproved"
+          }
+        ],
+        "originals": [
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm",
+            "sha256": "c0e732bc3569dbc50b6a04724d71d2baac53b45c1e8e5cee54a50238f2affcca",
+            "bytes": 11125,
+            "document_sha256": "5b80fe6fffcbd6fc086c67ba76bfa72ec9a64f877e70c8f8bf10afeccf3f5b90",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          },
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_ex99-1.htm",
+            "sha256": "6e1bcd0d8c6a3763a01f3f4ae42161f4dc06095ff3d3e35b2d0c6d9aedb3f555",
+            "bytes": 294020,
+            "document_sha256": "974839b5a675b787be13d00fadc67c59412ecf84b10f17550c25248bfd3cf3dd",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          }
+        ],
+        "accounting_policy": "explicit_ifrs_statement_declarations_v1"
+      },
+      "context": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm",
+          "accounting_context": []
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_ex99-1.htm",
+          "accounting_context": [
+            "ed by 26 per cent, while adjusted basic EPS of $0.16 was down 27 per cent. Adjusted Net income is a non-GAAP financial measure and adjusted basic EPS is a non-GAAP ratio. For further explanation of these measures, see 'Non-GAAP and other specified financial measures' in this news release. Compared to the same period last year, consolida",
+            "fined, qualified and reconciled with their nearest GAAP measure. Certain of the metrics do not have generally accepted industry definitions. Adjusted Net income and adjusted basic earnings per share (EPS): These are non-GAAP measures that do not have any standardized meanings prescribed by IFRS Accounting Standards and are therefore unl",
+            ": We report this measure as a supplementary indicator of our operating performance, and there is no generally accepted industry definition of free cash flow. It should not be considered as an alternative to the measures in the condensed interim consolidated statements of cash flows. Free cash flow excludes certain working capital change"
+          ]
+        }
+      ],
+      "observed_at": "2026-11-01T22:30:02.301429+00:00"
+    },
+    "HMC": {
+      "symbol": "HMC",
+      "cik": "0000715153",
+      "company_url": "https://data.sec.gov/submissions/CIK0000715153.json",
+      "candidate": {
+        "symbol": "HMC",
+        "cik": "0000715153",
+        "accession": "0001193125-26-333722",
+        "form": "6-K",
+        "filed": "2026-08-05",
+        "report_date": "2026-08-05",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/715153/000119312526333722/d371554d6k.htm"
+      },
+      "receipt": {
+        "version": "sec_financial_discovery_qualification_v5",
+        "candidate": {
+          "symbol": "HMC",
+          "cik": "0000715153",
+          "accession": "0001193125-26-333722",
+          "form": "6-K",
+          "filed": "2026-08-05",
+          "report_date": "2026-08-05",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/715153/000119312526333722/d371554d6k.htm"
+        },
+        "cover_sha256": "b98e9cc3ffbf9088b653591e7d187d2888c07fe2c0b78ff3959981398fb46bc7",
+        "observed_at": "2026-11-01T22:30:02.301429+00:00",
+        "status": "held",
+        "financial_publication_eligible": false,
+        "kind": null,
+        "current_period": null,
+        "holds": [
+          {
+            "accession": "0001193125-26-333722",
+            "filed": "2026-08-05",
+            "reason": "table_accounting_basis_unproved"
+          }
+        ],
+        "originals": [
+          {
+            "url": "https://www.sec.gov/Archives/edgar/data/715153/000119312526333722/d371554d6k.htm",
+            "sha256": "b98e9cc3ffbf9088b653591e7d187d2888c07fe2c0b78ff3959981398fb46bc7",
+            "bytes": 315514,
+            "document_sha256": "ebaa53712005ac51b086197d436c0152181c927b0d05effcd84413bdbdea4169",
+            "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+          }
+        ],
+        "accounting_policy": "explicit_ifrs_statement_declarations_v1"
+      },
+      "context": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/715153/000119312526333722/d371554d6k.htm",
+          "accounting_context": []
+        }
+      ],
+      "observed_at": "2026-11-01T22:30:02.301429+00:00"
+    }
+  },
+  "sources": {
+    "https://data.sec.gov/submissions/CIK0001015922.json": {
+      "file": "ac9825cf0654f140bcce671585e2e1ff990ba7641d805122d3b0a6f864e763d3.gz",
+      "bytes": 88599,
+      "sha256": "ac9825cf0654f140bcce671585e2e1ff990ba7641d805122d3b0a6f864e763d3"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1015922/000117891326003696/zk2635799.htm": {
+      "file": "b003c84f2714b74fb85ceea5277a2d3045df09e6c48081d4b3ea14c19cc8ab1a.gz",
+      "bytes": 179154,
+      "sha256": "b003c84f2714b74fb85ceea5277a2d3045df09e6c48081d4b3ea14c19cc8ab1a"
+    },
+    "https://data.sec.gov/submissions/CIK0001851112.json": {
+      "file": "8e3695a97f9d64cc74a29d60f55e1597f071a0e1dacd95f9bf394311d25ea1ba.gz",
+      "bytes": 47754,
+      "sha256": "8e3695a97f9d64cc74a29d60f55e1597f071a0e1dacd95f9bf394311d25ea1ba"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm": {
+      "file": "75d592199e8c844e15b0980dfa116d4ceecee87627c090a32f97693ae4e64b91.gz",
+      "bytes": 16630,
+      "sha256": "75d592199e8c844e15b0980dfa116d4ceecee87627c090a32f97693ae4e64b91"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/exhibit991-q22026.htm": {
+      "file": "4e52a07cf46e1e45cfc9020c3e5d70d184e2ed779a9e97f0b544cd3ef0b624f2.gz",
+      "bytes": 444321,
+      "sha256": "4e52a07cf46e1e45cfc9020c3e5d70d184e2ed779a9e97f0b544cd3ef0b624f2"
+    },
+    "https://data.sec.gov/submissions/CIK0001086434.json": {
+      "file": "886b265e602f7de6358fce52aa8254a1bdee8b2db3e5bbade17b286a488fe090.gz",
+      "bytes": 89569,
+      "sha256": "886b265e602f7de6358fce52aa8254a1bdee8b2db3e5bbade17b286a488fe090"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm": {
+      "file": "d04efcdbff590cd8a4c78ce12c9c639e1f2b5691bf6bd5b4e6d669e30cba1ee5.gz",
+      "bytes": 18946,
+      "sha256": "d04efcdbff590cd8a4c78ce12c9c639e1f2b5691bf6bd5b4e6d669e30cba1ee5"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltdex1.htm": {
+      "file": "29e72b2a62db29bbff45db1c1bdf5636d7f3b65da3bcc5f1723d0e7233a9d405.gz",
+      "bytes": 168096,
+      "sha256": "29e72b2a62db29bbff45db1c1bdf5636d7f3b65da3bcc5f1723d0e7233a9d405"
+    },
+    "https://data.sec.gov/submissions/CIK0001122411.json": {
+      "file": "038298b3ee5e9e901088bc625d1410ae041235a1f35fd5e40fe02589e6987df6.gz",
+      "bytes": 151688,
+      "sha256": "038298b3ee5e9e901088bc625d1410ae041235a1f35fd5e40fe02589e6987df6"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1122411/000095010326016324/dp255760_6k.htm": {
+      "file": "b4cb0ed782bc530791344ea8f489cbff515b15b32d5d85cd66043477a4849b9d.gz",
+      "bytes": 222110,
+      "sha256": "b4cb0ed782bc530791344ea8f489cbff515b15b32d5d85cd66043477a4849b9d"
+    },
+    "https://data.sec.gov/submissions/CIK0000868675.json": {
+      "file": "3bc6db9f009cf5196d092c94fc1e2ea395394c12bacdb5138aeaa929e91d073c.gz",
+      "bytes": 136206,
+      "sha256": "3bc6db9f009cf5196d092c94fc1e2ea395394c12bacdb5138aeaa929e91d073c"
+    },
+    "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm": {
+      "file": "c0e732bc3569dbc50b6a04724d71d2baac53b45c1e8e5cee54a50238f2affcca.gz",
+      "bytes": 11125,
+      "sha256": "c0e732bc3569dbc50b6a04724d71d2baac53b45c1e8e5cee54a50238f2affcca"
+    },
+    "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_ex99-1.htm": {
+      "file": "6e1bcd0d8c6a3763a01f3f4ae42161f4dc06095ff3d3e35b2d0c6d9aedb3f555.gz",
+      "bytes": 294020,
+      "sha256": "6e1bcd0d8c6a3763a01f3f4ae42161f4dc06095ff3d3e35b2d0c6d9aedb3f555"
+    },
+    "https://data.sec.gov/submissions/CIK0000715153.json": {
+      "file": "c362e449ca1ed92ea25e661fae65d29362dd28c3f4beb313a7dea0f7fce3ebfb.gz",
+      "bytes": 111290,
+      "sha256": "c362e449ca1ed92ea25e661fae65d29362dd28c3f4beb313a7dea0f7fce3ebfb"
+    },
+    "https://www.sec.gov/Archives/edgar/data/715153/000119312526333722/d371554d6k.htm": {
+      "file": "b98e9cc3ffbf9088b653591e7d187d2888c07fe2c0b78ff3959981398fb46bc7.gz",
+      "bytes": 315514,
+      "sha256": "b98e9cc3ffbf9088b653591e7d187d2888c07fe2c0b78ff3959981398fb46bc7"
+    },
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001086434.json": {
+      "file": "b4dbbd17dcfb04ba52e2b7335d031aaa2decc475a9bb290a6bec21cc378d7fb1.gz",
+      "bytes": 1255587,
+      "sha256": "b4dbbd17dcfb04ba52e2b7335d031aaa2decc475a9bb290a6bec21cc378d7fb1"
+    }
+  },
+  "original_extractions": [
+    {
+      "symbol": "CHKP",
+      "url": "https://www.sec.gov/Archives/edgar/data/1015922/000117891326003696/zk2635799.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "CHKP",
+          "cik": "0001015922",
+          "accession": "0001178913-26-003696",
+          "form": "6-K",
+          "filed": "2026-07-30",
+          "report_date": "2026-07-30",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1015922/000117891326003696/zk2635799.htm",
+          "directory_sha256": "ac9825cf0654f140bcce671585e2e1ff990ba7641d805122d3b0a6f864e763d3",
+          "directory_url": "https://data.sec.gov/submissions/CIK0001015922.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/1015922/000117891326003696/zk2635799.htm",
+          "statement_sha256": "b003c84f2714b74fb85ceea5277a2d3045df09e6c48081d4b3ea14c19cc8ab1a",
+          "cover_sha256": "b003c84f2714b74fb85ceea5277a2d3045df09e6c48081d4b3ea14c19cc8ab1a",
+          "document_role": "primary_filing"
+        },
+        "tables": [],
+        "holds": [
+          {
+            "table": 16,
+            "reason": "column_currency_unproved"
+          },
+          {
+            "table": 22,
+            "reason": "table_date_header_unproved"
+          }
+        ],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    },
+    {
+      "symbol": "RSKD",
+      "url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "RSKD",
+          "cik": "0001851112",
+          "accession": "0001628280-26-055937",
+          "form": "6-K",
+          "filed": "2026-08-12",
+          "report_date": "2026-06-30",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm",
+          "directory_sha256": "8e3695a97f9d64cc74a29d60f55e1597f071a0e1dacd95f9bf394311d25ea1ba",
+          "directory_url": "https://data.sec.gov/submissions/CIK0001851112.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm",
+          "statement_sha256": "75d592199e8c844e15b0980dfa116d4ceecee87627c090a32f97693ae4e64b91",
+          "cover_sha256": "75d592199e8c844e15b0980dfa116d4ceecee87627c090a32f97693ae4e64b91",
+          "document_role": "primary_filing"
+        },
+        "tables": [],
+        "holds": [],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    },
+    {
+      "symbol": "RSKD",
+      "url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/exhibit991-q22026.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "RSKD",
+          "cik": "0001851112",
+          "accession": "0001628280-26-055937",
+          "form": "6-K",
+          "filed": "2026-08-12",
+          "report_date": "2026-06-30",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/a6-krskdxq22026.htm",
+          "directory_sha256": "8e3695a97f9d64cc74a29d60f55e1597f071a0e1dacd95f9bf394311d25ea1ba",
+          "directory_url": "https://data.sec.gov/submissions/CIK0001851112.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/1851112/000162828026055937/exhibit991-q22026.htm",
+          "statement_sha256": "4e52a07cf46e1e45cfc9020c3e5d70d184e2ed779a9e97f0b544cd3ef0b624f2",
+          "cover_sha256": "75d592199e8c844e15b0980dfa116d4ceecee87627c090a32f97693ae4e64b91"
+        },
+        "tables": [],
+        "holds": [
+          {
+            "table": 1,
+            "reason": "column_currency_unproved"
+          },
+          {
+            "table": 2,
+            "reason": "column_currency_unproved"
+          },
+          {
+            "table": 3,
+            "reason": "column_currency_unproved"
+          }
+        ],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    },
+    {
+      "symbol": "AUDC",
+      "url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "AUDC",
+          "cik": "0001086434",
+          "accession": "0001185185-26-003250",
+          "form": "6-K",
+          "filed": "2026-08-04",
+          "report_date": "2026-08-04",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm",
+          "directory_sha256": "886b265e602f7de6358fce52aa8254a1bdee8b2db3e5bbade17b286a488fe090",
+          "directory_url": "https://data.sec.gov/submissions/CIK0001086434.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm",
+          "statement_sha256": "d04efcdbff590cd8a4c78ce12c9c639e1f2b5691bf6bd5b4e6d669e30cba1ee5",
+          "cover_sha256": "d04efcdbff590cd8a4c78ce12c9c639e1f2b5691bf6bd5b4e6d669e30cba1ee5",
+          "document_role": "primary_filing"
+        },
+        "tables": [],
+        "holds": [],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    },
+    {
+      "symbol": "AUDC",
+      "url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltdex1.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "AUDC",
+          "cik": "0001086434",
+          "accession": "0001185185-26-003250",
+          "form": "6-K",
+          "filed": "2026-08-04",
+          "report_date": "2026-08-04",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltd6k080426.htm",
+          "directory_sha256": "886b265e602f7de6358fce52aa8254a1bdee8b2db3e5bbade17b286a488fe090",
+          "directory_url": "https://data.sec.gov/submissions/CIK0001086434.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/1086434/000118518526003250/audltdex1.htm",
+          "statement_sha256": "29e72b2a62db29bbff45db1c1bdf5636d7f3b65da3bcc5f1723d0e7233a9d405",
+          "cover_sha256": "d04efcdbff590cd8a4c78ce12c9c639e1f2b5691bf6bd5b4e6d669e30cba1ee5"
+        },
+        "tables": [],
+        "holds": [
+          {
+            "table": 17,
+            "reason": "table_issuer_unproved"
+          },
+          {
+            "table": 19,
+            "reason": "table_issuer_unproved"
+          },
+          {
+            "table": 26,
+            "reason": "table_issuer_unproved"
+          },
+          {
+            "table": 28,
+            "reason": "table_issuer_unproved"
+          }
+        ],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    },
+    {
+      "symbol": "ASX",
+      "url": "https://www.sec.gov/Archives/edgar/data/1122411/000095010326016324/dp255760_6k.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "ASX",
+          "cik": "0001122411",
+          "accession": "0000950103-26-016324",
+          "form": "6-K",
+          "filed": "2026-10-29",
+          "report_date": "2026-10-29",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/1122411/000095010326016324/dp255760_6k.htm",
+          "directory_sha256": "038298b3ee5e9e901088bc625d1410ae041235a1f35fd5e40fe02589e6987df6",
+          "directory_url": "https://data.sec.gov/submissions/CIK0001122411.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/1122411/000095010326016324/dp255760_6k.htm",
+          "statement_sha256": "b4cb0ed782bc530791344ea8f489cbff515b15b32d5d85cd66043477a4849b9d",
+          "cover_sha256": "b4cb0ed782bc530791344ea8f489cbff515b15b32d5d85cd66043477a4849b9d",
+          "document_role": "primary_filing"
+        },
+        "tables": [],
+        "holds": [
+          {
+            "table": 48,
+            "reason": "table_issuer_unproved"
+          },
+          {
+            "table": 54,
+            "reason": "table_issuer_unproved"
+          },
+          {
+            "table": 56,
+            "reason": "table_issuer_unproved"
+          }
+        ],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    },
+    {
+      "symbol": "TU",
+      "url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "TU",
+          "cik": "0000868675",
+          "accession": "0001104659-26-088975",
+          "form": "6-K",
+          "filed": "2026-07-31",
+          "report_date": "2026-07-31",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm",
+          "directory_sha256": "3bc6db9f009cf5196d092c94fc1e2ea395394c12bacdb5138aeaa929e91d073c",
+          "directory_url": "https://data.sec.gov/submissions/CIK0000868675.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm",
+          "statement_sha256": "c0e732bc3569dbc50b6a04724d71d2baac53b45c1e8e5cee54a50238f2affcca",
+          "cover_sha256": "c0e732bc3569dbc50b6a04724d71d2baac53b45c1e8e5cee54a50238f2affcca",
+          "document_role": "primary_filing"
+        },
+        "tables": [],
+        "holds": [],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    },
+    {
+      "symbol": "TU",
+      "url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_ex99-1.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "TU",
+          "cik": "0000868675",
+          "accession": "0001104659-26-088975",
+          "form": "6-K",
+          "filed": "2026-07-31",
+          "report_date": "2026-07-31",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_6k.htm",
+          "directory_sha256": "3bc6db9f009cf5196d092c94fc1e2ea395394c12bacdb5138aeaa929e91d073c",
+          "directory_url": "https://data.sec.gov/submissions/CIK0000868675.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/868675/000110465926088975/tm2615221d2_ex99-1.htm",
+          "statement_sha256": "6e1bcd0d8c6a3763a01f3f4ae42161f4dc06095ff3d3e35b2d0c6d9aedb3f555",
+          "cover_sha256": "c0e732bc3569dbc50b6a04724d71d2baac53b45c1e8e5cee54a50238f2affcca"
+        },
+        "tables": [],
+        "holds": [
+          {
+            "table": 84,
+            "reason": "table_issuer_unproved"
+          }
+        ],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    },
+    {
+      "symbol": "HMC",
+      "url": "https://www.sec.gov/Archives/edgar/data/715153/000119312526333722/d371554d6k.htm",
+      "baseline": {
+        "version": "sec_tabular_financial_evidence_v1",
+        "status": "unavailable",
+        "publication_eligible": false,
+        "source": {
+          "symbol": "HMC",
+          "cik": "0000715153",
+          "accession": "0001193125-26-333722",
+          "form": "6-K",
+          "filed": "2026-08-05",
+          "report_date": "2026-08-05",
+          "cover_url": "https://www.sec.gov/Archives/edgar/data/715153/000119312526333722/d371554d6k.htm",
+          "directory_sha256": "c362e449ca1ed92ea25e661fae65d29362dd28c3f4beb313a7dea0f7fce3ebfb",
+          "directory_url": "https://data.sec.gov/submissions/CIK0000715153.json",
+          "statement_url": "https://www.sec.gov/Archives/edgar/data/715153/000119312526333722/d371554d6k.htm",
+          "statement_sha256": "b98e9cc3ffbf9088b653591e7d187d2888c07fe2c0b78ff3959981398fb46bc7",
+          "cover_sha256": "b98e9cc3ffbf9088b653591e7d187d2888c07fe2c0b78ff3959981398fb46bc7",
+          "document_role": "primary_filing"
+        },
+        "tables": [],
+        "holds": [
+          {
+            "table": 19,
+            "reason": "table_issuer_unproved"
+          },
+          {
+            "table": 20,
+            "reason": "table_issuer_unproved"
+          },
+          {
+            "table": 21,
+            "reason": "table_issuer_unproved"
+          },
+          {
+            "table": 23,
+            "reason": "table_issuer_unproved"
+          }
+        ],
+        "facts": [],
+        "conflicts": [],
+        "limitations": [
+          "Table observations are not admitted ratios or historical panels.",
+          "Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.",
+          "Missing or ambiguous columns remain held; no values or zero amounts are inferred."
+        ]
+      }
+    }
+  ]
+}

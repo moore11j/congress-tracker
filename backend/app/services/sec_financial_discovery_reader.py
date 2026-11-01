@@ -119,6 +119,8 @@ def validate_receipt(receipt,cover,*,now):
         if status=='held' and any(h['reason']=='table_accounting_basis_unproved' for h in holds):
             from app.services.sec_statement_declarations import POLICY
             if receipt.get('accounting_policy')!=POLICY:return None
+            from app.services.sec_comparative_basis import POLICY as comparative_policy
+            if receipt.get('comparative_policy')!=comparative_policy:return None
         return deepcopy(receipt)
     except (ValueError,TypeError,KeyError,AttributeError) as exc:
         raise discovery.DiscoveryError('discovery_qualification_invalid') from exc
@@ -173,7 +175,7 @@ def restore(company_raw,facts_raw,*,symbol,cik,available_by,observed_at,checkpoi
             raise discovery.DiscoveryError('discovery_facts_identity')
         from app.services import sec_tabular_reporting as tables
         supplement=tables.acquire(company_raw,symbol=symbol,cik=cik,available_by=available_by,
-                                   client=retained,candidate_accessions=tuple(selected),annual_rollover=annual_rollover)
+                                   client=retained,candidate_accessions=tuple(selected),annual_rollover=annual_rollover,basis_facts_raw=facts_raw)
         if supplement is None:raise discovery.DiscoveryError('discovery_qualification_changed')
         tables.validate(supplement,company_raw=company_raw,symbol=symbol,cik=cik,available_by=available_by)
     if set(originals)!=set(expected):raise discovery.DiscoveryError('discovery_originals_not_revalidated')
@@ -272,7 +274,7 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
             else:
                 inspection={}
                 supplement=tables.acquire(company_raw,symbol=symbol,cik=cik,available_by=available_by,
-                    client=retained,candidate_accessions=scope,inspection=inspection,annual_rollover=annual_rollover)
+                    client=retained,candidate_accessions=scope,inspection=inspection,annual_rollover=annual_rollover,basis_facts_raw=facts_raw)
                 receipt['holds']=inspection.get('holds',[])
                 if supplement is not None:receipt['kind']='html_table'
         if supplement is not None:
@@ -306,5 +308,7 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
     if receipt['status']=='held' and any(h['reason']=='table_accounting_basis_unproved' for h in receipt['holds']):
         from app.services.sec_statement_declarations import POLICY
         receipt['accounting_policy']=POLICY
+        from app.services.sec_comparative_basis import POLICY as comparative_policy
+        receipt['comparative_policy']=comparative_policy
     receipt=validate_receipt(receipt,hint,now=observed_at)
     return {'receipt':receipt,'supplement':supplement}
