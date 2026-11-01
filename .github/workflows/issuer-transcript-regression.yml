@@ -30,7 +30,7 @@ jobs:
       - name: Verify complete originals, discovery and research consumers
         working-directory: backend
         run: >-
-          python -m pytest tests/test_issuer_sofi_content_link.py
+          python -m pytest tests/test_issuer_sec_date_separator.py tests/test_issuer_sofi_content_link.py
           tests/test_issuer_q4_pdf_discovery.py tests/test_issuer_index_freshness.py
           tests/test_issuer_transcripts.py tests/test_issuer_discovery.py
           tests/test_issuer_collection_fairness.py tests/test_issuer_pdf.py
