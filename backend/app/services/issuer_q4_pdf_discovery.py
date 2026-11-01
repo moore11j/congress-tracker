@@ -101,6 +101,13 @@ def parse_index(raw, company, year, observed):
                 content = (r'https://s21\.q4cdn\.com/399680738/files/content_files/'
                            + rf'META-Q{quarter}-{year}-Earnings-Call-Transcript\.pdf')
                 allowed = rf'(?:{allowed}|{content})'
+            elif symbol == 'SOFI':
+                # The official index moved transcripts to content_files. Bind
+                # the issuer tenant, spelled fiscal quarter/year and document
+                # identity here; the complete PDF must still prove them again.
+                content = (r'https://s27\.q4cdn\.com/749715820/files/content_files/'
+                           + rf'SoFi-{label.replace(" ", "-")}-{year}-Earnings-Transcript_FINAL-docx\.pdf')
+                allowed = rf'(?:{allowed}|{content})'
             if (not isinstance(url, str) or not re.fullmatch(allowed, url)
                     or item.get('DocumentCategory') != spec['category'] or item.get('DocumentFileType') != 'PDF'
                     or item.get('DocumentType') not in {'File', 'file'} or item.get('LanguageId') != 1):

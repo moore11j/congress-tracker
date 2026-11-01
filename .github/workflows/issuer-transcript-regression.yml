@@ -1,0 +1,47 @@
+name: Issuer Transcript Regressions
+on:
+  pull_request:
+    paths:
+      - 'backend/app/services/issuer*.py'
+      - 'backend/app/clients/issuer*.py'
+      - 'backend/config/direct_issuer_sources.json'
+      - 'backend/tests/test_issuer*.py'
+      - 'backend/tests/fixtures/issuer*/**'
+      - 'backend/requirements.txt'
+      - '.github/workflows/issuer-transcript-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  transcript-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite://
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - name: Verify complete originals, discovery and research consumers
+        working-directory: backend
+        run: >-
+          python -m pytest tests/test_issuer_sofi_content_link.py
+          tests/test_issuer_q4_pdf_discovery.py tests/test_issuer_index_freshness.py
+          tests/test_issuer_transcripts.py tests/test_issuer_discovery.py
+          tests/test_issuer_collection_fairness.py tests/test_issuer_pdf.py
+          tests/test_issuer_pdf_text_cache.py tests/test_issuer_sec_discovery.py
+          tests/test_issuer_ibm_discovery.py tests/test_issuer_microsoft_discovery.py
+          tests/test_issuer_moderna_discovery.py tests/test_issuer_unilever_discovery.py
+          -q --disable-warnings --maxfail=3 --junitxml=issuer-transcript-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issuer-transcript-results
+          path: backend/issuer-transcript-results.xml
+          if-no-files-found: ignore
+          retention-days: 7
