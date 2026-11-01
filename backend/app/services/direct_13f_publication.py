@@ -4,7 +4,7 @@ from decimal import Decimal
 import hashlib
 import json
 
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 
 from app.models import (Event, InstitutionalActivityEvent, InstitutionalFiling,
                         InstitutionalPosition, InstitutionalPositionChange)
@@ -15,6 +15,22 @@ from app.services.institutional_sec_snapshot import mapped_symbol, snapshot_dige
 
 
 RECEIPT_KEY = '_walnut_direct_13f'
+
+
+def _legacy_identity_query(cusips, filed_by):
+    """Exclude reference-derived filings once, preserving orphan/NULL behavior.
+
+    PostgreSQL must not decompress and scan the same filing metadata for every
+    matching position. Materializing the excluded IDs also preserves the exact
+    legacy text predicate; interpreting JSON here would change candidate scope.
+    """
+    excluded = (select(InstitutionalFiling.id)
+        .where(InstitutionalFiling.raw_metadata_json.like('%"reference_evidence"%'))
+        .cte('reference_derived_filings').prefix_with('MATERIALIZED', dialect='postgresql'))
+    return (select(InstitutionalPosition.cusip, InstitutionalPosition.normalized_symbol)
+        .where(~select(excluded.c.id).where(excluded.c.id == InstitutionalPosition.filing_id).exists(),
+            InstitutionalPosition.cusip.in_(cusips), InstitutionalPosition.normalized_symbol.is_not(None),
+            InstitutionalPosition.filing_date <= filed_by).distinct())
 
 
 def _positions(db, filing):
@@ -182,12 +198,8 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
         if identifier['cusip'] in cusips:
             mappings.setdefault(identifier['cusip'], set()).add(identifier['symbol'])
     if created or reference_by_cusip:
-        for cusip, symbol in db.execute(select(InstitutionalPosition.cusip, InstitutionalPosition.normalized_symbol).outerjoin(
-                InstitutionalFiling, InstitutionalPosition.filing_id == InstitutionalFiling.id).where(
-                or_(InstitutionalFiling.id.is_(None), InstitutionalFiling.raw_metadata_json.is_(None),
-                    ~InstitutionalFiling.raw_metadata_json.like('%"reference_evidence"%')),
-                InstitutionalPosition.cusip.in_(cusips), InstitutionalPosition.normalized_symbol.is_not(None),
-                InstitutionalPosition.filing_date <= date.fromisoformat(metadata['filing_date'])).distinct()):
+        for cusip, symbol in db.execute(_legacy_identity_query(
+                cusips, date.fromisoformat(metadata['filing_date']))):
             mappings.setdefault(cusip, set()).add(symbol)
     used_references = {}
     def resolve(cusip):

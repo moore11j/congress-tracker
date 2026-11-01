@@ -177,3 +177,39 @@ def test_mapped_spinoff_position_waits_for_distribution_treatment_instead_of_buy
     saved=snapshot(db)
     assert run(db,current,[ref])['derived_state']=='waiting_distribution_treatment'
     assert snapshot(db)==saved
+
+
+def test_legacy_candidates_keep_exact_null_orphan_date_and_reference_semantics(db):
+    from datetime import date
+    from sqlalchemy import or_
+    from app.services.direct_13f_publication import _legacy_identity_query
+    cusip = '000361109'
+    metadata_values = [None, '{}', '{"reference_evidence": []}', '{"note": "reference_evidence"}',
+                       '{"reference_evidence_extra": []}']
+    filings = []
+    for index, metadata in enumerate(metadata_values):
+        filing = InstitutionalFiling(cik=str(9000 + index), report_year=2026, report_quarter=2,
+            accession_number='mapping-scope-' + str(index), filing_date=date(2026, 8, 1), raw_metadata_json=metadata)
+        db.add(filing); db.flush(); filings.append(filing.id)
+    for index, filing_id in enumerate([*filings, 999999]):
+        db.add(InstitutionalPosition(filing_id=filing_id, cik=str(9000 + index), cusip=cusip,
+            normalized_symbol='SYM' + str(index), report_year=2026, report_quarter=2,
+            filing_date=date(2026, 8, 1), shares=1, value_usd=1))
+    extra = dict(filing_id=999998, cik='9998', report_year=2026, report_quarter=2)
+    db.add_all([
+        InstitutionalPosition(**extra, cusip=cusip, normalized_symbol='FUTURE', filing_date=date(2026, 10, 2)),
+        InstitutionalPosition(**extra, cusip=cusip, normalized_symbol=None, filing_date=date(2026, 8, 1)),
+        InstitutionalPosition(**extra, cusip='000361110', normalized_symbol='OTHER', filing_date=date(2026, 8, 1)),
+        InstitutionalPosition(**extra, cusip=cusip, normalized_symbol='SYM0', filing_date=date(2026, 8, 1)),
+    ]); db.commit()
+    cutoff = date(2026, 10, 1)
+    original = select(InstitutionalPosition.cusip, InstitutionalPosition.normalized_symbol).outerjoin(
+        InstitutionalFiling, InstitutionalPosition.filing_id == InstitutionalFiling.id).where(
+        or_(InstitutionalFiling.id.is_(None), InstitutionalFiling.raw_metadata_json.is_(None),
+            ~InstitutionalFiling.raw_metadata_json.like('%"reference_evidence"%')),
+        InstitutionalPosition.cusip.in_({cusip}), InstitutionalPosition.normalized_symbol.is_not(None),
+        InstitutionalPosition.filing_date <= cutoff).distinct()
+    expected = {(cusip, 'SYM' + str(i)) for i in (0, 1, 4, 5)}
+    assert set(db.execute(original)) == expected
+    assert set(db.execute(_legacy_identity_query({cusip}, cutoff))) == expected
+    assert list(db.execute(_legacy_identity_query(set(), cutoff))) == []
