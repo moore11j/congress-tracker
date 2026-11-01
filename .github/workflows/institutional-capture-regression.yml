@@ -29,4 +29,4 @@ jobs:
       - run: python -m pip install -r backend/requirements.txt pytest
       - name: Verify capture and source acceptance guards
         working-directory: backend
-        run: python -m pytest tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py -q --disable-warnings --maxfail=3
+        run: python -m pytest tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_event_ids.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py -q --disable-warnings --maxfail=3

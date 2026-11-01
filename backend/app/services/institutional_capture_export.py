@@ -42,6 +42,29 @@ def position_records(db, query, *, page_size=10000):
         yield from db.execute(bounded.execution_options(yield_per=100)).mappings()
         after=upper
 
+def event_ids(db, variants, *, batch_size=100, maximum=100000):
+    """Resolve complete manager matches through the existing member index.
+
+    An ordered scan across thousands of manager variants can select the event
+    primary-key index and scan unrelated history before returning a row. Small
+    unordered member lookups collect IDs first; the caller then exports complete
+    rows in the original primary-key order. The total matching cap is unchanged.
+    """
+    if type(batch_size) is not int or not 1 <= batch_size <= 100:
+        raise ValueError('invalid_event_batch_size')
+    if type(maximum) is not int or not 1 <= maximum <= 100000:
+        raise ValueError('invalid_event_maximum')
+    ordered=sorted(set(variants))
+    identifiers=set()
+    for offset in range(0,len(ordered),batch_size):
+        query=select(Event.id).where(Event.member_bioguide_id.in_(
+            ordered[offset:offset+batch_size])).limit(maximum-len(identifiers)+1)
+        identifiers.update(db.scalars(query))
+        if len(identifiers)>maximum:
+            raise ValueError('events exceeds reviewed row bound')
+    return sorted(identifiers)
+
+
 def export_records(db, stream):
     """Caller owns one read-only snapshot; mapped ORM instances are never retained."""
     captured_at = datetime.now(timezone.utc)
@@ -156,7 +179,7 @@ def export_records(db, stream):
     records('changes',InstitutionalPositionChange,func.ltrim(InstitutionalPositionChange.cik,'0').in_(ciks))
     records('activity',InstitutionalActivityEvent,func.ltrim(InstitutionalActivityEvent.cik,'0').in_(ciks))
     variants={cik.zfill(width) for cik in ciks for width in range(len(cik),11)}
-    records('events',Event,Event.member_bioguide_id.in_(variants))
+    records('events',Event,Event.id.in_(event_ids(db,variants)))
     records('holders',InstitutionalHolder,func.ltrim(InstitutionalHolder.cik,'0').in_(ciks),5000)
     records('summaries',InstitutionalSymbolSummary,InstitutionalSymbolSummary.symbol.in_(symbols),150000)
     return dict(captured_at=captured_at, source_bytes=total, transaction_read_only=True,
