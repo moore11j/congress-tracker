@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import tempfile
+import sys
 from threading import Lock
 from statistics import median
 from xml.etree import ElementTree as ET
@@ -101,6 +102,7 @@ class VerifiedPeerRecord:
 
 
 MAX_STREAM_SPOOL_BYTES = 128_000_000
+MAX_STREAM_RESIDENT_BYTES = 20_000_000
 
 
 class _PeerSummarySpool:
@@ -178,6 +180,27 @@ def _peer_record_size(record):
                            record.source_bytes, payload), default=str).encode())
 
 
+def _immutable_resident_size(value):
+    """Conservative owned-value estimate; repeated shared values count again.
+
+    JSON length understates Decimal and tuple storage substantially. Count the
+    actual runtime object sizes before retaining them. This excludes parser
+    working memory and does not replace the host's available-memory guard.
+    """
+    size = sys.getsizeof(value)
+    if isinstance(value, (tuple, frozenset)):
+        size += sum(_immutable_resident_size(item) for item in value)
+    return size
+
+
+def _peer_record_resident_size(record):
+    payload = record.location if isinstance(record, _SpooledPeerRecord) else record.compact
+    return (sys.getsizeof(record) + sys.getsizeof(record.__dict__) +
+            sum(_immutable_resident_size(value) for value in
+                (record.identity, record.metadata_json, record.content_hash,
+                 record.source_bytes, payload)) + 8)  # retained sequence pointer
+
+
 @dataclass(frozen=True)
 class VerifiedPeerCohort:
     """Immutable values derived from every verified original in one cohort.
@@ -192,6 +215,7 @@ class VerifiedPeerCohort:
     summary_bytes: int
     cusip_names: tuple | None = None
     spool: _PeerSummarySpool | None = None
+    resident_bytes_estimate: int = 0
 
     def close(self):
         if self.spool is not None:
@@ -245,7 +269,11 @@ def prepare_streamed_peer_groups(documents, *, scopes, spill_to_disk=False):
     sizes = {period: len(json.dumps(pool).encode()) if pool is not None else 0
              for period, pool in names.items()}
     total_size = sum(sizes.values())
-    if total_size > MAX_STREAM_SUMMARY_BYTES:
+    heap_sizes = {period: (_immutable_resident_size(names[period]) +
+                          _immutable_resident_size(frozenset(scopes[period]) if scopes is not None else None) +
+                          512) if spill_to_disk else 0 for period in groups}
+    total_heap = sum(heap_sizes.values())
+    if total_size > MAX_STREAM_SUMMARY_BYTES or (spill_to_disk and total_heap > MAX_STREAM_RESIDENT_BYTES):
         raise ValueError('Complete streamed peer summaries exceed memory budget')
     spool = None
     def spill(record):
@@ -282,29 +310,43 @@ def prepare_streamed_peer_groups(documents, *, scopes, spill_to_disk=False):
             record = VerifiedPeerRecord(identity, json.dumps(document['metadata'], sort_keys=True),
                                         document['content_hash'], len(document['raw']), compact)
             size = _peer_record_size(record)
-            if spool is None and total_size + size * len(periods) > MAX_STREAM_SUMMARY_BYTES and spill_to_disk:
+            heap_size = _peer_record_resident_size(record) if spill_to_disk else 0
+            if spool is None and spill_to_disk and (
+                    total_size + size * len(periods) > MAX_STREAM_SUMMARY_BYTES or
+                    total_heap + heap_size * len(periods) > MAX_STREAM_RESIDENT_BYTES):
                 spool = _PeerSummarySpool()
                 for saved_period, records in groups.items():
                     groups[saved_period] = [spill(saved) for saved in records]
                     sizes[saved_period] = (len(json.dumps(names[saved_period]).encode())
                                            if names[saved_period] is not None else 0)
                     sizes[saved_period] += sum(_peer_record_size(saved) for saved in groups[saved_period])
+                    heap_sizes[saved_period] = (_immutable_resident_size(names[saved_period]) +
+                        _immutable_resident_size(frozenset(scopes[saved_period]) if scopes is not None else None) + 512 +
+                        sum(_peer_record_resident_size(saved) for saved in groups[saved_period]))
+                # The loop variable otherwise retains the last old totals list
+                # until the complete scan returns, defeating the early spill.
+                del records
+                heap_sizes[next(iter(groups))] += 16_384  # file/buffer/lock allowance
                 total_size = sum(sizes.values())
+                total_heap = sum(heap_sizes.values())
             if spool is not None:
                 record = spill(record)
                 size = _peer_record_size(record)
+                heap_size = _peer_record_resident_size(record)
             for period in periods:
                 total_size += size
-                if total_size > MAX_STREAM_SUMMARY_BYTES:
+                total_heap += heap_size
+                if total_size > MAX_STREAM_SUMMARY_BYTES or (spill_to_disk and total_heap > MAX_STREAM_RESIDENT_BYTES):
                     raise ValueError('Complete streamed peer summaries exceed memory budget')
                 groups[period].append(record)
                 sizes[period] += size
+                heap_sizes[period] += heap_size
         if any(not records for records in groups.values()):
             raise ValueError('Missing staged comparison period evidence')
         if spool is not None:
             spool.seal()
         return {period: VerifiedPeerCohort(tuple(records), period,
-                    frozenset(scopes[period]) if scopes is not None else None, sizes[period], names[period], spool)
+                    frozenset(scopes[period]) if scopes is not None else None, sizes[period], names[period], spool, heap_sizes[period])
                 for period, records in groups.items()}
 
     except BaseException:
