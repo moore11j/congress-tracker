@@ -126,6 +126,19 @@ def test_sparse_event_windows_preserve_complete_query(case):
     with pytest.raises(ValueError):list(peer.bounded_pk_records(db,Event,select(Event.__table__),page_size=0))
 
 
+def test_complete_measured_activity_capacity_and_first_excess_row():
+    class Null:
+        def write(self, data):pass
+    writer=peer.PeerStream(Null())
+    writer.write('metadata',{})
+    # The measured full source scope contains268491 activities. Preserve all of
+    # them and verify the real300000-row boundary without retaining test output.
+    for ident in range(300000):writer.write('activity',{'id':ident+1})
+    assert writer.counts['activity']==300000
+    with pytest.raises(ValueError,match='peer_table_bound'):
+        writer.write('activity',{'id':300001})
+
+
 def test_canonical_scope_file_binds_exact_reviewed_payload(case,tmp_path):
     _,scope=case;path=tmp_path/'scope.json';raw=peer.encode(scope);path.write_bytes(raw)
     assert peer.read_scope(path,peer.digest(scope))==scope

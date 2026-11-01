@@ -19,7 +19,7 @@ MAX_SCOPE_BYTES = 3_000_000
 MAX_STREAM_BYTES = 2_000_000_000
 MAX_RECORD_BYTES = 5_000_000
 LIMITS = {'filings': 5000, 'holders': 5000, 'positions': 1_000_000,
-    'changes': 1_000_000, 'activity': 250_000, 'summaries': 150_000, 'events': 100_000}
+    'changes': 1_000_000, 'activity': 300_000, 'summaries': 150_000, 'events': 100_000}
 MODELS = dict(filings=InstitutionalFiling, holders=InstitutionalHolder,
     positions=InstitutionalPosition, changes=InstitutionalPositionChange,
     activity=InstitutionalActivityEvent, summaries=InstitutionalSymbolSummary, events=Event)
