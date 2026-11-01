@@ -5,6 +5,8 @@ on:
     paths:
       - "backend/app/services/institutional_capture_*.py"
       - "backend/app/jobs/capture_direct_13f_evidence.py"
+      - "backend/app/services/direct_13f_publication.py"
+      - "backend/tests/test_direct_13f_reference_mapping.py"
       - "backend/tests/test_institutional_capture_*.py"
       - ".github/workflows/institutional-capture-regression.yml"
   workflow_dispatch:
@@ -26,7 +28,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: python -m pip install -r backend/requirements.txt pytest
+      - run: python -m pip install -r backend/requirements.txt pytest httpx
       - name: Verify capture and source acceptance guards
         working-directory: backend
-        run: python -m pytest tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_event_ids.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py -q --disable-warnings --maxfail=3
+        run: python -m pytest tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_event_ids.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py tests/test_direct_13f_reference_mapping.py tests/test_direct_13f_publication.py tests/test_direct_13f_worker.py tests/test_direct_13f_batch.py tests/test_direct_13f_streamed_peers.py -q --disable-warnings --maxfail=3
