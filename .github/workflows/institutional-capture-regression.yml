@@ -5,6 +5,10 @@ on:
     paths:
       - "backend/app/services/institutional_capture_*.py"
       - "backend/app/jobs/capture_direct_13f_evidence.py"
+      - "backend/app/jobs/capture_institutional_peers.py"
+      - "backend/app/services/institutional_peer_capture.py"
+      - "backend/tests/test_institutional_peer*.py"
+      - "backend/scripts/scheduled_jobs.py"
       - "backend/app/services/direct_13f_publication.py"
       - "backend/app/services/direct_13f_evidence.py"
       - "backend/app/services/direct_13f_batch.py"
@@ -34,4 +38,4 @@ jobs:
       - run: python -m pip install -r backend/requirements.txt pytest httpx
       - name: Verify capture and source acceptance guards
         working-directory: backend
-        run: python -m pytest tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_event_ids.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py tests/test_direct_13f_reference_mapping.py tests/test_direct_13f_publication.py tests/test_direct_13f_worker.py tests/test_direct_13f_batch.py tests/test_direct_13f_streamed_peers.py tests/test_direct_13f_prepared_evidence.py -q --disable-warnings --maxfail=3
+        run: python -m pytest tests/test_institutional_peer_capture.py tests/test_institutional_peer_job.py tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_event_ids.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py tests/test_direct_13f_reference_mapping.py tests/test_direct_13f_publication.py tests/test_direct_13f_worker.py tests/test_direct_13f_batch.py tests/test_direct_13f_streamed_peers.py tests/test_direct_13f_prepared_evidence.py tests/test_scheduled_jobs.py -q --disable-warnings --maxfail=3
