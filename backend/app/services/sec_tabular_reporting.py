@@ -108,7 +108,7 @@ def declaration(raw, observations):
             'translations': translations}
 
 
-def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik, available_by):
+def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik, available_by, basis_facts_raw=None):
     """Reparse complete originals; caller-supplied extracted values are not trusted.
 
     Records match Walnut's period-keyed record contract but use honest html:
@@ -118,7 +118,18 @@ def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik
         cover_raw=cover_raw, cover_url=cover_url, symbol=symbol, cik=cik, available_by=available_by)
     if not observations['tables'] and not observations['holds']:
         raise TabularReportingError('table_no_statements')
-    basis = declaration(raw, observations)
+    try:
+        basis = declaration(raw, observations)
+    except TabularReportingError as exc:
+        if str(exc)!='table_accounting_basis_unproved' or basis_facts_raw is None:raise
+        from app.services import sec_comparative_basis
+        tree=html.fromstring(raw)
+        for node in tree.xpath('//script|//style|//template|//blockquote'):node.drop_tree()
+        try:
+            basis={'version':VERSION,**sec_comparative_basis.prove(tables.visible_text(tree),observations,
+                company_raw=company_raw,facts_raw=basis_facts_raw,available_by=available_by)}
+        except sec_comparative_basis.ComparativeBasisError:
+            raise exc
     from app.services.sec_foreign_statements import profile
     annual_profile=profile(symbol,cik)
     if annual_profile and (basis['currency']!=annual_profile['currency']
@@ -218,7 +229,7 @@ def statement_links(tree, cover_url):
     return {item['url'] for item in statement_link_candidates(tree,cover_url)}
 
 
-def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessions=None, inspection=None, annual_rollover=False):
+def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessions=None, inspection=None, annual_rollover=False, basis_facts_raw=None):
     """Inspect at most three filing covers and one exhibit each, caller budgeted."""
     from app.services import sec_document_sets as sets
     from app.services.sec_reporting_policy import reviewed
@@ -232,6 +243,13 @@ def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessi
     candidates.sort(key=lambda c:(c['report_date']<c['filed'],c['report_date'],c['filed']),reverse=True)
     selected_candidates=sets.bounded_candidates(candidates,candidate_accessions)
     accepted=[];holds=[];held_sources={}
+    def prepare_original(raw,args):
+        result=normalize(raw,**args,basis_facts_raw=basis_facts_raw)
+        # Retain annual originals only when this source used reconciliation.
+        # Existing explicit-basis supplements retain their exact shape.
+        if 'comparative_basis' in result['evidence']:
+            args={**args,'basis_facts_raw':basis_facts_raw}
+        return result,args
     issuer=json.loads(company_raw)['name']
     def statement_hold(raw,candidate,reason,source_url):
         hold={'accession':candidate['accession'],'filed':candidate['filed'],'reason':reason}
@@ -249,7 +267,7 @@ def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessi
         if primary:
             args=dict(source_url=candidate['cover_url'],company_raw=company_raw,cover_raw=cover,
                 cover_url=candidate['cover_url'],symbol=symbol,cik=cik,available_by=available_by)
-            try:result=normalize(cover,**args)
+            try:result,args=prepare_original(cover,args)
             except (tables.TabularFinancialError,TabularReportingError) as exc:
                 if str(exc)!='table_no_statements':
                     holds.append(statement_hold(cover,candidate,str(exc),candidate['cover_url']))
@@ -268,7 +286,7 @@ def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessi
         raw=client.get(url)
         args=dict(source_url=url,company_raw=company_raw,cover_raw=cover,
             cover_url=candidate['cover_url'],symbol=symbol,cik=cik,available_by=available_by)
-        try: result=normalize(raw,**args)
+        try: result,args=prepare_original(raw,args)
         except (tables.TabularFinancialError,TabularReportingError) as exc:
             if str(exc)!='table_no_statements':
                 holds.append(statement_hold(raw,candidate,str(exc),url))
@@ -318,13 +336,15 @@ def acquire(company_raw, *, symbol, cik, available_by, client, candidate_accessi
     return supplement
 
 
-def validate(supplement, *, company_raw, symbol, cik, available_by):
+def validate(supplement, *, company_raw, symbol, cik, available_by, facts_raw=None):
     """Recompute normalized values from originals before consumer use."""
     if not isinstance(supplement,dict) or 'table_reporting' not in supplement.get('evidence',{}):
         raise TabularReportingError('table_reporting_required')
     if not isinstance(supplement.get('table_args'),dict) or not isinstance(supplement.get('table_original'),bytes):
         raise TabularReportingError('table_original_required')
     args=dict(supplement['table_args'])
+    if 'basis_facts_raw' in args and facts_raw is not None and args['basis_facts_raw']!=facts_raw:
+        raise TabularReportingError('table_comparative_facts_changed')
     if args['company_raw']!=company_raw or args['symbol']!=symbol or str(args['cik']).zfill(10)!=str(cik).zfill(10):
         raise TabularReportingError('table_consumer_identity')
     args['available_by']=available_by
@@ -340,6 +360,8 @@ def validate(supplement, *, company_raw, symbol, cik, available_by):
             peer_args=dict(peer['args'])
             if peer_args['company_raw']!=company_raw or peer_args['symbol']!=symbol or str(peer_args['cik']).zfill(10)!=str(cik).zfill(10):
                 raise TabularReportingError('table_consumer_identity')
+            if 'basis_facts_raw' in peer_args and facts_raw is not None and peer_args['basis_facts_raw']!=facts_raw:
+                raise TabularReportingError('table_comparative_facts_changed')
             peer_args['available_by']=available_by
             items.append((normalize(peer['raw'],**peer_args),peer['raw'],peer_args))
         from app.services.sec_tabular_corroboration import select
@@ -362,7 +384,7 @@ def core(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
     if observed_at.tzinfo is None:
         raise TabularReportingError('table_observation_naive')
     available=observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
-    result=validate(supplement,company_raw=company_raw,symbol=symbol,cik=cik,available_by=available)
+    result=validate(supplement,company_raw=company_raw,symbol=symbol,cik=cik,available_by=available,facts_raw=facts_raw)
     proof=result['evidence'];records=result['records'];end=date.fromisoformat(proof['current_period'])
     company=json.loads(company_raw)
     if str(json.loads(facts_raw).get('cik','')).zfill(10)!=str(cik).zfill(10):
@@ -393,7 +415,7 @@ def panel(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
     if observed_at.tzinfo is None:
         raise TabularReportingError('table_observation_naive')
     available=observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
-    result=validate(supplement,company_raw=company_raw,symbol=symbol,cik=cik,available_by=available)
+    result=validate(supplement,company_raw=company_raw,symbol=symbol,cik=cik,available_by=available,facts_raw=facts_raw)
     records=result['records'];proof=result['evidence'];currency=proof['currency']
     if str(json.loads(facts_raw).get('cik','')).zfill(10)!=str(cik).zfill(10):
         raise TabularReportingError('table_companyfacts_identity')
@@ -423,6 +445,8 @@ def panel(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
         reportingCurrency=currency,preparationVersion=VERSION,
         reportingBasis='Reported '+currency+' '+proof['accounting_basis']+' financial tables. Net income is shown only for explicit parent-holder income.',
         sourceEvidence={'methodology':VERSION,'tableReporting':proof,'periods':periods})
+    if proof.get('accounting_basis_origin')=='annual_comparative_reconciliation':
+        payload['reportingBasis']='Reported USD GAAP financial tables; US GAAP basis supported by exact annual comparative reconciliation. Net income requires explicit parent-holder income.'
     if present:
         payload['sections']['income']='partial';payload['subsections']['income']=_subsection(status='limited',reason_code='partial_sec_coverage',data=rows)
     if any(row['operatingCashFlow'] is not None for group in rows.values() for row in group):
@@ -440,6 +464,11 @@ def cached_valid(proof, *, symbol=None, cik=None):
     if not isinstance(proof,dict):return False
     try:
         source=proof['source']
+        if ('comparative_basis' in proof) != (proof.get('accounting_basis_origin')=='annual_comparative_reconciliation'):return False
+        if 'comparative_basis' in proof:
+            if proof['accounting_basis']!='US GAAP' or proof['currency']!='USD':return False
+            from app.services.sec_comparative_basis import cached_valid as comparative_valid
+            if not comparative_valid(proof['comparative_basis'],source,proof['current_period']):return False
         if 'corroboration' in proof:
             from app.services.sec_tabular_corroboration import cached_valid as corroboration_valid
             if not corroboration_valid(proof['corroboration'],source):return False
