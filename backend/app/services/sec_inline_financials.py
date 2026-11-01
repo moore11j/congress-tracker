@@ -92,11 +92,12 @@ def _number(node, tree):
 
 
 
-def _consistent_precision(previous, previous_decimals, value, decimals):
-    """Select a more precise fact only when its interval is contained.
+def _consistent_precision(previous, previous_decimals, value, decimals, *, allow_overlap=False):
+    """Select the finer reported fact when declared precision is consistent.
 
-    Rounded narrative duplicates are not restatements. Unknown precision or
-    genuinely conflicting reported values remain held by the caller.
+    Core facts follow EDGAR XBRL Guide 9.10: closed intervals must overlap.
+    Auxiliary reconciliation retains its existing containment requirement.
+    Unknown precision and unequal values at equal precision remain held.
     """
     def precision(raw):
         if raw == 'INF':
@@ -115,7 +116,11 @@ def _consistent_precision(previous, previous_decimals, value, decimals):
         fine, coarse = Decimal(str(fine)), Decimal(str(coarse))
         fine_error = Decimal(0) if fine_precision == 100 else Decimal(10)**(-fine_precision)/2
         coarse_error = Decimal(0) if coarse_precision == 100 else Decimal(10)**(-coarse_precision)/2
-        if fine-fine_error >= coarse-coarse_error and fine+fine_error <= coarse+coarse_error:
+        fine_low, fine_high = fine-fine_error, fine+fine_error
+        coarse_low, coarse_high = coarse-coarse_error, coarse+coarse_error
+        consistent = (max(fine_low, coarse_low) <= min(fine_high, coarse_high)
+                      if allow_overlap else fine_low >= coarse_low and fine_high <= coarse_high)
+        if consistent:
             return new > old
     return None
 
@@ -311,7 +316,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
     currency_observation = {'methodology':'entity_wide_statement_currencies_v1',
         'current_statement_currencies':sorted(k for k,v in currency_groups.items() if v)}
     records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}; nil_keys = set()
-    core_observations = {}; core_rounded_duplicates = []
+    core_observations = {}; core_rounded_duplicates = []; core_overlap_used = False
     for n in nodes(tree, 'nonfraction'):
         name = n.get('name', '')
         if not name.startswith(namespace+':') or name.split(':', 1)[1] not in wanted:
@@ -345,14 +350,17 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
             # conflicting coarse values, making acceptance depend on row order.
             observations = core_observations.setdefault(key, {})
             for old_decimals, old_value in observations.items():
-                if old_value != value and _consistent_precision(old_value, old_decimals, value, n.get('decimals')) is None:
-                    raise InlineFactsError('conflicting_reported_facts')
+                if old_value != value:
+                    if _consistent_precision(old_value, old_decimals, value, n.get('decimals'), allow_overlap=True) is None:
+                        raise InlineFactsError('conflicting_reported_facts')
+                    if _consistent_precision(old_value, old_decimals, value, n.get('decimals')) is None:
+                        core_overlap_used = True
             observations[n.get('decimals')] = value
         fact = {'end': str(end), 'val': value, 'filed': filed, 'form': form, 'accn': accession}
         if start:
             fact['start'] = str(start)
         if key in records and records[key]['val'] != value:
-            preference = _consistent_precision(records[key]['val'], precisions[key], value, n.get('decimals'))
+            preference = _consistent_precision(records[key]['val'], precisions[key], value, n.get('decimals'), allow_overlap=tag not in auxiliary)
             if preference is None:
                 if tag not in auxiliary:
                     raise InlineFactsError('conflicting_reported_facts')
@@ -368,7 +376,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         elif key in records and records[key]['val'] == value:
             # Keep the existing finer provenance when equal-value duplicates
             # have known unequal precision; missing decimals grant no preference.
-            preference = _consistent_precision(value, precisions[key], value, n.get('decimals'))
+            preference = _consistent_precision(value, precisions[key], value, n.get('decimals'), allow_overlap=tag not in auxiliary)
             if preference is False:
                 continue
         records[key] = fact
@@ -397,7 +405,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         **({'revenue_status':'unavailable', 'partial_financial_policy':partial_version} if not revenue_available else {}),
         **({'cover_evidence':cover_evidence} if cover_evidence else {}),
         **({'auxiliary_rounded_duplicates':rounded_duplicates} if rounded_duplicates else {}),
-        **({'core_rounded_duplicates':{'methodology':'contained_reported_precision_v1', 'comparisons':core_rounded_duplicates}} if core_rounded_duplicates else {}),
+        **({'core_rounded_duplicates':{'methodology':('edgar_consistent_duplicates_v2' if core_overlap_used else 'contained_reported_precision_v1'), 'comparisons':core_rounded_duplicates}} if core_rounded_duplicates else {}),
         **({'auxiliary_holds':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3], 'reason':v}
             for k,v in sorted(auxiliary_holds.items(), key=lambda item: repr(item[0]))]} if auxiliary_holds else {})}}
 

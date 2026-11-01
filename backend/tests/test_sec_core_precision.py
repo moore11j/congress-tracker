@@ -69,11 +69,29 @@ def test_equal_value_keeps_finest_source_provenance(order):
     assert 'core_rounded_duplicates' not in result['evidence']
 
 
-def test_partial_overlap_is_still_held_by_conservative_containment_policy():
-    # XBRL allows these overlapping intervals; this reader intentionally requires
-    # containment before replacing a source value with a finer occurrence.
+@pytest.mark.parametrize('reverse',[False,True])
+@pytest.mark.parametrize('fine,fd,coarse,cd',[(550,'-1',500,'-2'),(2500,'-2',2000,'-3'),
+    (27550000,'-3',27600000,'-5'),(-27550000,'-3',-27600000,'-5'),(550,'INF',500,'-2')])
+def test_edgar_closed_overlap_preserves_the_finer_original(fine,fd,coarse,cd,reverse):
+    # SEC XBRL Guide 9.10 accepts overlap, including a shared endpoint.
+    rows=[numeric(fine,fd,identifier='statement'),numeric(coarse,cd,identifier='narrative')]
+    if reverse:rows.reverse()
+    result=parse(document(primary=''.join(rows)))
+    assert result['facts'][TAG]['units']['USD'][0]['val']==fine
+    assert next(iter(result['provenance'].values()))['fact_id']=='statement'
+    expected='contained_reported_precision_v1' if fd=='INF' else 'edgar_consistent_duplicates_v2'
+    assert result['evidence']['core_rounded_duplicates']['methodology']==expected
+
+
+@pytest.mark.parametrize('order',list(permutations([(500,'-2'),(550,'-1'),(554,'0')])))
+def test_adjacent_overlaps_cannot_mask_an_empty_full_intersection(order):
     with pytest.raises(inline.InlineFactsError,match='conflicting_reported_facts'):
-        parse(document(primary=numeric(2500,'-2')+numeric(2000,'-3')))
+        parse(document(primary=''.join(numeric(v,d) for v,d in order)))
+
+
+def test_auxiliary_precision_policy_is_unchanged():
+    assert inline._consistent_precision(2500,'-2',2000,'-3') is None
+    assert inline._consistent_precision(2500,'-2',2000,'-3',allow_overlap=True) is False
 
 
 def originals():

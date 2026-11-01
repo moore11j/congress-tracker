@@ -1,0 +1,61 @@
+name: SEC Financial Regressions
+
+on:
+  pull_request:
+    paths:
+      - "backend/app/services/sec_*.py"
+      - "backend/app/services/confirmation_score.py"
+      - "backend/app/services/custom_alert_rules.py"
+      - "backend/tests/test_sec_*.py"
+      - "backend/tests/fixtures/sec_*/**"
+      - "backend/requirements.txt"
+      - ".github/workflows/sec-financial-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sec-financial-regression-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  financial-regression:
+    name: SEC financial source regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: sqlite://
+      PYTHONPATH: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install test dependencies
+        run: python -m pip install -r backend/requirements.txt pytest
+      - name: Verify SEC originals, precision and consumers
+        working-directory: backend
+        run: >-
+          python -m pytest
+          tests/test_sec_core_precision.py
+          tests/test_sec_duplicate_overlap.py
+          tests/test_sec_inline_financials.py
+          tests/test_sec_debt_precision.py
+          tests/test_sec_depreciation_components.py
+          tests/test_sec_nonrevenue_financials.py
+          tests/test_sec_domestic_document_sets.py
+          tests/test_financial_consumer_provider.py
+          -q --disable-warnings --maxfail=3 --junitxml=sec-financial-results.xml
+      - name: Preserve test result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-financial-results
+          path: backend/sec-financial-results.xml
+          if-no-files-found: ignore
+          retention-days: 7

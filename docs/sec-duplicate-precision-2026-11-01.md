@@ -1,0 +1,31 @@
+# SEC duplicate numeric precision, November 1, 2026
+
+The previous PR753 is deployed as06df74a3, with ordinary CLX public financial history verified. This package addresses another general parser gap: duplicate numeric facts that agree under the SEC's documented rounding rule but fail Walnut's stricter containment rule.
+
+## Documented rule and complete source
+
+[SEC EDGAR XBRL Guide, November2024, section9.10](https://www.sec.gov/files/edgar/filer-information/specifications/xbrl-guide-2024-11-21.pdf) establishes numeric consistency using overlapping closed rounding intervals. Unequal values at the same decimals are inconsistent; consistent duplicates retain the value reported at greatest accuracy. The [XBRL duplicate-fact guidance](https://www.xbrl.org/WGN/xbrl-duplicates/WGN-2018-04-19/xbrl-duplicates-WGN-2018-04-19.html) likewise requires a common interval across all duplicate facts. This is source parsing, not a change to financial formulas, score weights or accounting definitions.
+
+Damora's actual June30,2026 [10-Q original](https://www.sec.gov/Archives/edgar/data/1800315/000119312526342307/dmra-20260630.htm), accession0001193125-26-342307/filedAugust10, reports current liabilities27,550,000USD at decimals-3 and27,600,000USD at decimals-5 in the same context. Their possible underlying ranges overlap; neither entire interval contains the other. The old parser rejects the entire filing. Three complete public originals, including companyfacts and the submissions directory, are retained under `backend/tests/fixtures/sec_duplicate_overlap/` with exact hashes and observation times.
+
+The offline original-source prototype recovers34 numeric facts and two current metrics: current ratio19.730961887477314 and ROE-99.74194135996903. It retains the27,550,000 statement fact and its original fact ID, rather than averaging or manufacturing a new value. Complete acquisition/projection repeats with one filing read. The financial history panel remains unavailable because its required reported fields are still missing. Neither two recovered ratios nor an unavailable statement panel establishes a complete financial classification.
+
+## Shared implementation and guard preservation
+
+Core duplicate validation now permits closed-interval overlap across every distinct reported precision for the same concept, entity-wide period and unit. Pairwise validation of all one-dimensional intervals establishes a common intersection; checking only adjacent facts or the currently selected fact would be insufficient. Equal-precision disagreement, missing/invalid precision, wrong signs with non-overlapping ranges, incompatible values, nil contradictions and identity/currency/context failures remain rejected. The source value with the highest declared precision and its provenance are retained unchanged.
+
+Auxiliary debt/depreciation reconciliation retains the previous containment rule. Existing successful core outcomes retain their previous evidence metadata; only an acquisition needing the additional overlap rule records `edgar_consistent_duplicates_v2`. No ticker allowlist, new source request, broad cache reset, schedule, provider flag, schema or hosting change is introduced.
+
+Tests cover the SEC example, positive/negative real-source boundary, shared endpoint, every ordering of a three-fact set with no common intersection, unchanged auxiliary behavior, complete original values/provenance, a genuinely conflicting modified source, and source-to-score/watchlist recovery, repeat, crossing and rollback. Initial Windows run:69pass/one failed test that incorrectly expected a populated statement panel. The expectation is corrected to unavailable/empty; the application output is unchanged. The isolated baseline replay harness also required retaining the real InlineFactsError type when loading a second module copy; this is a harness correction, not a source-policy change.
+
+Final Linux regression, complete49-scope retained-source parity and five additional complete source-set comparisons are in progress. No release or current production DMRA recovery claim at this checkpoint. Core financials/transcripts/prices remainFMP. Ordinary core rotation, broad retained-product coverage, all scheduled consumer/capacity checks, current institutional validation pending explicit snapshot permission, final Massive and zero-FMP/billing closure remain open.
+
+
+The corrected exact-source comparison now passes: deployed parser rejects the DMRA original, the candidate recovers the two reported ratios with the same single request, and complete ADSE/AER/ALC/RZLV/CLX parses retain every field and original hash. Receipt `precision-original-proof-nov1.json`. Local WSL fails at VM creation withERROR_TIMEOUT before executing tests; this is not a test result. A bounded Python3.12 Linux PR workflow now runs the affected source/consumer suite without production secrets or a recurring schedule. Full49-scope local comparisons remain running.
+
+
+## Full source comparison and Linux CI
+
+All 49 retained-scope result objects are identical to deployed06df74a3, including successful projections, holds, request sequences and provenance. Eleven scopes still lack retained originals; parity does not establish their coverage. No HTTP calls or production writes. Receipt `precision-full-parity-nov1.json`.
+
+Initial Linux Python3.12 regression:318pass/one outdated pre-existing cache-version assertion. NVDA has acquired reviewed income and cash-flow recovery versions since that depreciation test was written; current production source already contains both. Updated only the test expectation to require both existing versions and exclude the MSFT depreciation version. Parser/application policy unchanged. Final CI pending.

@@ -1,0 +1,23 @@
+{
+  "DMRA-company.json": {
+    "file": "DMRA-company.json.gz",
+    "url": "https://data.sec.gov/submissions/CIK0001800315.json",
+    "bytes": 57179,
+    "sha256": "53b5b46e228b2e1be7333a99c121b368aa31acca8b8514c2c15a059a926241e2",
+    "observed_at": "2026-10-31T23:44:11.931429+00:00"
+  },
+  "DMRA-facts.json": {
+    "file": "DMRA-facts.json.gz",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001800315.json",
+    "bytes": 840345,
+    "sha256": "679f923739e1cb631c01938e3cd336db62cb93da6ab104658dec60d8685350e4",
+    "observed_at": "2026-10-31T23:44:14.735718+00:00"
+  },
+  "DMRA-statement.htm": {
+    "file": "DMRA-statement.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1800315/000119312526342307/dmra-20260630.htm",
+    "bytes": 2798267,
+    "sha256": "94ffcc1c4f2382cee3c017becacb053ba403180e7edfe2cdb744d8e20c1c2152",
+    "observed_at": "2026-10-31T23:44:18.013567+00:00"
+  }
+}
