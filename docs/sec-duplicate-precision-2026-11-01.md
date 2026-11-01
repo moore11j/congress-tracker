@@ -22,3 +22,10 @@ Final Linux regression, complete49-scope retained-source parity and five additio
 
 
 The corrected exact-source comparison now passes: deployed parser rejects the DMRA original, the candidate recovers the two reported ratios with the same single request, and complete ADSE/AER/ALC/RZLV/CLX parses retain every field and original hash. Receipt `precision-original-proof-nov1.json`. Local WSL fails at VM creation withERROR_TIMEOUT before executing tests; this is not a test result. A bounded Python3.12 Linux PR workflow now runs the affected source/consumer suite without production secrets or a recurring schedule. Full49-scope local comparisons remain running.
+
+
+## Full source comparison and Linux CI
+
+All 49 retained-scope result objects are identical to deployed06df74a3, including successful projections, holds, request sequences and provenance. Eleven scopes still lack retained originals; parity does not establish their coverage. No HTTP calls or production writes. Receipt `precision-full-parity-nov1.json`.
+
+Initial Linux Python3.12 regression:318pass/one outdated pre-existing cache-version assertion. NVDA has acquired reviewed income and cash-flow recovery versions since that depreciation test was written; current production source already contains both. Updated only the test expectation to require both existing versions and exclude the MSFT depreciation version. Parser/application policy unchanged. Final CI pending.

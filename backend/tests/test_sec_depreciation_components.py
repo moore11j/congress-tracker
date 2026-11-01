@@ -94,7 +94,10 @@ def test_future_period_requires_review_even_with_same_tags():
 def test_only_reviewed_cache_version_changes():
     from app.services.sec_fundamentals_preparation import VERSION, version_for_symbol
     assert version_for_symbol('MSFT') == VERSION+'_'+da.VERSION
-    assert version_for_symbol('NVDA') == VERSION
+    from app.services.sec_statement_income import VERSION as income_version
+    from app.services.sec_fundamentals_preparation import CASH_FLOW_RECOVERY_VERSION
+    assert version_for_symbol('NVDA') == VERSION+'_'+income_version+'_'+CASH_FLOW_RECOVERY_VERSION
+    assert da.VERSION not in version_for_symbol('NVDA')
     assert 'sec_arm_usd_reporting' in version_for_symbol('ARM')
 
 
