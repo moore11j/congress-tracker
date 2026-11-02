@@ -163,7 +163,8 @@ def document_statement_scope(tree, issuer):
     return {'issuer':issuer,'headline':titles[0][0],'basis':'exact_issuer_earnings_headline'}
 
 
-def currencies(text):
+def currencies(text, *, expanded=False):
+    if expanded:text=re.sub(r"\bUS\s+\$", "US$", text, flags=re.I)
     return {code for code,pattern in CURRENCIES.items() if re.search(r'(?<![A-Za-z])(?:' + pattern + r')(?![A-Za-z])',text,re.I)}
 
 
@@ -203,7 +204,7 @@ def statement_currency_scope(tree,issuer):
             'declarations':[dict(t) for t in dict.fromkeys(tuple(m.items()) for m in matches)]}
 
 
-def metric_for(label,kind,issuer):
+def metric_for(label,kind,issuer, *, expanded=False):
     label=clean(label).lower().replace('\u2019',"'").rstrip(':')
     # Printed numeric note references do not change the financial line item.
     # Keep other parentheses (adjusted, per-share, currency, etc.) meaningful.
@@ -230,10 +231,17 @@ def metric_for(label,kind,issuer):
     if parent and kind=='income' and company_key(parent[1])==company_key(issuer):return 'parent_income'
     if kind=='cashflow' and re.fullmatch(r'net cash (?:provided by|provided from|used in|used for|\(used in\) provided by|provided by \(used in\)|used in operating activities|from)(?: operating activities)?',label):
         return 'operating_cash_flow'
+    if expanded:
+        from app.services.sec_statement_heading_order import additional_metric
+        return additional_metric(label,kind)
     return None
 
 
-def table_kind(text):
+def table_kind(text, *, expanded=False):
+    if expanded:
+        if re.search(r'non.?ifrs',text,re.I):return None
+        from app.services.sec_statement_heading_order import normalized_heading
+        text=normalized_heading(text)
     if re.search(r'non.?gaap|reconciliation|adjusted|pro.?forma|notes to',text,re.I):return None
     if re.search(r'consolidated (?:(?:interim|condensed) )?(?:balance sheets?|statements? of financial position)',text,re.I):return 'balance'
     if re.search(r'consolidated (?:(?:interim|condensed) )?statements? of cash flows?',text,re.I):return 'cashflow'
@@ -306,7 +314,7 @@ def amount(cells,start,end,scale):
     return float(value)
 
 
-def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False):
+def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False):
     rows=grid(table)
     if not rows:return None
     local=preceding_text(table, nonempty=_nonempty_context)
@@ -320,9 +328,11 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     header_rows=rows[:boundary]
     intro=' '.join(local+[' '.join(c['text'] for c in r) for r in header_rows])
     identity_blocks=local+[c['text'] for row in header_rows for c in row if c['start']==0]
-    captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(r'consolidated (?:(?:interim|condensed) )?(?:balance sheets?|statements? of)',b,re.I)]
+    from app.services.sec_statement_heading_order import CAPTION
+    caption_pattern=CAPTION if _expanded else r'consolidated (?:(?:interim|condensed) )?(?:balance sheets?|statements? of)'
+    captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(caption_pattern,b,re.I)]
     if not captions:return None
-    caption_index,caption=captions[-1];kind=table_kind(caption)
+    caption_index,caption=captions[-1];kind=table_kind(caption,expanded=_expanded)
     if (kind is None and re.search(r'consolidated (?:(?:interim|condensed) )?statements? of comprehensive$',caption,re.I)
             and caption_index+1<len(identity_blocks)
             and re.fullmatch(r'(?:income|loss)',identity_blocks[caption_index+1],re.I)):
@@ -330,7 +340,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
         # exact missing final word, retaining the original blocks in evidence.
         caption=caption+' '+identity_blocks[caption_index+1]
         identity_blocks[caption_index:caption_index+2]=[caption]
-        kind=table_kind(caption)
+        kind=table_kind(caption,expanded=_expanded)
     if kind is None:return None
     issuer_key=company_key(issuer)
     if any(company_key(b)==issuer_key for b in identity_blocks[caption_index+1:]):
@@ -343,7 +353,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
         return neutral_context(value,table_kind,statement_prefix,statement_layout_context)
 
     for index,block in enumerate(identity_blocks):
-        if table_kind(block) != kind:
+        if table_kind(block,expanded=_expanded) != kind:
             continue
         prefix=statement_prefix(block)
         if not prefix and document_scope and company_key(document_scope.get('issuer',''))==issuer_key and all(scoped_context(v) for v in identity_blocks[:index] if v.strip()):
@@ -358,7 +368,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     if not issuer_key or not identified or not identified[-1]:
         if not _nonempty_context:
             return parse_table(table,issuer=issuer,filed=filed,document_scope=document_scope,
-                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True)
+                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True,_expanded=_expanded)
         raise TabularFinancialError('table_issuer_unproved')
     scales={Decimal('1000') for _ in re.finditer(r'\bin thousands\b',intro,re.I)}
     scales.update(Decimal('1000000') for _ in re.finditer(r'\bin (?:[€£¥]\s+|USD |EUR |CHF )?millions\b',intro,re.I))
@@ -377,10 +387,10 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     for index,row in enumerate(header_rows[last+1:],last+1):
         monetary=[c for c in row if re.fullmatch(r'(?:[A-Z]{3}|US\$|[$€£¥])',c['text'])]
         if len(monetary)>=len(anchors):
-            if any(not currencies(c['text']) and c['text']!='$' for c in monetary):
+            if any(not currencies(c['text'],expanded=_expanded) and c['text']!='$' for c in monetary):
                 raise TabularFinancialError('column_currency_unproved')
             anchors=monetary;last=index
-    shared=currencies(' '.join(local+[c['text'] for row in header_rows for c in row if c['start']==0]))
+    shared=currencies(' '.join(local+[c['text'] for row in header_rows for c in row if c['start']==0]),expanded=_expanded)
     currency_used=False
     columns=[]
     for i,anchor in enumerate(anchors):
@@ -405,7 +415,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
         if periods_only:
             columns.append({'start':str(start) if start else None,'end':str(finish),'months':months,'header':texts})
             continue
-        unit=currencies(anchor['text']) or currencies(header)
+        unit=currencies(anchor['text'],expanded=_expanded) or currencies(header,expanded=_expanded)
         if not unit:unit=shared
         if not unit and currency_scope and company_key(currency_scope.get('issuer',''))==issuer_key:
             unit={currency_scope['currency']};currency_used=True
@@ -420,7 +430,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     observations=[];holds=[]
     for row_number,row in enumerate(rows[boundary:],boundary):
         if not row:continue
-        label=row[0]['text'];metric=metric_for(label,kind,issuer)
+        label=row[0]['text'];metric=metric_for(label,kind,issuer,expanded=_expanded)
         if not metric:continue
         for col in columns:
             try:value=amount(row,col['column_start'],col['column_end'],scale)
@@ -456,7 +466,7 @@ def inspect_statement_period(raw,*,issuer,filed):
             'source_sha256':hashlib.sha256(raw).hexdigest(),'financial_values_qualified':False}
 
 
-def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by):
+def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by,_expanded=False):
     from app.services.sec_document_sets import candidates
     from app.services.sec_statement_currency import source_identity
     if not isinstance(raw,bytes) or not raw or len(raw)>MAX_BYTES:raise TabularFinancialError('source_size')
@@ -477,12 +487,17 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
     company=json.loads(company_raw);issuer=company['name'];filed=date.fromisoformat(metadata['filed']);out=[];holds=[]
     scope=None;scope_checked=False;currency_scope=None;currency_checked=False
     for index,table in enumerate(tables):
+        if _expanded and table.xpath('ancestor::blockquote'):continue
         try:
             for attempt in range(3):
                 try:
                     quoted=bool(table.xpath('ancestor::blockquote'))
-                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope)
+                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope,_expanded=_expanded)
                 except TabularFinancialError as exc:
+                    # New grammar requires the explicit local company and
+                    # currency context. Legacy document-wide declarations
+                    # were not designed to reconcile these added headings.
+                    if _expanded:raise
                     if str(exc)=='table_issuer_unproved' and not scope_checked:
                         scope=document_statement_scope(tree,issuer);scope_checked=True
                         if scope is None or table.xpath('ancestor::blockquote'):raise
@@ -519,4 +534,17 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
                 'Missing or ambiguous columns remain held; no values or zero amounts are inferred.']}
 
     from app.services.sec_statement_sections import extend
-    return extend(result,raw,company_raw)
+    if _expanded:return result
+    result=extend(result,raw,company_raw)
+    # Recover a previously empty, unambiguous document only. Existing facts,
+    # numeric conflicts and qualification holds retain their exact output.
+    if result['facts'] or result['holds'] or result['conflicts']:return result
+    from app.services.sec_statement_heading_order import POLICY, has_heading
+    if not has_heading(tree):return result
+    recovered=extract(raw,source_url=source_url,company_raw=company_raw,
+        cover_raw=cover_raw,cover_url=cover_url,symbol=symbol,cik=cik,
+        available_by=available_by,_expanded=True)
+    if (not recovered['facts'] or recovered['holds'] or recovered['conflicts']
+            or any(t['holds'] for t in recovered['tables'])):return result
+    recovered['source']['statement_heading_policy']=POLICY
+    return recovered
