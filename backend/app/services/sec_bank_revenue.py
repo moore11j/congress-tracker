@@ -58,6 +58,9 @@ def apply(records, payload, company, *, available_by):
         return _reviewed_contract(records, payload, ordinary, combined, fees, available_by)
     if ordinary and all(row and row.get('tag') in {'Revenues', 'RevenuesNetOfInterestExpense'} for row in ordinary.values()):
         replacement = _obsolete_reported_total(ordinary, combined, company, available_by)
+        if replacement is None:
+            from app.services.sec_bank_revenue_continuity import select
+            replacement = select(ordinary, combined, company, available_by)
         return {**records, 'revenue': replacement} if replacement is not None else records
     if ordinary:
         # A bank's discontinued contract-revenue component must not block its

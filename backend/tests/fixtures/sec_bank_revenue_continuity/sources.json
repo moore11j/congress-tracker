@@ -1,0 +1,37 @@
+{
+  "BNY-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001390777.json",
+    "bytes": 7931868,
+    "sha256": "d9463ac93e49e5f28bb3d7a25ed4f7a88e381ce976abb1ca433d73b16b57c3d8"
+  },
+  "BNY-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001390777.json",
+    "bytes": 156519,
+    "sha256": "f9fac7ac41efbffc7a9a1afaad078261cb9bddd36012d3f63b84fdeb2504c600"
+  },
+  "BNY-current.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1390777/000139077726000120/bk-20260930.htm",
+    "bytes": 6784627,
+    "sha256": "a73805502c79bd2deaf0b7bd998cfe58205509d1fef02ab23d9d9a9df38a087f"
+  },
+  "BNY-0001390777-25-000159.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1390777/000139077725000159/bk-20250930.htm",
+    "bytes": 7317047,
+    "sha256": "d4b8d49947cf3153e8a41eb8b834b4ce55cde91f23ef69944c432265881e8e58"
+  },
+  "BNY-0001390777-26-000033.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1390777/000139077726000033/bk-20251231.htm",
+    "bytes": 1256998,
+    "sha256": "bcd05dffe80b965f49db4bcf59235d2fa6246ee5504e644a9f07518845bec370"
+  },
+  "BNY-annual-exhibit.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1390777/000139077726000033/bk-20251231_d2.htm",
+    "bytes": 7213836,
+    "sha256": "ed0b888071308637daf1026e86686349af2c1ca0c907ad2f2b61c60f8a9e6303"
+  },
+  "BNY-annual-index.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1390777/000139077726000033/0001390777-26-000033-index.html",
+    "bytes": 16402,
+    "sha256": "400db13112f690ae1877aeb1cc1725ceae582a2c6d027ab624fb79a4161fe5da"
+  }
+}
