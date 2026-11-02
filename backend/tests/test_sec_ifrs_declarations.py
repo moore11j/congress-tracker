@@ -141,6 +141,9 @@ def test_accounting_hold_retries_once_without_invalidating_qualified_receipts():
     assert reader.validate_receipt(held,cover,now=stamp) is None
     from app.services.sec_comparative_basis import POLICY as comparative_policy
     held['comparative_policy']=comparative_policy
+    assert reader.validate_receipt(held,cover,now=stamp) is None
+    from app.services.sec_statement_layout import POLICY as layout_policy
+    held['statement_layout_policy']=layout_policy
     assert reader.validate_receipt(held,cover,now=stamp)==held
     held['holds'][0]['reason']='table_current_statement_stale'
     held.pop('accounting_policy')

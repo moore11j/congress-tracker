@@ -314,10 +314,14 @@ def amount(cells,start,end,scale):
     return float(value)
 
 
-def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False):
+def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False,_layout=False):
     rows=grid(table)
     if not rows:return None
     local=preceding_text(table, nonempty=_nonempty_context)
+    if _layout:
+        from app.services.sec_statement_layout import context
+        local=context(table,issuer)
+        if local is None:return None
     # Find the first monetary row before treating later years as header labels.
     def data_row(row):
         if not row or row[0]['start']!=0 or not re.search(r'[A-Za-z]',row[0]['text']):return False
@@ -368,13 +372,15 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     if not issuer_key or not identified or not identified[-1]:
         if not _nonempty_context:
             return parse_table(table,issuer=issuer,filed=filed,document_scope=document_scope,
-                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True,_expanded=_expanded)
+                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True,_expanded=_expanded,_layout=_layout)
         raise TabularFinancialError('table_issuer_unproved')
     scales={Decimal('1000') for _ in re.finditer(r'\bin thousands\b',intro,re.I)}
     scales.update(Decimal('1000000') for _ in re.finditer(r'\bin (?:[€£¥]\s+|USD |EUR |CHF )?millions\b',intro,re.I))
     if not scales and re.search(r'\bstated in (?:U\.?S\.? dollars?|USD)\b',intro,re.I):scales={Decimal(1)}
     if len(scales)!=1:raise TabularFinancialError('table_scale_unproved')
     scale=next(iter(scales))
+    if _layout and currency_scope and int(scale)!=currency_scope['scale']:
+        raise TabularFinancialError('layout_scale_conflict')
     candidates=[]
     for index,row in enumerate(header_rows):
         # A lone footnote asterisk does not change an explicitly printed year.
@@ -411,7 +417,12 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
         if not re.search(r'months?\s+ended',header,re.I):
             duration=[s for s in local if re.fullmatch(r'(?:For the )?(?:Three|Six|Nine|Twelve|3|6|9|12) months? ended',s,re.I)]
             if len(duration)==1:header+=' '+duration[0]
-        start,finish,months=column_period(header,texts,shared_periods,kind,filed)
+        if _layout:
+            from app.services.sec_statement_layout import period_text
+            start,finish,months=column_period(period_text(header),[period_text(t) for t in texts],
+                [period_text(t) for t in shared_periods],kind,filed)
+        else:
+            start,finish,months=column_period(header,texts,shared_periods,kind,filed)
         if periods_only:
             columns.append({'start':str(start) if start else None,'end':str(finish),'months':months,'header':texts})
             continue
@@ -431,6 +442,8 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     for row_number,row in enumerate(rows[boundary:],boundary):
         if not row:continue
         label=row[0]['text'];metric=metric_for(label,kind,issuer,expanded=_expanded)
+        if _layout and kind=='income' and clean(label).lower()=='net income for the period':
+            metric='consolidated_income'
         if not metric:continue
         for col in columns:
             try:value=amount(row,col['column_start'],col['column_end'],scale)
@@ -466,7 +479,7 @@ def inspect_statement_period(raw,*,issuer,filed):
             'source_sha256':hashlib.sha256(raw).hexdigest(),'financial_values_qualified':False}
 
 
-def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by,_expanded=False):
+def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by,_expanded=False,_layout=False):
     from app.services.sec_document_sets import candidates
     from app.services.sec_statement_currency import source_identity
     if not isinstance(raw,bytes) or not raw or len(raw)>MAX_BYTES:raise TabularFinancialError('source_size')
@@ -486,18 +499,21 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
     if len(tables)>500:raise TabularFinancialError('table_count_bound')
     company=json.loads(company_raw);issuer=company['name'];filed=date.fromisoformat(metadata['filed']);out=[];holds=[]
     scope=None;scope_checked=False;currency_scope=None;currency_checked=False
+    if _layout:
+        from app.services.sec_statement_layout import currency_scope as layout_currency
+        currency_scope=layout_currency(tree,issuer);currency_checked=True
     for index,table in enumerate(tables):
-        if _expanded and table.xpath('ancestor::blockquote'):continue
+        if (_expanded or _layout) and table.xpath('ancestor::blockquote'):continue
         try:
             for attempt in range(3):
                 try:
                     quoted=bool(table.xpath('ancestor::blockquote'))
-                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope,_expanded=_expanded)
+                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope,_expanded=_expanded,_layout=_layout)
                 except TabularFinancialError as exc:
                     # New grammar requires the explicit local company and
                     # currency context. Legacy document-wide declarations
                     # were not designed to reconcile these added headings.
-                    if _expanded:raise
+                    if _expanded or _layout:raise
                     if str(exc)=='table_issuer_unproved' and not scope_checked:
                         scope=document_statement_scope(tree,issuer);scope_checked=True
                         if scope is None or table.xpath('ancestor::blockquote'):raise
@@ -534,17 +550,27 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
                 'Missing or ambiguous columns remain held; no values or zero amounts are inferred.']}
 
     from app.services.sec_statement_sections import extend
-    if _expanded:return result
+    if _expanded or _layout:return result
     result=extend(result,raw,company_raw)
     # Recover a previously empty, unambiguous document only. Existing facts,
     # numeric conflicts and qualification holds retain their exact output.
     if result['facts'] or result['holds'] or result['conflicts']:return result
     from app.services.sec_statement_heading_order import POLICY, has_heading
-    if not has_heading(tree):return result
+    def clean_recovery(candidate):
+        return (candidate['facts'] and not candidate['holds'] and not candidate['conflicts']
+                and not any(t['holds'] for t in candidate['tables']))
+    if has_heading(tree):
+        recovered=extract(raw,source_url=source_url,company_raw=company_raw,
+            cover_raw=cover_raw,cover_url=cover_url,symbol=symbol,cik=cik,
+            available_by=available_by,_expanded=True)
+        if clean_recovery(recovered):
+            recovered['source']['statement_heading_policy']=POLICY
+            return recovered
+    from app.services import sec_statement_layout as layout
+    if not layout.has_caption(tree,issuer):return result
     recovered=extract(raw,source_url=source_url,company_raw=company_raw,
         cover_raw=cover_raw,cover_url=cover_url,symbol=symbol,cik=cik,
-        available_by=available_by,_expanded=True)
-    if (not recovered['facts'] or recovered['holds'] or recovered['conflicts']
-            or any(t['holds'] for t in recovered['tables'])):return result
-    recovered['source']['statement_heading_policy']=POLICY
+        available_by=available_by,_layout=True)
+    if not clean_recovery(recovered):return result
+    recovered['source']['statement_layout_policy']=layout.POLICY
     return recovered

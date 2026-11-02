@@ -1,0 +1,57 @@
+{
+  "entry": {
+    "symbol": "PAGS",
+    "cik": "0001712807",
+    "url": "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001791/MainDocument.htm",
+    "cover_url": "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001791/MainDocument.htm",
+    "company_url": "https://data.sec.gov/submissions/CIK0001712807.json"
+  },
+  "observed_at": "2026-11-02T01:12:07.399522+00:00",
+  "originals": {
+    "https://data.sec.gov/submissions/CIK0001712807.json": {
+      "file": "company.gz",
+      "bytes": 49778,
+      "sha256": "61f707f0b607fa551affce10c036105bd6b86acf9c7524e8ce60d8545683bcc3"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001791/MainDocument.htm": {
+      "file": "statement.gz",
+      "bytes": 1802016,
+      "sha256": "09151e83103a9c2e6f1c96777840d0b044d2dce0db45948cec2ed03138e19b37"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001939/MainDocument.htm": {
+      "file": "original-8ac5c9a6719025b0.gz",
+      "bytes": 15914,
+      "sha256": "61fb2a335d1d79646dda089530f9ac1c783d671a8f986b7bb0389007c73bf9c6"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001913/MainDocument.htm": {
+      "file": "original-dee1f623fa8b4e85.gz",
+      "bytes": 18070,
+      "sha256": "ad039ea4352eb955d319ce1d8386e62f4c7fd3804d85ac24624e61e2eb206bc3"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001795/MainDocument.htm": {
+      "file": "original-d53888d002ee610c.gz",
+      "bytes": 13702,
+      "sha256": "7b58ca132dff26bee71954ac5d6f5d8bfacf3a4bc3ed2f5bcfdad99eb95ea581"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001793/MainDocument.htm": {
+      "file": "original-c3093ec4b8382b31.gz",
+      "bytes": 1128910,
+      "sha256": "ed6410de62e066ae6f720e1a7b1fd0a6d88b2d1307908f2c13dbf6c5f159ed94"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001191/MainDocument.htm": {
+      "file": "original-049c154027d2de25.gz",
+      "bytes": 38776,
+      "sha256": "f9726431359616b7f92948d34da9e34991a34fc1108cf58f695095d3432e3260"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1712807/000155485526001001/MainDocument.htm": {
+      "file": "original-01c3c468dec1ac11.gz",
+      "bytes": 1715775,
+      "sha256": "6dcb30e10be97fd64f20012564122cf09d49fc542f2f8d5a53e73fb307f57be7"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1712807/000155485526000999/MainDocument.htm": {
+      "file": "original-e880eb2734e85a22.gz",
+      "bytes": 721891,
+      "sha256": "0331b46d50f6a696ee686d26cb9bee33bbfd9935cd14ccdfbe3685c885e0b817"
+    }
+  }
+}

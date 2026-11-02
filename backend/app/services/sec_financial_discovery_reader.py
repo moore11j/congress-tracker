@@ -128,6 +128,10 @@ def validate_receipt(receipt,cover,*,now):
         if status=='held' and any(h['reason']=='financial_hint_not_qualified' for h in holds):
             from app.services.sec_statement_heading_order import POLICY as heading_policy
             if receipt.get('statement_heading_policy')!=heading_policy:return None
+        if status=='held':
+            from app.services.sec_statement_layout import POLICY as layout_policy, RETRY_REASONS as layout_reasons
+            if any(h['reason'] in layout_reasons for h in holds) and receipt.get('statement_layout_policy')!=layout_policy:
+                return None
         return deepcopy(receipt)
     except (ValueError,TypeError,KeyError,AttributeError) as exc:
         raise discovery.DiscoveryError('discovery_qualification_invalid') from exc
@@ -324,5 +328,9 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
     if receipt['status']=='held' and any(h['reason']=='financial_hint_not_qualified' for h in receipt['holds']):
         from app.services.sec_statement_heading_order import POLICY as heading_policy
         receipt['statement_heading_policy']=heading_policy
+    if receipt['status']=='held':
+        from app.services.sec_statement_layout import POLICY as layout_policy, RETRY_REASONS as layout_reasons
+        if any(h['reason'] in layout_reasons for h in receipt['holds']):
+            receipt['statement_layout_policy']=layout_policy
     receipt=validate_receipt(receipt,hint,now=observed_at)
     return {'receipt':receipt,'supplement':supplement}
