@@ -108,6 +108,8 @@ def test_rejected_heading_does_not_consume_later_valid_preparation_subject():
     'These financial statements will be prepared in accordance with the International Financial Reporting Standards.',
     'Hypothetical financial statements have been prepared in accordance with the International Financial Reporting Standards.',
     'Financial statements are missing. Other materials were prepared in accordance with the International Financial Reporting Standards.',
+    'Financial statements are missing. other materials were prepared in accordance with the International Financial Reporting Standards.',
+    'If financial statements have been prepared in accordance with the International Financial Reporting Standards.',
 ])
 def test_new_clause_scan_preserves_negation_future_and_sentence_guards(text):
     assert declarations.declarations(text)==[]

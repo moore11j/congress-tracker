@@ -26,8 +26,8 @@ def declarations(text):
         if not match:continue
         value=match.group(0);prefix=text[max(0,match.start()-70):match.start()]
         if re.search(r'\b(?:not|never|unlike|hypothetical|will|would|could|should|expected|planned)\b',value,re.I):continue
-        if re.search(r'\b(?:not|never|unlike|hypothetical)\s+(?:\w+\s+){0,6}$',prefix,re.I):continue
-        if re.search(r'[.;]\s+[A-Z][a-z]{2,}\b',value):continue
+        if re.search(r'\b(?:not|never|unlike|hypothetical|if)\s+(?:\w+\s+){0,6}$',prefix,re.I):continue
+        if re.search(r'[.;]',value):continue
         found.append(value)
     return list(dict.fromkeys(found))
 
