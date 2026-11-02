@@ -33,7 +33,8 @@ def test_complete_original_parent_and_diluted_eps_are_distinct_source_values(obs
 @pytest.mark.parametrize('mutation,reason',[
     ('owner','parent_holder_identity_unproved'),('conditional','parent_holder_identity_unproved'),
     ('reference','primary_note_reference_mismatch'),('basic','note_primary_eps_mismatch'),
-    ('period','note_primary_period_mismatch'),('scale','note_scale_conflict'),
+    ('period','note_period_column_conflict'),('scale','note_scale_conflict'),
+    ('caption','note_period_column_conflict'),('asof','note_as_of_mismatch'),
     ('duplicate','competing_parent_notes')])
 def test_note_cannot_reassign_owner_period_units_or_primary_reference(observations,mutation,reason):
     tree=html.fromstring(RAW);tables=tree.xpath('//table')
@@ -52,6 +53,15 @@ def test_note_cannot_reassign_owner_period_units_or_primary_reference(observatio
         cell=row.xpath('./td|./th')[1]
         for c in list(cell):cell.remove(c)
         cell.text='9.9999' if mutation=='basic' else '2024'
+    elif mutation in {'caption','asof'}:
+        nodes=[tables[100]]
+        if mutation=='caption':
+            nodes.append(next(n for n in tables[102].itersiblings(preceding=True) if tab.visible_text(n).startswith('Basic earnings per share is calculated')))
+        old,new=('June 30','September 30') if mutation=='caption' else ('As of June 30','As of May 31')
+        for node in nodes:
+            for item in node.iter():
+                if item.text:item.text=item.text.replace(old,new)
+                if item.tail:item.tail=item.tail.replace(old,new)
     elif mutation=='scale':
         raw=html.tostring(tables[100]).replace(b'thousands',b'millions')
         tables[100].getparent().replace(tables[100],html.fromstring(raw))

@@ -40,18 +40,22 @@ def note_context(table,issuer):
     title=re.fullmatch(r'Notes to the unaudited condensed consolidated interim financial statements As of ([A-Za-z]+ \d{1,2}, 20\d{2}) and for the (.{1,130}) \(All amounts in (thousands|millions) of reais unless otherwise stated\)',header,re.I)
     if not title or title[2].lower()!=match[2].lower():fail('note_period_caption_unproved')
     if not re.fullmatch(r'(?:three|six|nine|twelve)(?:- and (?:three|six|nine|twelve))?-month periods? ended [A-Za-z]+ \d{1,2}, 20\d{2}(?: and 20\d{2})?',match[2],re.I):fail('note_period_caption_unproved')
-    return dict(number=number[1],heading=heading,paragraph=paragraph,header=header,
+    return dict(number=number[1],heading=heading,paragraph=paragraph,header=header,as_of=title[1],period_caption=title[2],
                 scale=1000 if title[3].lower()=='thousands' else 1_000_000)
 
 
-def columns(rows,filed):
+def columns(rows,filed,context):
     if len(rows)<3:fail('note_rows_unproved')
     anchors=[c for c in rows[1] if re.fullmatch(r'20\d{2}',c['text'])]
     if not 2<=len(anchors)<=4:fail('note_columns_unproved')
     result=[]
     for c in anchors:
         texts=[a['text'] for row in rows[:2] for a in row if a['start']<=c['start']<a['end'] and a['text']]
-        start,end,months=tab.column_period(' '.join(texts),texts,[],'income',filed)
+        caption=layout.period_text(context['period_caption'])
+        try:
+            start,end,months=tab.column_period(' '.join([caption]+texts),texts,[caption],'income',filed)
+        except tab.TabularFinancialError as exc:
+            raise ValueError('note_period_column_conflict') from exc
         result.append(dict(start=str(start),end=str(end),months=months,column_start=c['start'],column_end=c['end'],header=texts))
     if len({(c['start'],c['end']) for c in result})!=len(result):fail('duplicate_note_period')
     return result
@@ -75,7 +79,10 @@ def enrich(raw,observations,*,issuer,filed,currency):
     if len(candidates)!=1:fail('competing_parent_notes')
     index,t,rows=candidates[0];context=note_context(t,issuer)
     if context['scale']!=scope['scale']:fail('note_scale_conflict')
-    cols=columns(rows,filed)
+    cols=columns(rows,filed,context)
+    try:as_of=str(tab.period_for(context['as_of'],'balance',filed)[1])
+    except tab.TabularFinancialError as exc:raise ValueError('note_as_of_mismatch') from exc
+    if as_of!=max(c['end'] for c in cols):fail('note_as_of_mismatch')
     primary=[t for t in observations['tables'] if t['kind']=='income'
              and not any(re.search(r'\bcomprehensive\b',h,re.I) for h in t['heading'])
              and any(r['metric']=='consolidated_income' for r in t['observations'])]
