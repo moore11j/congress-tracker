@@ -121,6 +121,10 @@ def validate_receipt(receipt,cover,*,now):
             if receipt.get('accounting_policy')!=POLICY:return None
             from app.services.sec_comparative_basis import POLICY as comparative_policy
             if receipt.get('comparative_policy')!=comparative_policy:return None
+        if status=='held':
+            from app.services.sec_statement_sections import POLICY as section_policy, RETRY_REASONS
+            if any(h['reason'] in RETRY_REASONS for h in holds) and receipt.get('statement_section_policy')!=section_policy:
+                return None
         return deepcopy(receipt)
     except (ValueError,TypeError,KeyError,AttributeError) as exc:
         raise discovery.DiscoveryError('discovery_qualification_invalid') from exc
@@ -310,5 +314,9 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
         receipt['accounting_policy']=POLICY
         from app.services.sec_comparative_basis import POLICY as comparative_policy
         receipt['comparative_policy']=comparative_policy
+    if receipt['status']=='held':
+        from app.services.sec_statement_sections import POLICY as section_policy, RETRY_REASONS
+        if any(h['reason'] in RETRY_REASONS for h in receipt['holds']):
+            receipt['statement_section_policy']=section_policy
     receipt=validate_receipt(receipt,hint,now=observed_at)
     return {'receipt':receipt,'supplement':supplement}

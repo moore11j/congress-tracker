@@ -510,10 +510,13 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
     used_currency=[{'table':t['table'],**t['currency_scope']} for t in out if 'currency_scope' in t]
     if used_currency:scope_proof['statement_currency']=used_currency
     if source_url==cover_url:scope_proof['document_role']='primary_filing'
-    return {'version':VERSION,'status':'prepared' if facts else 'unavailable','publication_eligible':False,
+    result = {'version':VERSION,'status':'prepared' if facts else 'unavailable','publication_eligible':False,
             'source':{**metadata,'statement_url':source_url,'statement_sha256':hashlib.sha256(raw).hexdigest(),
                       'cover_sha256':hashlib.sha256(cover_raw).hexdigest(),**scope_proof},
             'tables':out,'holds':holds,'facts':facts,'conflicts':conflicts,
             'limitations':['Table observations are not admitted ratios or historical panels.',
                 'Reporting currency versus convenience translation and accounting/period comparability require consumer qualification.',
                 'Missing or ambiguous columns remain held; no values or zero amounts are inferred.']}
+
+    from app.services.sec_statement_sections import extend
+    return extend(result,raw,company_raw)

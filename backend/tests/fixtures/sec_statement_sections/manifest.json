@@ -1,0 +1,134 @@
+{
+  "observed_at": "2026-11-01T22:14:13.065446+00:00",
+  "originals": {
+    "https://www.sec.gov/Archives/edgar/data/1000184/000110465926118617/tm2628113d1_6k.htm": {
+      "file": "original-0.html.gz",
+      "bytes": 18379,
+      "sha256": "8f4172ccb7d176d94041a3364a8161d8dd4e30232812872350cff4bb6e86cfb7"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1000184/000110465926087251/tm2621275d1_6k.htm": {
+      "file": "original-1.html.gz",
+      "bytes": 20416,
+      "sha256": "69d18802599c19c96ca107abcb74671d94fcc9949a74929173e609d97470821c"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1000184/000110465926057442/tm2613731d1_6k.htm": {
+      "file": "original-2.html.gz",
+      "bytes": 21414,
+      "sha256": "b6ed8140395c31ca9428120e14b8036eea8239dc1e717d5689cb30373ad9e0cc"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1000184/000110465926118617/tm2628113d1_ex99-1.htm": {
+      "file": "original-3.html.gz",
+      "bytes": 674392,
+      "sha256": "60567a44c61bb4209520c63e684fd362f3c88086f053142768edccefd8c12c5a"
+    }
+  },
+  "receipts": [
+    {
+      "version": "sec_financial_discovery_qualification_v5",
+      "candidate": {
+        "symbol": "SAP",
+        "cik": "0001000184",
+        "accession": "0001104659-26-118617",
+        "form": "6-K",
+        "filed": "2026-10-26",
+        "report_date": "2026-10-26",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/1000184/000110465926118617/tm2628113d1_6k.htm"
+      },
+      "cover_sha256": "8f4172ccb7d176d94041a3364a8161d8dd4e30232812872350cff4bb6e86cfb7",
+      "observed_at": "2026-11-01T22:14:13.065446+00:00",
+      "status": "held",
+      "financial_publication_eligible": false,
+      "kind": null,
+      "current_period": null,
+      "holds": [
+        {
+          "accession": "0001104659-26-118617",
+          "filed": "2026-10-26",
+          "reason": "table_reporting_currency_unproved"
+        }
+      ],
+      "originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1000184/000110465926118617/tm2628113d1_6k.htm",
+          "sha256": "8f4172ccb7d176d94041a3364a8161d8dd4e30232812872350cff4bb6e86cfb7",
+          "bytes": 18379,
+          "document_sha256": "8c06e4ce88e493a8d2b8001903b77b18ee167b454e9df4c60795522a8f2af826",
+          "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1000184/000110465926118617/tm2628113d1_ex99-1.htm",
+          "sha256": "60567a44c61bb4209520c63e684fd362f3c88086f053142768edccefd8c12c5a",
+          "bytes": 674392,
+          "document_sha256": "8edc4c38d6ba4d2c42af4bf3b7cd93741bc5e4ba82994f6631afdcafbd873fda",
+          "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+        }
+      ]
+    },
+    {
+      "version": "sec_financial_discovery_qualification_v5",
+      "candidate": {
+        "symbol": "SAP",
+        "cik": "0001000184",
+        "accession": "0001104659-26-087251",
+        "form": "6-K",
+        "filed": "2026-07-28",
+        "report_date": "2026-07-28",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/1000184/000110465926087251/tm2621275d1_6k.htm"
+      },
+      "cover_sha256": "69d18802599c19c96ca107abcb74671d94fcc9949a74929173e609d97470821c",
+      "observed_at": "2026-11-01T22:14:13.065446+00:00",
+      "status": "held",
+      "financial_publication_eligible": false,
+      "kind": null,
+      "current_period": null,
+      "holds": [
+        {
+          "accession": "0001104659-26-087251",
+          "reason": "table_exhibit_ambiguous"
+        }
+      ],
+      "originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1000184/000110465926087251/tm2621275d1_6k.htm",
+          "sha256": "69d18802599c19c96ca107abcb74671d94fcc9949a74929173e609d97470821c",
+          "bytes": 20416,
+          "document_sha256": "b75e4cc2192bf8e916cc4ba6cb3f571bb559d14386684344ec20612bd39bcd5d",
+          "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+        }
+      ]
+    },
+    {
+      "version": "sec_financial_discovery_qualification_v5",
+      "candidate": {
+        "symbol": "SAP",
+        "cik": "0001000184",
+        "accession": "0001104659-26-057442",
+        "form": "6-K",
+        "filed": "2026-05-08",
+        "report_date": "2026-05-08",
+        "cover_url": "https://www.sec.gov/Archives/edgar/data/1000184/000110465926057442/tm2613731d1_6k.htm"
+      },
+      "cover_sha256": "b6ed8140395c31ca9428120e14b8036eea8239dc1e717d5689cb30373ad9e0cc",
+      "observed_at": "2026-11-01T22:14:13.065446+00:00",
+      "status": "no_supported_statement",
+      "financial_publication_eligible": false,
+      "kind": null,
+      "current_period": null,
+      "holds": [],
+      "originals": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1000184/000110465926057442/tm2613731d1_6k.htm",
+          "sha256": "b6ed8140395c31ca9428120e14b8036eea8239dc1e717d5689cb30373ad9e0cc",
+          "bytes": 21414,
+          "document_sha256": "4b18edce35163ab20f0883ac3c59fe578b52d42f205f0c67c113ed4001164b14",
+          "document_integrity_policy": "sec_terminal_delivery_script_path_v1"
+        }
+      ]
+    }
+  ],
+  "company": {
+    "file": "company.json.gz",
+    "bytes": 109931,
+    "sha256": "563c7ef50508c840f620d3901e3ab8b335ca03c49d7da370d0aae58fc2a765a0"
+  }
+}

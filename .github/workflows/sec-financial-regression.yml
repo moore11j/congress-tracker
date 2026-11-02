@@ -44,6 +44,10 @@ jobs:
         working-directory: backend
         run: >-
           python -m pytest
+          tests/test_sec_statement_sections.py
+          tests/test_sec_tabular_financials.py
+          tests/test_sec_statement_navigation.py
+          tests/test_sec_statement_currency_scope.py
           tests/test_sec_comparative_basis.py
           tests/test_sec_refresh_capacity.py
           tests/test_sec_fund_queue_selection.py
