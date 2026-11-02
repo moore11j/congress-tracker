@@ -184,6 +184,6 @@ def test_existing_numeric_observations_and_other_holds_cannot_be_overwritten():
 
 def test_quoted_section_never_authorizes_financial_values():
     original=html.fromstring(RAW);tree=html.Element('div')
-    quote=html.SubElement(tree,'blockquote');quote.append(original)
+    quote=html.Element('blockquote');tree.append(quote);quote.append(original)
     with pytest.raises(ValueError,match='section_identity_ambiguous'):
         section_observations(html.tostring(tree),COMPANY)
