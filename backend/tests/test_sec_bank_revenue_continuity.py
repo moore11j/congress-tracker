@@ -66,13 +66,25 @@ def test_complete_original_bank_inputs_and_annual_anchors():
         # Do not alter the application's separate linked-document admission.
         name='BNY-annual-exhibit.htm' if source['form']=='10-K' else source['file']
         tree=html.fromstring(raw[name]);contexts={}
-        assert tree.get('xmlns:ix')=='http://www.xbrl.org/2013/inlineXBRL'
-        for context in inline.nodes(tree,'context'):
+        trees=[html.fromstring(raw[source['file']]),tree] if source['form']=='10-K' else [tree]
+        assert all(t.get('xmlns:ix')=='http://www.xbrl.org/2013/inlineXBRL' for t in trees)
+        # This filing's exhibit references context/unit IDs in its cover.
+        # The complete SEC index above binds both files to one accession.
+        definitions={}
+        for context in [n for t in trees for n in inline.nodes(t,'context')]:
+            definition=html.tostring(context)
+            assert context.get('id') not in definitions or definitions[context.get('id')]==definition
+            definitions[context.get('id')]=definition
             if inline.nodes(context,'segment') or inline.nodes(context,'scenario'):continue
             ids=inline.nodes(context,'identifier');starts=inline.nodes(context,'startdate');ends=inline.nodes(context,'enddate')
             if len(ids)==len(starts)==len(ends)==1 and ids[0].get('scheme')=='http://www.sec.gov/CIK' and ids[0].text_content().strip().zfill(10)==source['cik']:
                 contexts[context.get('id')]=(starts[0].text_content().strip(),ends[0].text_content().strip())
-        units={u.get('id') for u in inline.nodes(tree,'unit') if [m.text_content().strip() for m in inline.nodes(u,'measure')]==['iso4217:USD'] and not inline.nodes(u,'divide')}
+        unit_definitions={}
+        for unit in [n for t in trees for n in inline.nodes(t,'unit')]:
+            definition=html.tostring(unit)
+            assert unit.get('id') not in unit_definitions or unit_definitions[unit.get('id')]==definition
+            unit_definitions[unit.get('id')]=definition
+        units={u.get('id') for t in trees for u in inline.nodes(t,'unit') if [m.text_content().strip() for m in inline.nodes(u,'measure')]==['iso4217:USD'] and not inline.nodes(u,'divide')}
         seen={}
         for node in inline.nodes(tree,'nonfraction'):
             period=contexts.get(node.get('contextref'));tag=node.get('name','')
