@@ -16,10 +16,11 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMP_BASE_URL
+from app.clients.massive_stocks import selected as massive_stocks_selected
 from app.models import MarketPressureSnapshot, PriceCache, QuoteCache
 from app.services import market_pressure
 from app.services.provider_usage import ensure_fmp_live_allowed, record_provider_response
-from app.services.quote_lookup import quote_cache_upsert_many
+from app.services.quote_lookup import get_current_prices_meta_db, quote_cache_upsert_many
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +136,38 @@ def refresh_market_pressure_universe_snapshot(
     error_count = 0
     fetch = fetcher or _fetch_latest_intraday_minute
     rate_delay = _rate_delay(calls_per_minute)
+    selected_quotes = None
+    if massive_stocks_selected() and fetcher is None:
+        selected_quotes = get_current_prices_meta_db(
+            db, symbols, lane="market_pressure", max_network_fetch=len(symbols),
+        )
 
     for symbol in symbols:
+        if selected_quotes is not None:
+            meta = selected_quotes.get(symbol) or {}
+            as_of = _parse_provider_datetime(meta.get("asof_ts"))
+            price = _safe_float(meta.get("price"))
+            # A delayed observation retains its own session and age. Never turn
+            # an old Friday price into a fresh Monday market-pressure reading.
+            if (meta.get("source") != "massive_minute_snapshot" or meta.get("is_stale")
+                    or as_of is None or price is None or price <= 0
+                    or not 0 <= (generated_at - as_of).total_seconds() <= 1800
+                    or as_of.astimezone(ZoneInfo("America/New_York")).date()
+                    != generated_at.astimezone(ZoneInfo("America/New_York")).date()):
+                skipped_count += 1
+                continue
+            quote_prices[symbol] = price
+            price_as_of[symbol] = as_of
+            previous_close = _safe_float(meta.get("previous_close"))
+            if previous_close is not None and previous_close > 0:
+                previous_closes[symbol] = (None, previous_close)
+            else:
+                previous_closes.pop(symbol, None)
+            if fresh_quotes.get(symbol) == (price, as_of):
+                cache_hit_count += 1
+            else:
+                fetched_count += 1
+            continue
         cached = fresh_quotes.get(symbol)
         if cached is not None:
             quote_prices[symbol] = cached[0]
@@ -163,7 +194,8 @@ def refresh_market_pressure_universe_snapshot(
         if rate_delay > 0:
             sleep_fn(rate_delay)
 
-    _write_price_caches(db, quote_prices, price_as_of, generated_at.date())
+    if selected_quotes is None:
+        _write_price_caches(db, quote_prices, price_as_of, generated_at.date())
     bundles = market_pressure._default_confirmation_loader(db, symbols)
 
     snapshot_rows: list[dict[str, Any]] = []
@@ -174,17 +206,23 @@ def refresh_market_pressure_universe_snapshot(
         change_pct = _change_pct(previous[1], current_price) if previous and current_price is not None else None
         price = market_pressure.PricePerformance(
             change_pct=change_pct,
-            start_at=market_pressure._date_iso(previous[0]) if previous else None,
+            start_at=market_pressure._date_iso(previous[0]) if previous and previous[0] else None,
             end_at=market_pressure._dt_iso(price_as_of[symbol]) if symbol in price_as_of else None,
             as_of=market_pressure._dt_iso(price_as_of[symbol]) if symbol in price_as_of else None,
             complete=change_pct is not None,
             market_cap=identity.market_cap,
         )
         tile = market_pressure._build_tile(symbol, identity, price, bundles.get(symbol, {}), generated_at)
+        if selected_quotes is not None and symbol in quote_prices:
+            tile.update(priceSource="massive_minute_snapshot", priceKind="minute_close",
+                        priceIsDelayed=True, priceDelayMinutes=15)
         snapshot_rows.append(_snapshot_row(resolved.universe, resolved.period, symbol, tile, generated_at, price=current_price))
 
     _upsert_snapshots(db, snapshot_rows)
     status = "ok" if snapshot_rows else "empty"
+    if selected_quotes is not None and (len(quote_prices) < len(symbols)
+            or any(symbol not in previous_closes for symbol in quote_prices)):
+        status = "partial" if quote_prices else "unavailable"
     return MarketPressureIngestResult(
         universe=resolved.universe,
         period=resolved.period,
@@ -262,10 +300,11 @@ def _previous_closes(db: Session, symbols: list[str], today: date) -> dict[str, 
 def _write_price_caches(db: Session, prices: dict[str, float], as_of: dict[str, datetime], today: date) -> None:
     if not prices:
         return
-    quote_cache_upsert_many(db, prices)
-    for symbol, price in prices.items():
-        db.merge(PriceCache(symbol=symbol, date=today.isoformat(), close=float(price)))
-    db.commit()
+    # Minute prices belong only in the quote cache, with their observation time.
+    # Writing them into daily history corrupts close-to-close returns and alerts.
+    quote_cache_upsert_many(db, prices, asof_by_symbol={
+        symbol: _ensure_aware(as_of[symbol]).replace(tzinfo=None) for symbol in prices
+    })
 
 
 def _upsert_snapshots(db: Session, rows: list[dict[str, Any]]) -> None:

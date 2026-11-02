@@ -2002,6 +2002,7 @@ class QuoteCache(Base):
     price: Mapped[float]
     asof_ts: Mapped[datetime] = mapped_column(DateTime(timezone=False))
     market_cap: Mapped[Optional[float]] = mapped_column(nullable=True)
+    quote_metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class PriceCache(Base):
