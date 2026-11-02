@@ -73,9 +73,10 @@ def test_existing_policy_exclusions_remain(database,monkeypatch,policy):
     assert not prep._continue_discovery('SAP','0001000184')
 
 
-def test_complete_sap_rollover_originals_collect_but_retain_semantic_holds(monkeypatch):
+def test_complete_sap_rollover_qualifies_named_section_but_retains_other_holds(monkeypatch):
     from pathlib import Path
-    from datetime import datetime
+    from datetime import datetime,timedelta
+    from zoneinfo import ZoneInfo
     import gzip,hashlib
     from app.services import sec_financial_discovery as discovery
     root=Path(__file__).parent/'fixtures/sec_rollover_discovery'
@@ -87,9 +88,9 @@ def test_complete_sap_rollover_originals_collect_but_retain_semantic_holds(monke
         originals[key]=raw
     company=originals.pop('company');facts=json.dumps({'cik':1000184}).encode()
     now=datetime.fromisoformat(meta['observed_at'])
-    kw=dict(symbol='SAP',cik='0001000184',available_by=now.date(),observed_at=now)
+    kw=dict(symbol='SAP',cik='0001000184',available_by=now.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1),observed_at=now)
     state=discovery.inspect(company,**kw)['state']
-    candidates=discovery._inventory(company,symbol='SAP',cik=kw['cik'],available_by=now.date())
+    candidates=discovery._inventory(company,symbol='SAP',cik=kw['cik'],available_by=kw['available_by'])
     assert len(candidates)==3
     for candidate in candidates:
         state['receipts'][discovery._fingerprint(candidate)]=discovery._observe(originals[candidate['cover_url']],candidate,now)
@@ -107,11 +108,19 @@ def test_complete_sap_rollover_originals_collect_but_retain_semantic_holds(monke
         assert result==reader.inspect_candidate(company,facts,client=Client(),**args)
         receipts.append(result['receipt'])
         state['receipts'][discovery._fingerprint(candidate)]['qualification']=result['receipt']
-    assert [r['status'] for r in receipts]==['held','held','no_supported_statement']
-    assert receipts[0]['holds'][0]['reason']=='table_reporting_currency_unproved'
+    assert [r['status'] for r in receipts]==['qualified','held','no_supported_statement']
     assert receipts[1]['holds'][0]['reason']=='table_exhibit_ambiguous'
     assert all(r['financial_publication_eligible'] is False for r in receipts)
-    assert reader.selection_plan(company,checkpoint=state,**kw)['reason']=='no_qualified_statement'
+    assert reader.selection_plan(company,checkpoint=state,**kw)['status']=='ready_for_original_revalidation'
+    # Qualification still requires original revalidation and does not select a
+    # public reader. Verify the reported quarter separately from YTD cash flow.
+    supplement=reader.restore(company,facts,checkpoint=state,client=client,annual_rollover=True,**kw)
+    from app.services import sec_tabular_reporting as tables
+    panel=tables.panel(facts,company,supplement=supplement,symbol='SAP',cik=kw['cik'],observed_at=now)
+    assert [r['revenue'] for r in panel['quarterly']]==[9076_000_000,10270_000_000]
+    assert all(r['netIncome'] is None and r['eps'] is None for r in panel['quarterly'])
+    monkeypatch.setenv('SEC_FINANCIAL_DISCOVERY_READ_ENABLED','0')
+    assert reader.prepared_choice(company,facts,client=client,**kw) is None
     assert len(set(client.calls))==4
 
 
