@@ -19,6 +19,16 @@ def declarations(text):
         # such as S.A. before a lower-case "for" are part of the same sentence.
         if re.search(r'[.;]\s+[A-Z][a-z]{2,}\b',value):continue
         found.append(value)
+    if found:return list(dict.fromkeys(found))
+    pattern=re.compile(SUBJECT+r'.{0,240}?\b'+VERB+r'\s+(?:the\s+)?'+IFRS+r'\b',re.I)
+    for subject in re.finditer(SUBJECT,text,re.I):
+        match=pattern.match(text,subject.start())
+        if not match:continue
+        value=match.group(0);prefix=text[max(0,match.start()-70):match.start()]
+        if re.search(r'\b(?:not|never|unlike|hypothetical|will|would|could|should|expected|planned)\b',value,re.I):continue
+        if re.search(r'\b(?:not|never|unlike|hypothetical)\s+(?:\w+\s+){0,6}$',prefix,re.I):continue
+        if re.search(r'[.;]\s+[A-Z][a-z]{2,}\b',value):continue
+        found.append(value)
     return list(dict.fromkeys(found))
 
 

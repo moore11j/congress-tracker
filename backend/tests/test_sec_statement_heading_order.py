@@ -144,6 +144,9 @@ def test_single_filing_qualifies_but_does_not_bypass_incomplete_discovery():
         holds=[{'accession':candidate['accession'],'filed':candidate['filed'],'reason':'financial_hint_not_qualified'}])
     assert reader.validate_receipt(old,cover,now=NOW) is None
     old['statement_heading_policy']='explicit_statement_heading_order_v1'
+    assert reader.validate_receipt(old,cover,now=NOW) is None
+    from app.services.sec_statement_layout import POLICY as layout_policy
+    old['statement_layout_policy']=layout_policy
     assert reader.validate_receipt(old,cover,now=NOW)==old
 
 
