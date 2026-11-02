@@ -156,8 +156,18 @@ def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik
         except (ValueError, TypeError): continue
         if end < report <= filing <= available_by:
             raise TabularReportingError('table_newer_periodic_statement_exists')
+    from app.services import sec_statement_shareholder as shareholder
+    try:
+        note = shareholder.enrich(raw,observations,issuer=company['name'],
+            filed=date.fromisoformat(source['filed']),currency=basis['currency'])
+    except ValueError as exc:
+        # A note hold cannot relabel consolidated profit or erase independent
+        # primary balance/cash-flow evidence.
+        note={'policy':shareholder.POLICY,'status':'held','reason':str(exc),'facts':[]}
+    if note:
+        chosen=chosen+note['facts']
     records = {name:{} for name in set(METRICS.values()) | set(EXTRA.values()) | {'equity','capex','eps'}}
-    roles = METRICS | EXTRA
+    roles = METRICS | EXTRA | {'eps':'eps'}
     for fact in chosen:
         role = roles.get(fact['metric'])
         if role is None:
@@ -165,7 +175,7 @@ def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik
         start = date.fromisoformat(fact['start']) if fact['start'] else None
         finish = date.fromisoformat(fact['end'])
         records[role][start,finish] = {'value':fact['value'], 'tag':'html:'+fact['metric'],
-            'unit':basis['currency'], 'start':fact['start'], 'end':fact['end'],
+            'unit':basis['currency']+('/shares' if fact['metric']=='eps' else ''), 'start':fact['start'], 'end':fact['end'],
             'filed':source['filed'], 'accession':source['accession'], 'priority':0,
             'source_kind':'html_statement', 'source_url':source_url,
             'source_sha256':source['statement_sha256'], 'source_cik':source['cik'],
@@ -180,7 +190,9 @@ def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik
         'source': source, 'current_period':str(end), 'available_by':str(available_by),
         'native_observation_count':len(chosen), 'source_observation_count':len(observations['facts']),
         'conflicts':observations['conflicts'], 'holds':observations['holds'],
-        'limits':['No companyfacts merge, inferred parent/common income, FX, EPS or annualization.',
+        **({'shareholder_note':note} if note else {}),
+        'limits':[('No companyfacts merge, inferred parent/common income, FX, share-count inference or annualization.'
+                   if note and note['facts'] else 'No companyfacts merge, inferred parent/common income, FX, EPS or annualization.'),
                   'This normalization does not establish complete filing discovery or publication readiness.']}}
 
 
@@ -420,24 +432,30 @@ def panel(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
     if str(json.loads(facts_raw).get('cik','')).zfill(10)!=str(cik).zfill(10):
         raise TabularReportingError('table_companyfacts_identity')
     rows={'annual':[],'quarterly':[],'semiannual':[]};periods={}
-    for (start,end),revenue in sorted(records['revenue'].items()):
-        if not start or not revenue:
-            continue
+    period_keys={(start,end) for name in ('revenue','net_income','eps','operating_cash_flow')
+                 for (start,end),point in records[name].items() if start and point}
+    for start,end in sorted(period_keys):
+        revenue=records['revenue'].get((start,end))
         days=(end-start).days+1
         kind='annual' if 350<=days<=380 else 'quarterly' if 70<=days<=110 else 'semiannual' if 160<=days<=200 else None
         if kind is None:continue
         points={name:period_value(records[name],start,end) for name in ('revenue','gross_profit','operating_income','net_income','operating_cash_flow')}
-        val=lambda name:points[name]['value'] if points[name] else None
-        margin=lambda name:val(name)/revenue['value']*100 if val(name) is not None and revenue['value']>0 else None
+        if records['eps']:
+            # Per-share amounts are never summed or derived from YTD differences.
+            points['eps']=records['eps'].get((start,end))
+        val=lambda name:points.get(name)['value'] if points.get(name) else None
+        margin=lambda name:val(name)/revenue['value']*100 if val(name) is not None and revenue and revenue['value']>0 else None
         row={'period':('Year' if kind=='annual' else 'Quarter' if kind=='quarterly' else 'Half-year')+' ended '+str(end),
             'date':str(end),'periodStart':str(start),'currency':currency,'source':'sec_edgar',
-            'revenue':revenue['value'],'netIncome':val('net_income'),'eps':None,
+            'revenue':revenue['value'] if revenue else None,'netIncome':val('net_income'),'eps':val('eps'),
             'grossMargin':margin('gross_profit'),'operatingMargin':margin('operating_income'),
             'operatingCashFlow':val('operating_cash_flow'),'capex':None,'freeCashFlow':None}
         rows[kind].append(row);periods[kind+':'+str(end)]=points
     for kind in rows:rows[kind]=rows[kind][-6 if kind=='annual' else -12:]
     # Existing product convention shows half-years when no quarters exist.
-    if rows['quarterly']:rows['semiannual']=[]
+    # Preserve old revenue-led presentation; a partial income/OCF panel must
+    # retain half-year source values that its quarterly rows cannot express.
+    if rows['quarterly'] and records['revenue']:rows['semiannual']=[]
     present=any(rows.values())
     payload=_unavailable(symbol,message='Reported financial statements with partial coverage; TTM and per-share values require additional evidence.',reason='partial_sec_coverage')
     payload.update(**rows,source='sec_edgar',companyName=json.loads(company_raw)['name'],
@@ -445,9 +463,13 @@ def panel(facts_raw,company_raw,*,symbol,cik,observed_at,supplement):
         reportingCurrency=currency,preparationVersion=VERSION,
         reportingBasis='Reported '+currency+' '+proof['accounting_basis']+' financial tables. Net income is shown only for explicit parent-holder income.',
         sourceEvidence={'methodology':VERSION,'tableReporting':proof,'periods':periods})
+    if records['eps']:
+        payload['reportingBasis']+=' EPS is reported diluted earnings per common share in '+currency+'.'
     if proof.get('accounting_basis_origin')=='annual_comparative_reconciliation':
         payload['reportingBasis']='Reported USD GAAP financial tables; US GAAP basis supported by exact annual comparative reconciliation. Net income requires explicit parent-holder income.'
-    if present:
+    has_income=any(any(row[k] is not None for k in ('revenue','netIncome','eps','grossMargin','operatingMargin'))
+                   for group in rows.values() for row in group)
+    if has_income:
         payload['sections']['income']='partial';payload['subsections']['income']=_subsection(status='limited',reason_code='partial_sec_coverage',data=rows)
     if any(row['operatingCashFlow'] is not None for group in rows.values() for row in group):
         payload['sections']['cashFlow']='partial';payload['subsections']['cash_flow']=_subsection(status='limited',reason_code='partial_sec_coverage',data=rows)

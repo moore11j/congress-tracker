@@ -49,8 +49,12 @@ def test_original_normalization_and_consumers_repeat_without_semantic_substituti
     core=reporting.core(facts,COMPANY,**kw);panel=reporting.panel(facts,COMPANY,**kw)
     assert core==reporting.core(facts,COMPANY,**kw) and panel==reporting.panel(facts,COMPANY,**kw)
     assert core['current_ratio']==65887356/42496851
-    assert not panel['annual'] and not panel['quarterly'] and not panel['semiannual']
-    assert not norm['records']['revenue'] and not norm['records']['net_income'] and not norm['records']['eps']
+    assert not panel['annual'] and len(panel['quarterly'])==len(panel['semiannual'])==2
+    assert not norm['records']['revenue'] and len(norm['records']['net_income'])==len(norm['records']['eps'])==4
+    assert all(r['revenue'] is None and r['grossMargin'] is None and r['operatingMargin'] is None for kind in ('quarterly','semiannual') for r in panel[kind])
+    assert panel['quarterly'][-1]['netIncome']==549076000 and panel['quarterly'][-1]['eps']==1.9648
+    assert panel['semiannual'][-1]['operatingCashFlow']==1938645000
+    assert panel['status']=='partial' and panel['unavailable'] is False
 
 def layout_tree(owner='Example Ltd.',between='<p></p>',caption='Unaudited condensed consolidated interim balance sheet',scale='thousands'):
     return html.fromstring(f'<div><table><tr><td><p>{owner}</p><p>{caption}</p><p>(All amounts in {scale} of reais)</p></td><td></td></tr></table>{between}<table id="values"><tr><td></td><td>June 30, 2026</td><td>December 31, 2025</td></tr><tr><td>Total current assets</td><td>10</td><td>8</td></tr></table></div>')
@@ -153,7 +157,7 @@ def test_full_current_inventory_source_restoration_and_repeat(complete_inventory
     supplement=reader.restore(COMPANY,facts,checkpoint=state,client=client,annual_rollover=True,**kw)
     assert supplement==reader.restore(COMPANY,facts,checkpoint=state,client=client,annual_rollover=True,**kw)
     proof=supplement['evidence']['table_reporting']
-    assert proof['currency']=='BRL' and proof['native_observation_count']==16
+    assert proof['currency']=='BRL' and proof['native_observation_count']==24
     assert proof['current_period']=='2026-06-30'
 
 
