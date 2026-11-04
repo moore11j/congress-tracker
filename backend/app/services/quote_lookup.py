@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 import threading
 import time
@@ -19,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.clients.fmp import FMP_BASE_URL
+from app.clients.massive_stocks import MassiveStocksClient, MassiveStocksError, selected as massive_stocks_selected
+from app.request_priority import get_request_context
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
@@ -37,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 _QUOTE_CACHE: dict[str, tuple[float, float]] = {}
 _QUOTE_META_CACHE: dict[str, tuple[dict[str, Any], float]] = {}
+_MASSIVE_META_CACHE: dict[str, tuple[dict[str, Any], float]] = {}
 _MISS_CACHE: dict[str, float] = {}
 _QUOTE_FETCH_LOCKS: dict[str, threading.Lock] = {}
 _QUOTE_FETCH_LOCKS_GUARD = threading.Lock()
@@ -348,12 +352,44 @@ def quote_cache_get_many_with_age(db: Session, symbols: list[str]) -> dict[str, 
     return result
 
 
-def quote_cache_upsert_many(db: Session, prices: dict[str, float], market_caps: dict[str, float | None] | None = None) -> None:
+def persisted_quote_metadata(row) -> dict:
+    """Trust metadata only when it describes this exact persisted observation."""
+    try:
+        raw = row.quote_metadata_json or '{}'
+        if len(raw) > 16384:
+            return {}
+        meta = json.loads(raw)
+        if not isinstance(meta, dict) or meta.get('price') != row.price or meta.get('asof_ts') != row.asof_ts.isoformat():
+            return {}
+        for key in ('asof_ts', 'cached_at', 'provider_timestamp'):
+            if meta.get(key):
+                meta[key] = _freshness_datetime(datetime.fromisoformat(meta[key]))
+        return meta
+    except (AttributeError, TypeError, ValueError):
+        return {}
+
+
+def public_quote_metadata(meta) -> dict:
+    meta = meta if isinstance(meta, dict) else {}
+    return {key: meta.get(key) for key in ('is_delayed', 'delay_minutes', 'price_kind')}
+
+
+def quote_cache_upsert_many(db: Session, prices: dict[str, float], market_caps: dict[str, float | None] | None = None,
+                            *, asof_by_symbol: dict[str, datetime] | None = None,
+                            metadata_by_symbol: dict[str, dict] | None = None) -> None:
     if not prices:
         return
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if asof_by_symbol is not None:
+        asof_by_symbol = {sym: _freshness_datetime(asof_by_symbol[sym]) for sym in prices}
+        if any(value is None for value in asof_by_symbol.values()):
+            raise ValueError('missing_quote_observation_time')
     rows = [
-        {"symbol": sym, "price": float(price), "asof_ts": now, "market_cap": market_caps.get(sym) if market_caps else None}
+        {"symbol": sym, "price": float(price), "asof_ts": asof_by_symbol[sym] if asof_by_symbol is not None else now,
+         "market_cap": market_caps.get(sym) if market_caps else None,
+         "quote_metadata_json": json.dumps({**metadata_by_symbol[sym], 'price': float(price),
+             'asof_ts': (asof_by_symbol[sym] if asof_by_symbol is not None else now).isoformat()},
+             default=lambda value: value.isoformat()) if metadata_by_symbol and sym in metadata_by_symbol else None}
         for sym, price in prices.items()
     ]
     insert_fn = postgres_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
@@ -364,7 +400,9 @@ def quote_cache_upsert_many(db: Session, prices: dict[str, float], market_caps: 
             "price": stmt.excluded.price,
             "asof_ts": stmt.excluded.asof_ts,
             "market_cap": func.coalesce(stmt.excluded.market_cap, QuoteCache.market_cap),
+            "quote_metadata_json": stmt.excluded.quote_metadata_json,
         },
+        where=(stmt.excluded.asof_ts >= QuoteCache.asof_ts) if asof_by_symbol is not None else None,
     )
     try:
         if db.bind and db.bind.dialect.name == "sqlite":
@@ -508,7 +546,12 @@ def _rows_to_quote_payload(rows: list[dict], *, fallback_symbol: str, endpoint_c
     return payload
 
 def get_index_quote(symbol: str) -> float:
-    """Fetch current index price (e.g. SPY) from FMP chart/EOD endpoints."""
+    """Fetch a benchmark quote (e.g. SPY) from the selected provider."""
+    if massive_stocks_selected():
+        meta = get_current_prices_meta_db(None, [symbol], force_quote_endpoint=True).get(symbol)
+        if not meta or meta.get('is_stale') or meta.get('source') != 'massive_minute_snapshot':
+            raise MassiveStocksError('benchmark_quote_unavailable')
+        return float(meta['price'])
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("FMP_API_KEY not configured")
@@ -548,6 +591,76 @@ def get_index_quote(symbol: str) -> float:
     raise RuntimeError(f"No quote data for {symbol}")
 
 
+def _massive_current_prices(db, symbols, *, allow_cache_write, release_connection_before_fetch,
+                           lane, ttl_seconds, allow_live_user_fetch, force_quote_endpoint,
+                           cache_only, max_network_fetch):
+    """Reuse exact observations; expiry never makes an old quote newly observed."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    results, pending = {}, []
+    for symbol in symbols:
+        cached, expires = _MASSIVE_META_CACHE.get(symbol, ({}, 0))
+        if cached:
+            results[symbol] = {**cached, 'is_stale': not 0 <= (now - cached['asof_ts']).total_seconds() <= 1800}
+        if force_quote_endpoint or expires <= time.monotonic():
+            pending.append(symbol)
+    if db is not None:
+        # An expired in-process observation must not hide a newer durable quote
+        # prepared by another worker. Fresh memory entries keep their bounded TTL.
+        lookup = [s for s in symbols if s not in results or s in pending]
+        for row in db.query(QuoteCache).filter(QuoteCache.symbol.in_(lookup)).all() if lookup else []:
+            symbol, price, asof = row.symbol, row.price, _freshness_datetime(row.asof_ts)
+            if price is None or asof is None:
+                continue
+            meta = persisted_quote_metadata(row)
+            previous = results.get(symbol)
+            if previous and previous['asof_ts'] > asof:
+                continue
+            if meta.get('source') == 'massive_minute_snapshot':
+                results[symbol] = {**meta, 'symbol': symbol, 'is_stale': not 0 <= (now - asof).total_seconds() <= 1800}
+                fetched = meta.get('cached_at')
+                ttl = _cache_ttl_seconds(lane=lane, ttl_seconds=ttl_seconds)
+                if fetched and 0 <= (now - fetched).total_seconds() < ttl and not force_quote_endpoint:
+                    if symbol in pending:
+                        pending.remove(symbol)
+                    _MASSIVE_META_CACHE[symbol] = (results[symbol], time.monotonic() + ttl - (now - fetched).total_seconds())
+            else:
+                results[symbol] = {'symbol': symbol, 'price': price, 'asof_ts': asof,
+                                   'source': 'cache_unverified_provider', 'is_stale': True}
+    context = get_request_context() or {}
+    foreground = context.get('path') not in (None, '', 'background')
+    if cache_only or (foreground and not allow_live_user_fetch):
+        if foreground and pending and not cache_only:
+            _enqueue_quote_refreshes(pending, reason='massive_quote_stale_or_missing')
+        return results
+    pending = pending[:_bounded_network_fetch_cap(max_network_fetch)]
+    if pending and release_connection_before_fetch and db is not None:
+        db.rollback()
+    ttl = _cache_ttl_seconds(lane=lane, ttl_seconds=ttl_seconds)
+    for offset in range(0, len(pending), 100):
+        batch = pending[offset:offset + 100]
+        provider_symbols = {s: s.replace('-', '.') if '-' in s and len(s.rsplit('-', 1)[-1]) == 1 else s for s in batch}
+        try:
+            received = MassiveStocksClient().snapshots(list(dict.fromkeys(provider_symbols.values())))
+        except MassiveStocksError as exc:
+            logger.warning('massive_quotes_unavailable reason=%s count=%s', exc, len(batch))
+            break
+        fresh = {}
+        for symbol, provider_symbol in provider_symbols.items():
+            meta = received.get(provider_symbol)
+            if not meta:
+                continue
+            meta = {**meta, 'symbol': symbol, 'provider_symbol': provider_symbol}
+            previous = results.get(symbol)
+            if previous and previous['asof_ts'] > meta['asof_ts']:
+                continue
+            results[symbol] = fresh[symbol] = meta
+            _MASSIVE_META_CACHE[symbol] = (meta, time.monotonic() + ttl)
+        if fresh and db is not None and allow_cache_write:
+            quote_cache_upsert_many(db, {s: m['price'] for s, m in fresh.items()},
+                                   asof_by_symbol={s: m['asof_ts'] for s, m in fresh.items()}, metadata_by_symbol=fresh)
+    return results
+
+
 def get_current_prices_meta_db(
     db: Session | None,
     symbols: list[str],
@@ -577,6 +690,12 @@ def get_current_prices_meta_db(
         )
         if not normalized_symbols:
             return {}
+
+        if massive_stocks_selected():
+            return _massive_current_prices(db, normalized_symbols, allow_cache_write=allow_cache_write,
+                release_connection_before_fetch=release_connection_before_fetch, lane=lane,
+                ttl_seconds=ttl_seconds, allow_live_user_fetch=allow_live_user_fetch,
+                force_quote_endpoint=force_quote_endpoint, cache_only=cache_only, max_network_fetch=max_network_fetch)
 
         mem_hits = 0
         sqlite_fresh_hits = 0
