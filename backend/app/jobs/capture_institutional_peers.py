@@ -21,6 +21,26 @@ MAX_WALL_SECONDS = 480
 MAX_CPU_SECONDS = 85
 
 
+# Only fixed internal guard codes may enter operational logs. Never copy a
+# database exception, request contents or arbitrary third-party error text.
+HOLD_REASONS = frozenset({
+    'not_designated_scheduler_job', 'missing_scheduler_identity',
+    'not_exclusive_data_lane_owner', 'capture_work_budget',
+    'peer_capture_approval_expired', 'capture_memory_headroom',
+    'capture_interrupted_or_work_budget', 'background_guard',
+    'source_collection_active', 'capture_disk_headroom',
+    'postgresql_required', 'readonly_transaction_required',
+    'missing_readonly_receipt', 'nonzero_production_writes',
+})
+
+
+def failure_metadata(exc):
+    reason = 'unclassified_capture_failure'
+    if type(exc) is RuntimeError and len(exc.args) == 1 and isinstance(exc.args[0], str) and exc.args[0] in HOLD_REASONS:
+        reason = exc.args[0]
+    return {'error_type': type(exc).__name__, 'reason': reason}
+
+
 def package_hash():
     root = Path(__file__).resolve().parents[1]
     files = [Path(__file__), *(root / 'services' / name for name in (
@@ -106,6 +126,8 @@ def main():
                 raise RuntimeError('peer_capture_approval_expired')
             available = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
                              if line.startswith('MemAvailable:'))
+            result['last_available_memory_kib'] = available
+            result['minimum_available_memory_kib'] = min(available, result.get('minimum_available_memory_kib', available))
             if available < 750 * 1024:
                 raise RuntimeError('capture_memory_headroom')
             last_check[0] = elapsed
@@ -121,6 +143,7 @@ def main():
                 os.getenv('WALNUT_JOB_QUEUE') != QUEUE):
             raise RuntimeError('not_designated_scheduler_job')
         request = read_request(REQUEST)
+        result['request_id'] = request['request_id']
         result['phase'] = 'queue_ownership'
         # The worker records the child's process group immediately after Popen.
         for attempt in range(10):
@@ -162,10 +185,11 @@ def main():
                       acceptance='transport_only_requires_canonical_peer_scope_verification')
     except Exception as exc:
         # Do not leak database exception text or original-record contents to logs.
-        result.update(error_type=type(exc).__name__)
+        result.update(failure_metadata(exc))
     finally:
         signal.alarm(0)
-    result.update(cpu_seconds=round(time.process_time()-cpu, 4),
+    result.update(peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                  cpu_seconds=round(time.process_time()-cpu, 4),
                   wall_seconds=round(time.monotonic()-started, 4))
     print(json.dumps(result, sort_keys=True), flush=True)
     if result['status'] != 'captured':
