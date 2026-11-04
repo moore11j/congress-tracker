@@ -226,6 +226,11 @@ job.main()
     stdout,stderr=child.communicate(timeout=20)
     assert child.returncode==(75 if lose_claim else 0),stdout+stderr
     assert json.loads(stdout)['status']==('held' if lose_claim else 'captured')
+    receipt=json.loads(stdout)
+    assert receipt['request_id']==value['request_id']
+    assert receipt['peak_rss_kib']>0
+    assert 0<receipt['minimum_available_memory_kib']<=receipt['last_available_memory_kib']
+    if lose_claim:assert receipt['reason']=='not_exclusive_data_lane_owner'
     manifest=output/(value['request_id']+'.complete.json')
     assert manifest.exists() is not lose_claim
     if not lose_claim:
@@ -236,3 +241,25 @@ job.main()
         with gzip.open(output/verified['filename'],'rb') as stream:
             proof=receive_peers(stream,io.BytesIO(),scope)
         assert proof['scope_sha256']==digest(scope) and not proof['full_cutover_ready']
+
+
+
+@pytest.mark.parametrize('reason', sorted(capture.HOLD_REASONS))
+def test_only_fixed_runtime_guard_codes_are_logged(reason):
+    assert capture.failure_metadata(RuntimeError(reason)) == {
+        'error_type': 'RuntimeError', 'reason': reason}
+
+
+@pytest.mark.parametrize('failure', [
+    RuntimeError('postgres://private-credential@host/database'),
+    RuntimeError('capture_memory_headroom: private-row'),
+    RuntimeError('capture_memory_headroom', 'private-row'),
+    RuntimeError({'private': 'row'}), RuntimeError(),
+    ValueError('capture_memory_headroom'),
+    OSError('private-source-content'),
+])
+def test_guard_metadata_never_discloses_arbitrary_exception_text(failure):
+    result = capture.failure_metadata(failure)
+    assert result == {'error_type': type(failure).__name__,
+                      'reason': 'unclassified_capture_failure'}
+    assert 'private' not in json.dumps(result)
