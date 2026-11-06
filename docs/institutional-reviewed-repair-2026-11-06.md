@@ -1,6 +1,6 @@
 # Reviewed historical institutional repair, November 6, 2026
 
-Status: local release candidate. No production source correction, publication activation, provider switch, subscription, or customer delivery.
+Status: PR776 deployed as `f0b87fcc` through guarded run42300176982, with 492 Linux checks/one skip, seven installed hashes and the receipt schema verified. No production source correction, publication activation, provider switch, subscription, or customer delivery.
 
 The complete-original source planner permits only independently corroborated dollar-unit corrections, exact scaled floating-point roundtrips, and fully reconciled repeated XML rows. It requires the whole original and whole canonical filing population, preserving IDs and security mappings. Unsupported weight, ownership, class, option, principal, amendment, or independent-unit conflicts remain held.
 
@@ -20,3 +20,11 @@ The PostgreSQL transaction is bounded to 40 originals, 1,000 symbol/quarter scop
 Artifacts: `historical-bundle-preparation-nov6.json`, `reviewed-historical-bundle-nov6.json.gz`, `historical-bundle-postgres-nov6.json`, `staged-historical-bundle-postgres-nov6.json` in `artifacts/institutional-current-nov1/`. Original fixture SHA256: `2a367b72b5513db5350489d61c43993e1c9c8541fe3db1625d74ccec09438efb`.
 
 Next: release checks and installed verification; inspect current production populations without applying stale plans; apply only an accepted exact bundle, then verify consumers and scheduled institutional operation. Broader financial/content/capacity checks, Massive last, zero-FMP and billing remain open.
+
+## Production population guard and query repair
+
+All 36 staged originals, 1,686 filing rows and 21,904 derived changes match the reviewed production hashes at November6 21:54 UTC. The original 75,827-position read hit its unchanged 23-second outer limit, so no correction was attempted. Read-only EXPLAIN identifies 887 index scans, including 64 repeated period scans, from tuple-IN expansion over 822 symbol/period pairs.
+
+The follow-up factors common periods into explicit equality plus symbol-IN predicates, preserving the exact symbol/period pairs and the unrestricted complete source-filing population. The plan uses three index scans; the bounded actual production read returns all 75,827 rows with the identical reviewed hash in 3.52 seconds. No guard is removed, no time limit is raised and no index/schema change is required. The repair bundle hash is unchanged. Cross-period and malformed-source-position negative controls are included in 97 passing local checks. Current production source correction remains held until this exact query release and remaining population/consumer checks are accepted.
+
+Evidence: `historical-position-guard-plan-1794002198.json`, `historical-position-grouped-proof-1794002273.json`, and `reviewed-repair-production-*` receipts. The earlier full staged PostgreSQL transaction remains the source/application/rollback evidence; the follow-up changes only the equivalent guard predicate.

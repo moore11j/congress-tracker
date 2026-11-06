@@ -4,14 +4,14 @@ Explicit reviewed PostgreSQL entry points bind staged originals, the selected
 source generation, and every affected canonical population. No automatic
 caller, event/alert insertion, customer delivery, provider switch, or schedule.
 """
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 import copy
 import json
 import os
 import time
 
-from sqlalchemy import DateTime, Date, Float, Text, bindparam, or_, select, tuple_, update
+from sqlalchemy import DateTime, Date, Float, Text, and_, bindparam, or_, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -225,7 +225,14 @@ def _population(db, bundle, name):
     elif name == 'events':
         predicate = or_(model.id.in_(bundle['guards'][name]['ids']), model.source_filing_id.in_(bundle['event_sources']))
     else:
-        predicate = tuple_(model.normalized_symbol, model.report_year, model.report_quarter).in_(bundle['scopes'])
+        # Tuple IN expands into hundreds of repeated period bitmap scans on
+        # the real multi-period table. Factor the common period explicitly,
+        # retaining the exact symbol/period pairs and complete filing guard.
+        periods = defaultdict(set)
+        for symbol, year, quarter in bundle['scopes']:
+            periods[year, quarter].add(symbol)
+        predicate = or_(*(and_(model.report_year == year, model.report_quarter == quarter,
+            model.normalized_symbol.in_(sorted(symbols))) for (year, quarter), symbols in sorted(periods.items())))
         if name == 'institutional_positions':
             predicate = or_(predicate, model.filing_id.in_([p['filing']['id'] for p in bundle['source_plans']]))
     columns = [c for c in model.__table__.columns if c.name not in {'created_at', 'updated_at'}]

@@ -51,15 +51,15 @@ def test_atomic_apply_repeat_and_rollback_with_source_overwrite_protection(db):
     assert db.scalar(select(InstitutionalRepairReceipt.status))=='rolled_back'
 
 
-@pytest.mark.parametrize('drift',['amount','extra_position','missing_position','parent','rollback_drift'])
+@pytest.mark.parametrize('drift',['amount','extra_position','wrong_period_position','missing_position','parent','rollback_drift'])
 def test_whole_population_drift_aborts_without_partial_corrections(db,drift):
     _,bundle,before=package(db)
     if drift=='rollback_drift':
         rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'])
     position=db.scalar(select(InstitutionalPosition))
     if drift in {'amount','rollback_drift'}:position.value_usd+=1
-    elif drift=='extra_position':
-        db.add(InstitutionalPosition(filing_id=position.filing_id,cik=position.cik,report_year=2026,report_quarter=2,filing_date=position.filing_date,normalized_symbol='AAA',cusip='999999999',value_usd=1))
+    elif drift in {'extra_position','wrong_period_position'}:
+        db.add(InstitutionalPosition(filing_id=position.filing_id,cik=position.cik,report_year=2026,report_quarter=3 if drift=='wrong_period_position' else 2,filing_date=position.filing_date,normalized_symbol='AAA',cusip='999999999',value_usd=1))
     elif drift=='missing_position':db.delete(position)
     else:db.get(InstitutionalFiling,position.filing_id).form_type='13F-HR/A'
     db.commit();changed=state(db);db.rollback()
@@ -163,3 +163,17 @@ def test_wall_time_limit_rolls_back_complete_bundle(db,monkeypatch):
     with pytest.raises(ValueError,match='bounded transaction'):
         rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'])
     assert state(db)==before and db.scalar(select(InstitutionalRepairReceipt)) is None
+
+
+def test_period_grouping_preserves_pairs_and_complete_filing_population(db):
+    from app.services.institutional_repair_bundle import _population
+    _,bundle,_=package(db)
+    original=db.scalar(select(InstitutionalPosition))
+    added=[]
+    for symbol,quarter,filing in [('AAA',3,777),('BBB',2,777),('BBB',3,777),('UNMAPPED',4,original.filing_id)]:
+        row=InstitutionalPosition(filing_id=filing,cik=original.cik,report_year=2026,report_quarter=quarter,
+            filing_date=original.filing_date,normalized_symbol=symbol,cusip=symbol+str(quarter),value_usd=1)
+        db.add(row);added.append(row)
+    db.commit()
+    bundle['scopes'].append(['BBB',2026,3])
+    assert [r['id'] for r in _population(db,bundle,'institutional_positions')]==[original.id,added[2].id,added[3].id]
