@@ -95,9 +95,10 @@
   },
   {
     "symbol": "GOOGL",
+    "discovery": {"kind": "alphabet_quarterly_v1"},
     "company_website": "https://abc.xyz/",
     "investor_website": "https://abc.xyz/investor/",
-    "verification": "Official Alphabet Q2 2026 event HTML with full transcript reviewed October10,2026. One issuer source under GOOGL; GOOG research association remains unconfigured pending explicit share-class reconciliation.",
+    "verification": "Official quarterly index and complete Q1/Q2/Q3 2026 call pages reviewed November6,2026. Index permission, page heading/date and transcript body are independently checked. One issuer source under GOOGL; GOOG research association remains unconfigured pending explicit share-class reconciliation.",
     "documents": [
       {
         "url": "https://abc.xyz/investor/events/event-details/2026/2026-Q2-Earnings-Call-2026-GgTAq7Is0z/default.aspx",
