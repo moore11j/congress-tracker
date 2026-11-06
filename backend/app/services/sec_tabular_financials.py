@@ -44,6 +44,9 @@ def visible_text(node):
 
 
 def company_key(value):
+    # Preserve the company-name token while equating its terminal abbreviation.
+    # Never remove an interior word or an added subsidiary/holdings identity.
+    value = re.sub(r'\bcompany(?=(?:\s+and (?:its )?subsidiaries)?\s*$)', 'Co', value, flags=re.I)
     value = re.sub(r'^the\s+', '', value, flags=re.I)
     value = re.sub(r'\s+and (?:its )?subsidiaries$', '', value, flags=re.I)
     value = re.sub(r'\b(?:corporation|corp\.?|incorporated|inc\.?|limited|ltd\.?)\b', '', value, flags=re.I)
@@ -314,7 +317,7 @@ def amount(cells,start,end,scale):
     return float(value)
 
 
-def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False,_layout=False):
+def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False,_layout=False,_fiscal_periods=None):
     rows=grid(table)
     if not rows:return None
     local=preceding_text(table, nonempty=_nonempty_context)
@@ -325,7 +328,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     # Find the first monetary row before treating later years as header labels.
     def data_row(row):
         if not row or row[0]['start']!=0 or not re.search(r'[A-Za-z]',row[0]['text']):return False
-        if re.search(r'in thousands|in millions|months? ended|as of|as at',row[0]['text'],re.I):return False
+        if re.search(r'in thousands|in millions|(?:months?|years?) ended|as of|as at',row[0]['text'],re.I):return False
         return any(re.fullmatch(r'\(?-?[0-9][0-9,.]*\)?',c['text']) for c in row[1:])
     boundary=next((i for i,row in enumerate(rows) if data_row(row)),None)
     if boundary is None:return None
@@ -372,7 +375,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     if not issuer_key or not identified or not identified[-1]:
         if not _nonempty_context:
             return parse_table(table,issuer=issuer,filed=filed,document_scope=document_scope,
-                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True,_expanded=_expanded,_layout=_layout)
+                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True,_expanded=_expanded,_layout=_layout,_fiscal_periods=_fiscal_periods)
         raise TabularFinancialError('table_issuer_unproved')
     scales={Decimal('1000') for _ in re.finditer(r'\bin thousands\b',intro,re.I)}
     scales.update(Decimal('1000000') for _ in re.finditer(r'\bin (?:[€£¥]\s+|USD |EUR |CHF )?millions\b',intro,re.I))
@@ -422,7 +425,12 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
             start,finish,months=column_period(period_text(header),[period_text(t) for t in texts],
                 [period_text(t) for t in shared_periods],kind,filed)
         else:
-            start,finish,months=column_period(header,texts,shared_periods,kind,filed)
+            try:
+                start,finish,months=column_period(header,texts,shared_periods,kind,filed)
+            except TabularFinancialError as exc:
+                if _fiscal_periods is None or str(exc)!='column_duration_unsupported':raise
+                from app.services.sec_inline_fiscal_periods import resolve
+                start,finish,months=resolve(header,kind,filed,_fiscal_periods)
         if periods_only:
             columns.append({'start':str(start) if start else None,'end':str(finish),'months':months,'header':texts})
             continue
