@@ -352,7 +352,7 @@ def test_policy_two_accepts_reviewed_phrase_but_old_policy_remains_strict():
         discovery.parse_candidate(missing_operator, current, NOW)
 
 
-@pytest.mark.parametrize('policy', [0, 4, '2', True, None])
+@pytest.mark.parametrize('policy', [0, 5, '2', True, None])
 def test_unreviewed_policy_cannot_authorize_metadata(setup, policy):
     row = legacy_candidate(setup)
     metadata = json.loads(row.metadata_json)
@@ -379,7 +379,7 @@ def test_reviewed_historical_headings_require_the_exact_year_and_quarter(quarter
     content = f'TRANSCRIPT {stamp} {label} Operator: {operator} question comes from An Analyst. '
     raw = pdf(content+'Synthetic earnings evidence. '*60)
     resolved,_,parsed = discovery.parse_candidate(raw,metadata,NOW)
-    assert resolved['parser_policy']==3 and parsed['has_qa']
+    assert resolved['parser_policy']==discovery.PARSER_POLICY and parsed['has_qa']
     for wrong in [label.replace('2025','2024').replace("'25","'24"),
                   label.replace('Q1','Q2').replace('Second','Third').replace('Third','Fourth')]:
         with pytest.raises(DirectSourceError,match='fiscal period'):
