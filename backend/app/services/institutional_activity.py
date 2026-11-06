@@ -661,7 +661,7 @@ def _suppress_holder_period_activity(db: Session, filing: InstitutionalFiling) -
     return len(rows)
 
 
-def _archive_activity_rows(db: Session, rows) -> None:
+def _archive_activity_rows(db: Session, rows, *, preserve_published_events: bool = False) -> None:
     """Withdraw derived assertions without deleting their stable event IDs."""
     rows = [r for r in rows if r.freshness_status != "superseded"]
     if not rows:
@@ -670,6 +670,8 @@ def _archive_activity_rows(db: Session, rows) -> None:
         row.feed_visible = False
         row.freshness_status = "superseded"
         row.updated_at = datetime.now(timezone.utc)
+    if preserve_published_events:
+        return
     for offset in range(0, len(rows), 100):
         sources = [f"institutional:{r.id}:{r.event_type}:{r.report_year}q{r.report_quarter}"
                    for r in rows[offset:offset + 100]]
@@ -1267,7 +1269,7 @@ def _refresh_symbol_summary_from_rows(db, normalized, report_year, report_quarte
 
 
 @canonical_writer('sec_13f')
-def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None) -> int:
+def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None, preserve_published_events: bool = False) -> int:
     changes = db.execute(
         select(InstitutionalPositionChange).where(
             InstitutionalPositionChange.normalized_symbol == summary.normalized_symbol,
@@ -1304,7 +1306,11 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
         InstitutionalActivityEvent.report_year == summary.report_year,
         InstitutionalActivityEvent.report_quarter == summary.report_quarter,
         *([or_(InstitutionalActivityEvent.cik == holder_cik, InstitutionalActivityEvent.cik.is_(None))] if holder_cik else []))).scalars().all()
-    _archive_activity_rows(db, [r for r in old if _activity_event_key(r.normalized_symbol, r.cik, r.event_type, r.report_year, r.report_quarter) not in valid])
+    archived = [r for r in old if _activity_event_key(r.normalized_symbol, r.cik, r.event_type, r.report_year, r.report_quarter) not in valid]
+    if preserve_published_events:
+        _archive_activity_rows(db, archived, preserve_published_events=True)
+    else:
+        _archive_activity_rows(db, archived)
     for change in changes_by_event_key.values():
         event_type = _event_type_for_change(change)
         if _upsert_activity_event_from_change(db, change, event_type=event_type):
@@ -3234,7 +3240,7 @@ def _upsert_activity_event_from_summary(db: Session, summary: InstitutionalSymbo
     return created
 
 
-def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, created_feed_events: list[Event] | None = None) -> bool:
+def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, created_feed_events: list[Event] | None = None, existing_only: bool = False) -> bool:
     source_filing_id = f"institutional:{activity.id}:{activity.event_type}:{activity.report_year}q{activity.report_quarter}"
     existing = db.execute(
         select(Event).where(
@@ -3242,11 +3248,17 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
             Event.source_filing_id == source_filing_id,
         )
     ).scalar_one_or_none()
+    if existing is None and existing_only:
+        return False
     if existing is not None:
         try:
             saved_payload = json.loads(existing.payload_json or '{}')
         except (ValueError, TypeError):
+            if existing_only:
+                raise ValueError('Historical event payload is not valid evidence')
             saved_payload = {}
+        if existing_only and not isinstance(saved_payload, dict):
+            raise ValueError('Historical event payload must be an object')
         proof = saved_payload.get('sec_verification') if isinstance(saved_payload, dict) else None
         if isinstance(proof, dict) and proof.get('feed') == 'sec_13f':
             # A published event is the evidence available at its publication
@@ -3270,8 +3282,9 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
         )
         db.add(existing)
     existing.member_name = activity.holder_name
-    existing.ts = event_ts
-    existing.event_date = event_ts
+    if not existing_only:
+        existing.ts = event_ts
+        existing.event_date = event_ts
     existing.impact_score = float(activity.materiality_score or 0.0)
     existing.member_bioguide_id = activity.cik
     existing.trade_type = _action_label_for_event(activity.event_type)
@@ -3280,8 +3293,27 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
     existing.amount_max = _event_amount(activity)
     existing.source_provider = INSTITUTIONAL_EVENT_SOURCE
     existing.source_filing_id = source_filing_id
-    existing.source_document_url = None
+    if not existing_only:
+        existing.source_document_url = None
     existing.data_source = INSTITUTIONAL_SOURCE_LABEL
+    if existing_only:
+        # Economic corrections do not turn a historical record into a new
+        # disclosure or erase its retained source/availability metadata.
+        current_filing_date = payload.get('filing_date')
+        payload = {**saved_payload, **payload}
+        # Legacy alert/filter queries use payload dates ahead of Event.ts.
+        # Preserve absent keys too, so their original fallback remains intact.
+        for key in ('filing_date', 'filingDate', 'report_date', 'reportDate'):
+            if key in saved_payload:
+                payload[key] = saved_payload[key]
+            else:
+                payload.pop(key, None)
+        if current_filing_date != saved_payload.get('filing_date'):
+            payload['current_activity_filing_date'] = current_filing_date
+            payload['correction_note'] = 'Historical amounts corrected; original event timing retained.'
+        for key in ('source_availability', 'sec_verification', 'identifier_reference_evidence', 'security_transition_evidence'):
+            if key in saved_payload:
+                payload[key] = saved_payload[key]
     existing.payload_json = json.dumps(payload, sort_keys=True, default=str)
     if created and created_feed_events is not None:
         created_feed_events.append(existing)
