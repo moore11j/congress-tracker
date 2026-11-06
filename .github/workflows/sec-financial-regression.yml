@@ -81,6 +81,10 @@ jobs:
           tests/test_sec_nonrevenue_financials.py
           tests/test_sec_domestic_document_sets.py
           tests/test_financial_consumer_provider.py
+          tests/test_sec_statement_coverage_holds.py
+          tests/test_sec_registration_history.py
+          tests/test_sec_financial_absence.py
+          tests/test_sec_research_warming.py
           -q --disable-warnings --maxfail=3 --junitxml=sec-financial-results.xml
       - name: Preserve test result
         if: always()

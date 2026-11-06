@@ -1,0 +1,37 @@
+{
+  "sources": {
+    "https://data.sec.gov/submissions/CIK0001181412.json": {
+      "file": "original-0.gz",
+      "bytes": 15749,
+      "sha256": "b1d07b3da07662446ea83ca3c1cea48ef08b179906fc997f8e7cffd3507a724b",
+      "observed_at": "2026-11-06T23:39:43.280481+00:00"
+    },
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001181412.json": {
+      "file": "original-1.gz",
+      "bytes": 188229,
+      "sha256": "286ce06020ae7184141be501b7106afaefae456380f804d56d1ff6466eb5a89a",
+      "observed_at": "2026-11-06T23:39:43.986399+00:00"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1181412/000162828026066880/spcx-20260930.htm": {
+      "file": "original-2.gz",
+      "bytes": 2366742,
+      "sha256": "dd9da06d2797f2bdb234cdd04031438f87bd0dbdf1278252cdf7d0d9f9e02456",
+      "observed_at": "2026-11-06T23:39:45.652473+00:00"
+    }
+  },
+  "attempts": [
+    "https://data.sec.gov/submissions/CIK0001181412.json",
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001181412.json",
+    "https://www.sec.gov/Archives/edgar/data/1181412/000162828026066880/spcx-20260930.htm"
+  ],
+  "diagnosis": {
+    "reason": "registration_newer_or_amended_report_requires_review",
+    "latest_quarter": {
+      "accession": "0001628280-26-066880",
+      "filed": "2026-10-22",
+      "end": "2026-09-30",
+      "url": "https://www.sec.gov/Archives/edgar/data/1181412/000162828026066880/spcx-20260930.htm"
+    },
+    "source_count": 3
+  }
+}

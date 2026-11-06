@@ -10,6 +10,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import os
+import re
 from zoneinfo import ZoneInfo
 
 from app.clients.direct_sources import DirectSourceClient, DirectSourceError
@@ -18,6 +19,8 @@ from app.models import InsightsSnapshot
 from app.services import sec_fundamentals as facts
 from app.services.sec_directory import _symbol_key
 from app.utils.symbols import normalize_symbol
+
+HISTORY_HOLD_POLICY = 'sec_statement_history_hold_v1'
 
 
 def selected():
@@ -218,6 +221,12 @@ def cached_row_payload(row, symbol, *, now=None):
     evidence = payload.get('sourceEvidence') or {}
     if not isinstance(evidence, dict):
         return None
+    if payload.get('reason') == 'unverified_financial_history':
+        hold = evidence.get('coverageHold')
+        if (payload.get('status') != 'unavailable' or not isinstance(hold, dict)
+                or hold.get('policy') != HISTORY_HOLD_POLICY
+                or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', str(hold.get('code') or ''))):
+            return None
     if evidence.get('methodology') == 'sec_tabular_reporting_v1' and 'tableReporting' not in evidence:
         return None
     if 'tableReporting' in evidence:
@@ -333,6 +342,7 @@ def prepared(symbol):
                 from app.services.sec_tagged_foreign import TaggedCurrencyError
                 from app.services.sec_statement_currency import StatementCurrencyError
                 from app.services.sec_tabular_reporting import TabularReportingError
+                from app.services.sec_financial_continuity import ContinuityError
                 try:
                     if foreign.profile(symbol,cik):
                         filing=foreign.acquire(raw,company,symbol=symbol,cik=cik,observed_at=now,client=client)
@@ -355,6 +365,23 @@ def prepared(symbol):
                     payload.update(source='sec_edgar', updatedAt=now.isoformat(),
                                    sourceEvidence={'factsUrl': facts_url, 'factsSha256': hashlib.sha256(raw).hexdigest(),
                                                    'companySha256': hashlib.sha256(company).hexdigest()})
+                except (facts.SecFundamentalsCoverageError, ContinuityError) as exc:
+                    # A known history/continuity hold is a data result. Cache it
+                    # under the normal 24-hour source cadence instead of leaving
+                    # an expired panel in an exception/requeue loop. Unexpected
+                    # programming errors and transport failures still propagate.
+                    from app.services.ticker_financials import _unavailable
+                    code = str(exc)
+                    if not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', code):
+                        code = type(exc).__name__
+                    payload = _unavailable(symbol,
+                        message='Financial history needs verification against the latest filing.',
+                        reason='unverified_financial_history')
+                    payload.update(source='sec_edgar', updatedAt=now.isoformat(),
+                        sourceEvidence={'factsUrl': facts_url, 'factsSha256': hashlib.sha256(raw).hexdigest(),
+                            'companySha256': hashlib.sha256(company).hexdigest(),
+                            'coverageHold': {'policy': HISTORY_HOLD_POLICY, 'code': code,
+                                             'errorType': type(exc).__name__}})
         from app.services.sec_reporting_policy import PROFILES, VERSION as reporting_version
         if symbol in PROFILES:
             payload['preparationVersion'] = reporting_version
