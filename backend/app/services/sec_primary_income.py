@@ -30,7 +30,7 @@ def statement_rows(raw,filing,issuer):
         table=fact.xpath('ancestor::table')[-1]
         if table in tables_seen or table.xpath('.//table|ancestor::blockquote'):continue
         tables_seen.add(table)
-        try:panel=tables.parse_table(table,issuer=issuer,filed=date.fromisoformat(filing['filed']),currency_scope={'issuer':issuer,'currency':'USD','basis':'Each accepted component separately verified against entity-wide inline USD units.'})
+        try:panel=tables.parse_table(table,issuer=issuer,filed=date.fromisoformat(filing['filed']),currency_scope={'issuer':issuer,'currency':'USD','basis':'Each accepted component separately verified against entity-wide inline USD units.'},_fiscal_periods=tuple(contexts.values()))
         except ValueError:continue
         if not panel or panel['kind']!='income':continue
         geometry=tables.grid(table);rows=table.xpath('./tr|./tbody/tr|./thead/tr|./tfoot/tr')

@@ -1,0 +1,30 @@
+{
+  "HSY-company.json": {
+    "file": "HSY-company.json.gz",
+    "bytes": 160730,
+    "sha256": "fa14e5e936ec80a374b2554c4456ec0256a0d5ff81c6daea64f235dbf5b1d0fe",
+    "observed_at": "2026-11-06T23:02:05.585713+00:00",
+    "url": "https://data.sec.gov/submissions/CIK0000047111.json"
+  },
+  "HSY-facts.json": {
+    "file": "HSY-facts.json.gz",
+    "bytes": 4594265,
+    "sha256": "eda9c4b82fe8dfa45bce49e7c37d28940fd5f7496cfb8b37e3e6bb93ca61f9e3",
+    "observed_at": "2026-11-06T23:02:06.372827+00:00",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000047111.json"
+  },
+  "HSY-annual.html": {
+    "file": "HSY-annual.html.gz",
+    "bytes": 3160676,
+    "sha256": "b792dacee234790adb0d1b5251f3173408bff3ff4007e4bed1784b217fe66012",
+    "observed_at": "2026-11-06T23:02:08.391690+00:00",
+    "url": "https://www.sec.gov/Archives/edgar/data/47111/000162828026008586/hsy-20251231.htm"
+  },
+  "HSY-interim.html": {
+    "file": "HSY-interim.html.gz",
+    "bytes": 2017268,
+    "sha256": "2220b60b11dcb141452f64b2fce80af320ef7c77da59ea87dc7c7deccf7bdaf0",
+    "observed_at": "2026-11-06T23:02:09.024271+00:00",
+    "url": "https://www.sec.gov/Archives/edgar/data/47111/000162828026068136/hsy-20260927.htm"
+  }
+}
