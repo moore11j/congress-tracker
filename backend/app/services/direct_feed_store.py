@@ -72,6 +72,7 @@ def ensure_direct_feed_schema(bind):
     from app.services.direct_congress_repair import CongressRepairArchive, CongressRepairReceipt, CongressRowBinding
     from app.services.direct_sec_repair import SecRepairReceipt
     from app.services.institutional_repair_bundle import InstitutionalRepairReceipt
+    from app.services.institutional_history_guard import InstitutionalHistoricalScope
     def create_table(model):
         with bind.begin() as conn:
             if conn.dialect.name == 'postgresql':
@@ -87,7 +88,7 @@ def ensure_direct_feed_schema(bind):
                 conn.execute(text("SET LOCAL lock_timeout = '2s'"))
                 conn.execute(text("SET LOCAL statement_timeout = '10s'"))
             conn.execute(text(f'ALTER TABLE direct_feed_revisions ADD COLUMN source_bytes {binary_type}'))
-    for model in (FeedSourceControl, DirectFeedPublication, CongressRepairArchive, CongressRepairReceipt, CongressRowBinding, SecRepairReceipt, InstitutionalRepairReceipt):
+    for model in (FeedSourceControl, DirectFeedPublication, CongressRepairArchive, CongressRepairReceipt, CongressRowBinding, SecRepairReceipt, InstitutionalRepairReceipt, InstitutionalHistoricalScope):
         create_table(model)
 
 

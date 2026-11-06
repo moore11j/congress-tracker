@@ -15,6 +15,8 @@ on:
       - "backend/tests/test_institutional_historical_rebaseline.py"
       - "backend/app/services/institutional_source_reconciliation.py"
       - "backend/app/services/institutional_repair_bundle.py"
+      - "backend/app/services/institutional_history_guard.py"
+      - "backend/app/services/institutional_activity.py"
       - "backend/tests/test_institutional_source_reconciliation.py"
       - "backend/tests/test_institutional_repair_bundle.py"
       - "backend/app/services/direct_feed_store.py"

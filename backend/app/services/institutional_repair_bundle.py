@@ -20,6 +20,7 @@ from app.models import (InstitutionalFiling, InstitutionalPosition,
 from app.services.direct_feed_rehearsal import digest, snapshot
 from app.services.feed_source_control import lock_feed, require_selected_source
 from app.services.institutional_source_reconciliation import plan_historical_positions
+from app.services.institutional_history_guard import InstitutionalHistoricalScope, install_scopes, remove_scopes
 
 
 MODELS = {m.__tablename__: m for m in (InstitutionalFiling, InstitutionalPosition,
@@ -223,7 +224,14 @@ def _population(db, bundle, name):
     if name == 'institutional_filings':
         predicate = model.id.in_(bundle['guards'][name]['ids'])
     elif name == 'events':
-        predicate = or_(model.id.in_(bundle['guards'][name]['ids']), model.source_filing_id.in_(bundle['event_sources']))
+        # Also guard previously unpublished activity: a later legacy refresh
+        # must not silently add historical events with fresh ingestion dates.
+        activity_rows = db.execute(select(InstitutionalActivityEvent.id, InstitutionalActivityEvent.event_type,
+            InstitutionalActivityEvent.report_year, InstitutionalActivityEvent.report_quarter).where(
+            InstitutionalActivityEvent.id.in_(bundle['guards']['institutional_activity_events']['ids'])))
+        sources = set(bundle['event_sources']) | {
+            f'institutional:{ident}:{kind}:{year}q{quarter}' for ident, kind, year, quarter in activity_rows}
+        predicate = or_(model.id.in_(bundle['guards'][name]['ids']), model.source_filing_id.in_(sorted(sources)))
     else:
         # Tuple IN expands into hundreds of repeated period bitmap scans on
         # the real multi-period table. Factor the common period explicitly,
@@ -313,7 +321,7 @@ def _transaction(db, bundle, *, expected_plan_hash, rollback, staged=False, expe
             db.execute(text("SET LOCAL lock_timeout = '100ms'"))
             db.execute(text("SET LOCAL statement_timeout = '20s'"))
             preparer = bind.dialect.identifier_preparer
-            models = [*MODELS.values(), InstitutionalRepairReceipt]
+            models = [*MODELS.values(), InstitutionalRepairReceipt, InstitutionalHistoricalScope]
             if staged:
                 from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision
                 from app.services.direct_feed_worker import DirectFeedPublication
@@ -329,9 +337,12 @@ def _transaction(db, bundle, *, expected_plan_hash, rollback, staged=False, expe
         desired = 'rolled_back' if rollback else 'applied'
         if receipt and receipt.status == desired:
             _check_population(db, bundle, 'before' if rollback else 'after')
+            added = 0 if rollback else install_scopes(db, bundle)
+            removed = remove_scopes(db, expected_plan_hash) if rollback else 0
             if time.monotonic() - started > 45:
                 raise ValueError('Historical repair exceeded the bounded transaction time')
-            return dict(status='existing_' + desired, updated=0, inserted_events=0, emails=0)
+            return dict(status='existing_' + desired, updated=0, history_guards_added=added,
+                        history_guards_removed=removed, inserted_events=0, emails=0)
         _check_population(db, bundle, 'after' if rollback else 'before')
         if time.monotonic() - started > 45:
             raise ValueError('Historical repair exceeded the bounded transaction time')
@@ -360,9 +371,12 @@ def _transaction(db, bundle, *, expected_plan_hash, rollback, staged=False, expe
         else:
             receipt.status = desired
         db.flush()
+        added = 0 if rollback else install_scopes(db, bundle)
+        removed = remove_scopes(db, expected_plan_hash) if rollback else 0
         if staged:
             from app.services.feed_cache_epoch import bump_feed_events_epoch
             bump_feed_events_epoch(reason='reviewed_historical_13f_rollback' if rollback else 'reviewed_historical_13f_correction', db=db)
         if time.monotonic() - started > 45:
             raise ValueError('Historical repair exceeded the bounded transaction time')
-    return dict(status=desired, updated=len(bundle['operations']), inserted_events=0, deleted_events=0, emails=0)
+    return dict(status=desired, updated=len(bundle['operations']), history_guards_added=added,
+                history_guards_removed=removed, inserted_events=0, deleted_events=0, emails=0)
