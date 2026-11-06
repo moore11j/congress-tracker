@@ -23,13 +23,22 @@ PDF_KINDS = {'META': 'meta_q4_pdf_v1', 'SOFI': 'sofi_q4_pdf_v1'}
 INDEX_FEED = 'issuer_earnings_index'
 QUARTERS = {'First Quarter': 1, 'Second Quarter': 2, 'Third Quarter': 3, 'Fourth Quarter': 4}
 DATE_PATTERN = r'\b\d{2}\s*-\s*\d{2}\s*-\s*\d{4}\b'
-PARSER_POLICY = 3
+PARSER_POLICY = 4
 QA_PATTERNS = {
     # Version 1 remains byte-for-byte compatible with stored publication proofs.
     1: r'Operator\s*:\s*(?:(?:\(Operator Instructions\)\s+Our first)|First)\s+question comes from\b',
     2: r'Operator\s*:\s*(?:(?:\(Operator Instructions\)\s+(?:Our|Your) first)|First)\s+question comes from\b',
     3: r'Operator\s*:\s*(?:\(Operator Instructions\)\s+)?(?:(?:Our|Your)\s+)?(?:first|\ufb01rst)\s+question comes from\b',
+    4: r'Operator\s*:\s*(?:\(Operator Instructions\)\s+)?(?:(?:Our|Your)\s+)?(?:first|\ufb01rst)\s+question comes from\b',
 }
+REDDIT_MONTHS = ('January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December')
+REDDIT_ENGLISH_DATE = r'(' + '|'.join(REDDIT_MONTHS) + r')\s+(\d{1,2}),\s*(20\d{2})'
+
+
+def reddit_publication_pattern(metadata, day):
+    if metadata.get('transcript_format') == 'sp_global_v1':
+        return rf'{REDDIT_MONTHS[day.month-1]}\s+{day.day},\s*{day.year}'
+    return rf'{day:%m}\s*-\s*{day:%d}\s*-\s*{day:%Y}'
 
 
 def parser_policy(metadata):
@@ -156,14 +165,24 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
         docs = report.get('Documents')
         if not isinstance(docs, list) or len(docs) > 30:
             raise DirectSourceError('Issuer index document bound exceeded')
-        matches = [d for d in docs if d.get('DocumentCategory') == 'transcript']
+        matches = [d for d in docs if d.get('DocumentCategory') == 'transcript'
+                   or d.get('DocumentTitle') == 'Earnings Call Transcript']
         if len(matches) > 1:
             raise DirectSourceError('Ambiguous issuer transcript period')
         for item in matches:
             url = item.get('DocumentPath', '')
             allowed = rf'https://s203\.q4cdn\.com/380862485/files/doc_financials/{year}/q{quarter}/[A-Za-z0-9_-]+\.pdf'
+            # The official current index also uses its issuer-owned content
+            # directory. Bind that form to the named fiscal period and call;
+            # the complete PDF independently verifies identity, date and Q&A.
+            content = (r'https://s203\.q4cdn\.com/380862485/files/content_files/'
+                       + rf'Reddit-Q{quarter}-{str(year)[2:]}-Earnings-Call_Transcript\.pdf')
+            if policy >= 4:
+                allowed = rf'(?:{allowed}|{content})'
             if (not re.fullmatch(allowed, url) or item.get('DocumentTitle') != 'Earnings Call Transcript'
-                    or item.get('DocumentFileType') != 'PDF' or item.get('DocumentType') != 'File'
+                    or item.get('DocumentCategory') != 'transcript'
+                    or item.get('DocumentFileType') != 'PDF'
+                    or item.get('DocumentType') not in ({'File', 'file'} if policy >= 4 else {'File'})
                     or item.get('LanguageId') != 1):
                 raise DirectSourceError('Unreviewed issuer transcript link or type')
             key = f"RDDT:earnings_transcript:{year}:Q{quarter}"
@@ -179,6 +198,14 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
                 **format_policy(year, quarter, policy),
                 'source_page_url': index_url(company, year), 'source_page_sha256': hashlib.sha256(raw).hexdigest(),
                 'discovery_kind': KIND, 'discovery_year': year, 'period_end': end.isoformat()}
+            if re.fullmatch(content, url):
+                found[key].update(transcript_format='sp_global_v1',
+                    transcript_publisher='S&P Global Market Intelligence',
+                    publisher_pattern=r'S&P Global Market Intelligence',
+                    publication_pattern=REDDIT_ENGLISH_DATE,
+                    period_pattern=rf'\bREDDIT,\s+INC\.\s+FQ{quarter}\s+{year}\s+EARNINGS CALL\b',
+                    transcript_pattern=r'\bCall Participants\b.{1,6000}\bPresentation\b',
+                    qa_pattern=r'\bOperator\s+\[Operator Instructions\]\s+Your first question is from the line\b')
     return list(found.values())
 
 
@@ -201,21 +228,31 @@ def parse_candidate(raw, metadata, observed):
     if metadata.get('discovery_kind') == MSFT_KIND:
         from app.services.issuer_microsoft_discovery import parse_candidate as parse_msft_candidate
         return parse_msft_candidate(raw, metadata, observed)
-    provisional = {**metadata, 'publication_pattern': DATE_PATTERN}
+    sp_global = metadata.get('transcript_format') == 'sp_global_v1'
+    if sp_global and parser_policy(metadata) < 4:
+        raise DirectSourceError('Unreviewed issuer transcript format policy')
+    provisional = {**metadata, 'publication_pattern': REDDIT_ENGLISH_DATE if sp_global else DATE_PATTERN}
     provisional.pop('published_at', None)
     text, parsed = parse_issuer_material(raw, provisional)
-    heading = re.match(r'^(?:TRANSCRIPT\s+)?(\d{2})\s*-\s*(\d{2})\s*-\s*(\d{4})\s+Reddit,?\s+Inc\b\.?', text)
+    if sp_global:
+        heading = re.match(r'^Reddit, Inc\. NYSE:RDDT Earnings Call '
+            r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+'+REDDIT_ENGLISH_DATE+r'\s+\d{1,2}:\d{2}\s+(?:AM|PM) GMT\b', text)
+    else:
+        heading = re.match(r'^(?:TRANSCRIPT\s+)?(\d{2})\s*-\s*(\d{2})\s*-\s*(\d{4})\s+Reddit,?\s+Inc\b\.?', text)
     if not heading:
         raise DirectSourceError('Issuer transcript heading date missing')
     try:
-        publication = date(int(heading[3]), int(heading[1]), int(heading[2]))
+        publication = (date(int(heading[4]), REDDIT_MONTHS.index(heading[2])+1, int(heading[3]))
+                       if sp_global else date(int(heading[3]), int(heading[1]), int(heading[2])))
+        if sp_global and publication.strftime('%A') != heading[1]:
+            raise ValueError('Weekday mismatch')
     except ValueError as exc:
         raise DirectSourceError('Invalid issuer transcript publication date') from exc
     end = date.fromisoformat(metadata['period_end'])
     if not end <= publication <= min(observed.date(), end+timedelta(days=100)):
         raise DirectSourceError('Issuer transcript publication outside fiscal window')
     resolved = {**provisional, 'published_at': publication.isoformat(),
-                'publication_pattern': rf'{publication:%m}\s*-\s*{publication:%d}\s*-\s*{publication:%Y}'}
+                'publication_pattern': reddit_publication_pattern(provisional, publication)}
     # The validated heading supplies the exact date. Reuse the bounded PDF
     # extraction rather than decoding every page a second time.
     return resolved, text, {**parsed, **resolved}
@@ -267,6 +304,8 @@ def verified_metadata(db, company, metadata):
         elif base.get('discovery_kind') == MSFT_KIND:
             from app.services.issuer_microsoft_discovery import publication_pattern
             pattern = publication_pattern(d)
+        elif base.get('discovery_kind') == KIND:
+            pattern = reddit_publication_pattern(base, d)
         else:
             pattern = rf'{d:%m}\s*-\s*{d:%d}\s*-\s*{d:%Y}'
         expected.update(published_at=d.isoformat(), publication_pattern=pattern)
