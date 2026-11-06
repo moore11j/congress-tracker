@@ -452,6 +452,50 @@ def test_quote_circuit_open_returns_unavailable_without_provider_call(monkeypatc
     assert meta["AAPL"]["status"] == "provider_429"
 
 
+def test_denied_quote_endpoints_open_recoverable_circuit(monkeypatch):
+    calls = []
+    monkeypatch.setenv('FMP_API_KEY', 'test-key')
+    monkeypatch.setenv('FMP_PERSIST_USAGE_EVENTS', '0')
+    monkeypatch.setenv('FMP_QUOTE_PROCESS_CALLS_PER_MINUTE', '100')
+    monkeypatch.setattr(quote_lookup.requests, 'get', lambda url, **kw:
+                        (calls.append(url) or SimpleNamespace(status_code=403)))
+    db = _db()
+    try:
+        quote_lookup.get_current_prices_meta_db(db, ['AAPL'], lane='ticker_quote',
+            allow_live_user_fetch=True, force_quote_endpoint=True, allow_cache_write=False)
+        assert len(calls) == 2  # Configured fallback is still tried.
+        assert quote_lookup._quotes_disabled_status() == 'provider_403'
+        meta = quote_lookup.get_current_prices_meta_db(db, ['MSFT'], lane='ticker_quote',
+            allow_live_user_fetch=True, force_quote_endpoint=True, allow_cache_write=False)
+        assert len(calls) == 2 and meta['MSFT']['status'] == 'provider_403'
+        quote_lookup._quotes_disabled_until = datetime.now(timezone.utc)-timedelta(seconds=1)
+        assert quote_lookup._quotes_disabled_status() is None
+    finally:
+        db.close()
+
+
+def test_denied_primary_does_not_block_successful_configured_fallback(monkeypatch):
+    calls = []
+    monkeypatch.setenv('FMP_API_KEY', 'test-key')
+    monkeypatch.setenv('FMP_PERSIST_USAGE_EVENTS', '0')
+    monkeypatch.setenv('FMP_QUOTE_PROCESS_CALLS_PER_MINUTE', '100')
+    def fetch(url, **kw):
+        calls.append(url)
+        if len(calls) == 1:
+            return SimpleNamespace(status_code=403)
+        return SimpleNamespace(status_code=200, json=lambda: [dict(symbol='AAPL',
+            date=datetime.now(timezone.utc).date().isoformat(), price=210)])
+    monkeypatch.setattr(quote_lookup.requests, 'get', fetch)
+    db = _db()
+    try:
+        meta = quote_lookup.get_current_prices_meta_db(db, ['AAPL'], lane='ticker_quote',
+            allow_live_user_fetch=True, force_quote_endpoint=True, allow_cache_write=False)
+        assert len(calls) == 2 and meta['AAPL']['price'] == 210
+        assert quote_lookup._quotes_disabled_status() is None
+    finally:
+        db.close()
+
+
 def test_quote_coalescing_prevents_duplicate_same_symbol_calls(monkeypatch):
     _reset_quote_lookup_state()
     calls: list[str] = []

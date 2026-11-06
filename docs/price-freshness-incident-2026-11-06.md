@@ -1,0 +1,11 @@
+# Price freshness and rejected requests, November 6, 2026
+
+A bounded live FMP profile diagnostic returned HTTP 403 with an explicit account-suspended message. Its cause is unconfirmed; the owner has been asked about any account notice. Recorded attempts over 24 hours show widespread 403 responses across quotes, core financials, transcripts and other remaining consumers. This is not a completed migration or independent proof of all network traffic.
+
+A read-only cache check at 23:55 UTC found sampled AAPL, NVDA, MSFT, GOOGL and SPY quote timestamps from October 30 through November 1. Their latest cached daily bars were November 5. No provider call, price refresh or data change was made by that inspection. Recent database update times do not prove a newer market observation.
+
+Daily percentage alerts already require a fresh quote or matching session bar. Absolute-price custom rules did not: they could use any saved quote or last historical close. The repair requires the existing 30-minute, same-market-date freshness rule, rejects future quotes, and permits only a matching-session daily-bar fallback. Missing observations preserve durable alert state. Recovery after a stale baseline initializes state without manufacturing an old threshold crossing as a new alert.
+
+Quote fetches now open the existing ten-minute process-local circuit when configured endpoints return 403 and no fallback succeeds. Endpoint fallback remains allowed, successful fallback does not open the circuit, and expiry allows a later retry. No account-suspension text is logged or assumed for ordinary entitlement errors. This bounds repeated calls within a process; it is not a global cross-worker suspension mechanism and does not suppress other FMP consumers.
+
+No source selection, price-provider activation, schedule, account action, subscription purchase, customer message or scoring policy changes. The fix protects correctness while account recovery and replacement coverage remain unresolved. Evidence is in `artifacts/fmp-denial-1794009032.json`, `remaining-fmp-1794008980.json` and `price-freshness-1794009314.json`. The initial 44 focused tests passed; final expanded local/Linux and installed checks are recorded separately on release.

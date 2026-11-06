@@ -8,6 +8,9 @@ on:
       - "backend/fly.toml"
       - "backend/app/services/confirmation_score.py"
       - "backend/app/services/custom_alert_rules.py"
+      - "backend/app/services/quote_lookup.py"
+      - "backend/tests/test_price_threshold_freshness.py"
+      - "backend/tests/test_quote_lookup_timezone.py"
       - "backend/tests/test_sec_*.py"
       - "backend/tests/fixtures/sec_*/**"
       - "backend/requirements.txt"
@@ -85,6 +88,11 @@ jobs:
           tests/test_sec_registration_history.py
           tests/test_sec_financial_absence.py
           tests/test_sec_research_warming.py
+          tests/test_price_threshold_freshness.py
+          tests/test_quote_lookup_timezone.py
+          tests/test_custom_alert_rules.py
+          tests/test_price_alert_reference.py
+          tests/test_watchlist_price_alert_job.py
           -q --disable-warnings --maxfail=3 --junitxml=sec-financial-results.xml
       - name: Preserve test result
         if: always()
