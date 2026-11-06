@@ -1,0 +1,22 @@
+{
+  "reports-2026.json": {
+    "url": "https://abc.xyz/feed/FinancialReport.svc/GetFinancialReportList?LanguageId=1&reportTypes=First+Quarter%7CSecond+Quarter%7CThird+Quarter%7CFourth+Quarter&reportSubType=First+Quarter&reportSubType=Second+Quarter&reportSubType=Third+Quarter&reportSubType=Fourth+Quarter&reportSubTypeList=First+Quarter&reportSubTypeList=Second+Quarter&reportSubTypeList=Third+Quarter&reportSubTypeList=Fourth+Quarter&pageSize=10&pageNumber=0&tagList=&includeTags=true&year=2026&excludeSelection=1",
+    "sha256": "34273e29b298933fd88f1c8d7e266a41bd446f25846f8e24ec6917e3a83d02a9",
+    "bytes": 8901
+  },
+  "q1-2026.html": {
+    "url": "https://abc.xyz/investor/events/event-details/2026/2026-Q1-Earnings-Call-2026-nW8kCrBAKS/default.aspx",
+    "sha256": "46681228eb3f7e9b46f83a710bffe804f57965c01f116f3c1c864d1a1238ad84",
+    "bytes": 126948
+  },
+  "q2-2026.html": {
+    "url": "https://abc.xyz/investor/events/event-details/2026/2026-Q2-Earnings-Call-2026-GgTAq7Is0z/default.aspx",
+    "sha256": "4c6c506aec95ee19779032ad346663fe1f6e43157afdda7936eae475f8c23360",
+    "bytes": 129055
+  },
+  "q3-2026.html": {
+    "url": "https://abc.xyz/investor/events/event-details/2026/2026-Q3-Earnings-Call-2026-Ujou16CTw9/default.aspx",
+    "sha256": "aa8777a5f4a05504bf2fa9c676223623203ec54cf00007636297796ad8ef81ea",
+    "bytes": 128439
+  }
+}

@@ -18,6 +18,7 @@ MRNA_KIND = 'moderna_events_v1'
 IBM_KIND = 'ibm_events_v1'
 SEC_KIND = 'magna_sec_transcripts_v1'
 UL_KIND = 'unilever_results_v1'
+ALPHABET_KIND = 'alphabet_quarterly_v1'
 EVENT_FEED = 'issuer_earnings_event'
 PDF_KINDS = {'META': 'meta_q4_pdf_v1', 'SOFI': 'sofi_q4_pdf_v1'}
 INDEX_FEED = 'issuer_earnings_index'
@@ -61,10 +62,13 @@ def format_policy(year, quarter, policy):
 
 def enabled_company(company):
     return (company.get('symbol'), company.get('discovery', {}).get('kind')) in {
-        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), ('MGA', SEC_KIND), ('UL', UL_KIND), *PDF_KINDS.items()}
+        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), ('MGA', SEC_KIND), ('UL', UL_KIND), ('GOOGL', ALPHABET_KIND), *PDF_KINDS.items()}
 
 
 def index_url(company, year):
+    if enabled_company(company) and company['symbol'] == 'GOOGL':
+        from app.services.issuer_alphabet_discovery import index_url as alphabet_index_url
+        return alphabet_index_url(company, year)
     if enabled_company(company) and company['symbol'] == 'UL':
         from app.services.issuer_unilever_discovery import INDEX_URL
         if year is not None:
@@ -116,6 +120,9 @@ def index_metadata(company, year):
 
 
 def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
+    if enabled_company(company) and company['symbol'] == 'GOOGL':
+        from app.services.issuer_alphabet_discovery import parse_index as parse_alphabet_index
+        return parse_alphabet_index(raw, company, year, observed)
     if enabled_company(company) and company['symbol'] == 'UL':
         from app.services.issuer_unilever_discovery import parse_index as parse_ul_index
         if year is not None:
@@ -210,6 +217,9 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
 
 
 def parse_candidate(raw, metadata, observed):
+    if metadata.get('discovery_kind') == ALPHABET_KIND:
+        from app.services.issuer_alphabet_discovery import parse_candidate as parse_alphabet_candidate
+        return parse_alphabet_candidate(raw, metadata, observed)
     if metadata.get('discovery_kind') == UL_KIND:
         from app.services.issuer_unilever_discovery import parse_candidate as parse_ul_candidate
         return parse_ul_candidate(raw, metadata, observed)
@@ -303,6 +313,9 @@ def verified_metadata(db, company, metadata):
             pattern = publication_pattern(d)
         elif base.get('discovery_kind') == MSFT_KIND:
             from app.services.issuer_microsoft_discovery import publication_pattern
+            pattern = publication_pattern(d)
+        elif base.get('discovery_kind') == ALPHABET_KIND:
+            from app.services.issuer_alphabet_discovery import publication_pattern
             pattern = publication_pattern(d)
         elif base.get('discovery_kind') == KIND:
             pattern = reddit_publication_pattern(base, d)
