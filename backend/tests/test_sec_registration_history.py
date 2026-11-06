@@ -64,7 +64,14 @@ def test_actual_complete_originals_current_inputs_and_six_metrics(original):
 
 
 def test_missing_history_cannot_make_current_trailing_year():
-    with pytest.raises(sec.SecFundamentalsCoverageError):project(None)
+    # The shared partial-financial path may keep an independently reported
+    # instant ratio. Missing annual history still cannot fabricate trailing
+    # income, cash flow, margins or annual-average equity returns.
+    result=project(None)
+    assert result['current_ratio']==pytest.approx(108047/21122)
+    assert not set(result)&{'revenue_growth','operating_margin','net_margin',
+        'operating_margin_expansion','roe','free_cash_flow','fcf_margin','fcf_growth',
+        'eps_ttm','trailing_pe','net_debt_to_ebitda'}
 
 
 @pytest.mark.parametrize('change',['amount','unit','form','filed','accession','missing','conflict'])
