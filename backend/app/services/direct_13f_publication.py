@@ -92,6 +92,43 @@ def _derived_state(db, filing, publish_since):
     return 'ready', prior
 
 
+def _empty_historical_filing(db, filing, metadata, publish_since):
+    """Adopt only an untouched historical shell bound to this whole original.
+
+    This is not authority to repair partial holdings, reset processed history,
+    merge accessions, or rebuild downstream projections.
+    """
+    if (filing.processed_at is not None or filing.is_amendment or filing.superseded_by
+            or filing.form_type != '13F-HR' or filing.cik != metadata['cik']
+            or filing.accession_number != metadata['key']
+            or filing.filing_date != date.fromisoformat(metadata['filing_date'])
+            or filing.report_period_end != date.fromisoformat(metadata['report_period'])
+            or (filing.report_year, filing.report_quarter) != (metadata['report_year'], metadata['report_quarter'])
+            or filing.filing_date >= publish_since):
+        return False
+    meta = json.loads(filing.raw_metadata_json or '{}')
+    if any(key.startswith('_walnut_') for key in meta):
+        return False
+    parents = list(db.scalars(select(InstitutionalFiling.id).where(
+        func.ltrim(InstitutionalFiling.cik, '0') == metadata['cik'].lstrip('0'),
+        InstitutionalFiling.report_year == metadata['report_year'],
+        InstitutionalFiling.report_quarter == metadata['report_quarter'])))
+    if parents != [filing.id] or _positions(db, filing):
+        return False
+    for model in (InstitutionalPosition, InstitutionalPositionChange, InstitutionalActivityEvent):
+        if db.scalar(select(model.id).where(func.ltrim(model.cik, '0') == metadata['cik'].lstrip('0'),
+                model.report_year == metadata['report_year'], model.report_quarter == metadata['report_quarter']).limit(1)):
+            return False
+    for event in db.scalars(select(Event).where(
+            Event.source_provider == activity.INSTITUTIONAL_EVENT_SOURCE,
+            func.ltrim(Event.member_bioguide_id, '0') == metadata['cik'].lstrip('0'))):
+        payload = json.loads(event.payload_json or '{}')
+        if (str(payload.get('report_year')) == str(metadata['report_year'])
+                and str(payload.get('report_quarter')) == str(metadata['report_quarter'])):
+            return False
+    return True
+
+
 def rehearse_new_13f(db, document, *, publish_since: date, identifier_documents=(), comparison_documents=(), reference_documents=()):
     bind = db.get_bind()
     if bind.dialect.name != 'sqlite' or bind.url.database != ':memory:':
@@ -132,29 +169,33 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
     reconciliation = reconcile_institutional(db, parsed)
     filing = db.get(InstitutionalFiling, reconciliation['filing_id']) if reconciliation['filing_id'] else None
     created = filing is None
+    adopting_empty = False
     if filing is not None:
         if reconciliation['unmatched'] or reconciliation['ambiguous'] or reconciliation.get('existing_only_ids'):
-            return held('Existing filing requires source reconciliation')
+            adopting_empty = _empty_historical_filing(db, filing, metadata, publish_since)
+            if not adopting_empty:
+                return held('Existing filing requires source reconciliation')
         proof = _receipt(filing)
-        if not proof:
+        if not proof and not adopting_empty:
             return {'status': 'existing', 'inserted_filings': 0, 'inserted_positions': 0, 'feed_events': 0,
                     'derived_state': 'existing_pipeline_unchanged', 'production_writes': 0}
-        if (proof.get('source_sha256') != digest or proof.get('filing_sha256') != _filing_digest(filing)
-                or proof.get('positions_sha256') != _positions_digest(db, filing)):
-            return held('Published source or position state has changed')
-        if proof.get('publish_since') != publish_since.isoformat():
-            return held('Publication boundary changed; explicit rebaseline required')
-        if proof.get('derived_state') == 'published':
-            state, prior = _derived_state(db, filing, publish_since)
-            if (state != 'ready' or proof.get('prior_filing_id') != prior.id
-                    or proof.get('prior_positions_sha256') != _positions_digest(db, prior)):
-                return held('Derived prior-quarter state changed; reconciliation required')
-            from app.services.institutional_security_transitions import filing_comparison_plan
-            plan = filing_comparison_plan(filing, _positions(db, prior), _positions(db, filing))
-            if proof.get('security_transition_evidence', []) != plan['evidence']:
-                return held('Published security continuity changed; reconciliation required')
-            return {'status': 'existing', 'inserted_filings': 0, 'inserted_positions': 0,
-                    'feed_events': 0, 'derived_state': 'published', 'production_writes': 0}
+        if proof:
+            if (proof.get('source_sha256') != digest or proof.get('filing_sha256') != _filing_digest(filing)
+                    or proof.get('positions_sha256') != _positions_digest(db, filing)):
+                return held('Published source or position state has changed')
+            if proof.get('publish_since') != publish_since.isoformat():
+                return held('Publication boundary changed; explicit rebaseline required')
+            if proof.get('derived_state') == 'published':
+                state, prior = _derived_state(db, filing, publish_since)
+                if (state != 'ready' or proof.get('prior_filing_id') != prior.id
+                        or proof.get('prior_positions_sha256') != _positions_digest(db, prior)):
+                    return held('Derived prior-quarter state changed; reconciliation required')
+                from app.services.institutional_security_transitions import filing_comparison_plan
+                plan = filing_comparison_plan(filing, _positions(db, prior), _positions(db, filing))
+                if proof.get('security_transition_evidence', []) != plan['evidence']:
+                    return held('Published security continuity changed; reconciliation required')
+                return {'status': 'existing', 'inserted_filings': 0, 'inserted_positions': 0,
+                        'feed_events': 0, 'derived_state': 'published', 'production_writes': 0}
     else:
         # Different/missing accessions in the same holder-quarter need explicit
         # reconciliation, never another representation of the same report.
@@ -197,7 +238,7 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
     for identifier in identifiers:
         if identifier['cusip'] in cusips:
             mappings.setdefault(identifier['cusip'], set()).add(identifier['symbol'])
-    if created or reference_by_cusip:
+    if created or adopting_empty or reference_by_cusip:
         for cusip, symbol in db.execute(_legacy_identity_query(
                 cusips, date.fromisoformat(metadata['filing_date']))):
             mappings.setdefault(cusip, set()).add(symbol)
@@ -234,14 +275,15 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
         for position, symbol in enrich:
             position.symbol = position.normalized_symbol = symbol
         db.flush()
-        if created:
+        if created or adopting_empty:
             candidate = activity.InstitutionalFilingCandidate(cik=metadata['cik'], holder_name=metadata.get('name'),
                 accession_number=metadata['key'], filing_date=date.fromisoformat(metadata['filing_date']),
                 report_year=metadata['report_year'], report_quarter=metadata['report_quarter'],
                 report_period_end=date.fromisoformat(metadata['report_period']), filing_url=metadata['url'],
                 form_type='13F-HR', is_amendment=False, raw=metadata)
             activity.upsert_institutional_holder(db, candidate)
-            filing, _ = activity.upsert_institutional_filing(db, candidate)
+            if created:
+                filing, _ = activity.upsert_institutional_filing(db, candidate)
             total = Decimal(metadata['table_value_total_usd'])
             mapped = []
             for row in rows:
@@ -266,7 +308,7 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
             inserted = result['inserted_positions']
         state, prior = _derived_state(db, filing, publish_since)
         meta = json.loads(filing.raw_metadata_json or '{}')
-        identifier_evidence = ([row for row in identifiers if row['cusip'] in cusips] if created
+        identifier_evidence = ([row for row in identifiers if row['cusip'] in cusips] if created or adopting_empty
                                else meta.get(RECEIPT_KEY, {}).get('identifier_evidence', []))
         reference_evidence = {r['cusip']: r for r in meta.get(RECEIPT_KEY, {}).get('reference_evidence', [])}
         reference_evidence.update(used_references)
@@ -321,6 +363,6 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
             meta[RECEIPT_KEY]['prior_positions_sha256'] = _positions_digest(db, prior)
             filing.raw_metadata_json = dumps(meta)
         db.flush()
-    return {'status': 'projected' if created or state == 'published' else 'existing',
+    return {'status': 'projected' if created or adopting_empty or state == 'published' else 'existing',
             'inserted_filings': int(created), 'inserted_positions': inserted, 'enriched_positions': len(enrich),
             'derived_state': state, **metrics, 'production_writes': 0}
