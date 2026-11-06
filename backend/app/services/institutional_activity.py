@@ -32,6 +32,8 @@ from app.models import (
 from app.utils.symbols import normalize_symbol
 from app.utils.institution_names import institution_display_name, normalize_article_institution_names
 
+from app.services.institutional_history_guard import InstitutionalHistoricalScope
+
 INSTITUTIONAL_SOURCE_LABEL = "Institutional Activity"
 INSTITUTIONAL_EVENT_SOURCE = "institutional_13f"
 INSTITUTIONAL_EVENT_TYPES = (
@@ -1323,6 +1325,7 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
 
 @canonical_writer('sec_13f')
 def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbolSummary, *, holder_cik: str | None = None, created_feed_events: list[Event] | None = None) -> int:
+    history = db.get(InstitutionalHistoricalScope, (summary.normalized_symbol, summary.report_year, summary.report_quarter))
     activities = db.execute(
         select(InstitutionalActivityEvent).where(
             InstitutionalActivityEvent.normalized_symbol == summary.normalized_symbol,
@@ -1338,7 +1341,8 @@ def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbol
     for activity in activities:
         if not is_institutional_activity_all_feed_eligible(activity):
             continue
-        if _upsert_feed_event(db, activity, created_feed_events=created_feed_events):
+        existing_only = bool(history and (activity.filing_date is None or activity.filing_date < history.publish_since))
+        if _upsert_feed_event(db, activity, created_feed_events=created_feed_events, existing_only=existing_only):
             created += 1
     return created
 
@@ -3257,8 +3261,10 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
             if existing_only:
                 raise ValueError('Historical event payload is not valid evidence')
             saved_payload = {}
-        if existing_only and not isinstance(saved_payload, dict):
-            raise ValueError('Historical event payload must be an object')
+        if not isinstance(saved_payload, dict):
+            if existing_only:
+                raise ValueError('Historical event payload must be an object')
+            saved_payload = {}
         proof = saved_payload.get('sec_verification') if isinstance(saved_payload, dict) else None
         if isinstance(proof, dict) and proof.get('feed') == 'sec_13f':
             # A published event is the evidence available at its publication
@@ -3266,6 +3272,7 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
             # must not rewrite that event or erase its verified source timing.
             return False
     created = existing is None
+    preserve_history = not created
     event_ts = datetime.combine(activity.filing_date, datetime.min.time(), tzinfo=timezone.utc)
     payload = institutional_activity_event_payload(activity)
     payload["data_semantics"] = "institutional_13f_reported_holdings"
@@ -3282,7 +3289,7 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
         )
         db.add(existing)
     existing.member_name = activity.holder_name
-    if not existing_only:
+    if not preserve_history:
         existing.ts = event_ts
         existing.event_date = event_ts
     existing.impact_score = float(activity.materiality_score or 0.0)
@@ -3293,12 +3300,13 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
     existing.amount_max = _event_amount(activity)
     existing.source_provider = INSTITUTIONAL_EVENT_SOURCE
     existing.source_filing_id = source_filing_id
-    if not existing_only:
+    if not preserve_history:
         existing.source_document_url = None
     existing.data_source = INSTITUTIONAL_SOURCE_LABEL
-    if existing_only:
-        # Economic corrections do not turn a historical record into a new
-        # disclosure or erase its retained source/availability metadata.
+    if preserve_history:
+        # Ordinary refreshes must also preserve an event's original disclosure
+        # timing, including records already corrected by historical rebaseline.
+        # Current activity may change; it is not a new published event.
         current_filing_date = payload.get('filing_date')
         payload = {**saved_payload, **payload}
         # Legacy alert/filter queries use payload dates ahead of Event.ts.
@@ -3310,7 +3318,9 @@ def _upsert_feed_event(db: Session, activity: InstitutionalActivityEvent, *, cre
                 payload.pop(key, None)
         if current_filing_date != saved_payload.get('filing_date'):
             payload['current_activity_filing_date'] = current_filing_date
-            payload['correction_note'] = 'Historical amounts corrected; original event timing retained.'
+            payload['correction_note'] = saved_payload.get('correction_note') or (
+                'Historical amounts corrected; original event timing retained.' if existing_only else
+                'Current activity updated; original event timing retained.')
         for key in ('source_availability', 'sec_verification', 'identifier_reference_evidence', 'security_transition_evidence'):
             if key in saved_payload:
                 payload[key] = saved_payload[key]

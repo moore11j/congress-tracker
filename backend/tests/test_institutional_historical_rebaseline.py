@@ -11,6 +11,54 @@ from app.services.monitoring_alerts import _ensure_alert_for_event, event_freshn
 
 BOUNDARY=date(2026,10,1)
 
+
+@pytest.mark.parametrize('payload_date',[True,False])
+def test_ordinary_refresh_preserves_historical_rebaseline_dates_and_source(db,payload_date):
+    from app.routers.events import _event_effective_activity_ts_expr
+    change,summary=seed(db)
+    activity.generate_activity_events_for_symbol(db,summary);db.flush()
+    activity.materialize_feed_events_for_symbol(db,summary);db.commit()
+    event=db.scalar(select(Event).where(Event.member_bioguide_id==change.cik))
+    event.ts=event.event_date=datetime(2026,8,20,15,0,tzinfo=timezone.utc)
+    event.source_document_url='https://www.sec.gov/Archives/retained-original.txt'
+    payload=json.loads(event.payload_json)
+    if payload_date:payload['filing_date']='2026-08-20'
+    else:payload.pop('filing_date',None)
+    payload['source_availability']={'basis':'retained_legacy_disclosure','date':'2026-08-20'}
+    event.payload_json=json.dumps(payload);db.commit();db.refresh(event)
+    before=(event.id,event.ts,event.event_date,event.source_document_url,event_freshness_at(event))
+    before_sql=db.scalar(select(_event_effective_activity_ts_expr(db)).where(Event.id==event.id))
+    change.filing_date=summary.latest_filing_date=date(2026,8,25)
+    change.curr_value_usd=change.value_delta_usd=700_000_000
+    rebaseline_historical_activity(db,summary,publish_since=BOUNDARY);db.commit()
+    saved=json.loads(event.payload_json)
+    assert before==(event.id,event.ts,event.event_date,event.source_document_url,event_freshness_at(event))
+    # The later ordinary scheduler must not undo the explicit rebaseline.
+    activity.materialize_feed_events_for_symbol(db,summary);db.commit();db.refresh(event)
+    assert before==(event.id,event.ts,event.event_date,event.source_document_url,event_freshness_at(event))
+    current=json.loads(event.payload_json)
+    assert ('filing_date' in saved)==('filing_date' in current)
+    assert saved.get('filing_date')==current.get('filing_date')
+    assert current['source_availability']==payload['source_availability']
+    assert event.amount_min==700_000_000
+    assert db.scalar(select(_event_effective_activity_ts_expr(db)).where(Event.id==event.id))==before_sql
+
+
+@pytest.mark.parametrize('filed',[date(2026,9,30),date(2026,10,1)])
+def test_persistent_history_scope_holds_old_new_events_but_allows_new_disclosures(db,filed):
+    from app.services.institutional_history_guard import InstitutionalHistoricalScope
+    change,summary=seed(db)
+    change.filing_date=summary.latest_filing_date=filed
+    db.add(InstitutionalHistoricalScope(normalized_symbol='NVDA',report_year=2026,report_quarter=2,
+        publish_since=BOUNDARY,repair_plan_hash='reviewed_test_scope'))
+    activity.generate_activity_events_for_symbol(db,summary);db.commit()
+    created=activity.materialize_feed_events_for_symbol(db,summary);db.commit()
+    if filed<BOUNDARY:
+        assert created==count(db,Event)==count(db,MonitoringAlert)==count(db,EmailDelivery)==0
+    else:
+        assert created==count(db,Event)>0
+    assert activity.materialize_feed_events_for_symbol(db,summary)==0
+
 def seed(db, value=500_000_000):
     change=InstitutionalPositionChange(cik='0000000123',holder_name='Example Manager',symbol='NVDA',normalized_symbol='NVDA',
         cusip='67066G104',report_year=2026,report_quarter=2,filing_date=date(2026,8,15),change_type='new_position',

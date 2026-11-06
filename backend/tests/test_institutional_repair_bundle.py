@@ -31,9 +31,11 @@ def test_atomic_apply_repeat_and_rollback_with_source_overwrite_protection(db):
     doc,bundle,before=package(db)
     first=rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'])
     assert first['updated']==2
+    assert first['history_guards_added']==1
     after=state(db);db.rollback()
     repeat=rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'])
     assert repeat['updated']==0
+    assert repeat['history_guards_added']==0
     assert state(db)==after;db.rollback()
     filing=db.get(InstitutionalFiling,before['institutional_filings'][0]['id'])
     metadata=json.loads(filing.raw_metadata_json)
@@ -46,6 +48,7 @@ def test_atomic_apply_repeat_and_rollback_with_source_overwrite_protection(db):
     assert state(db)==after;db.rollback()
     undone=rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'],rollback=True)
     assert undone['updated']==2 and state(db)==before;db.rollback()
+    assert undone['history_guards_removed']==1
     again=rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'],rollback=True)
     assert again['updated']==0
     assert db.scalar(select(InstitutionalRepairReceipt.status))=='rolled_back'
@@ -177,3 +180,33 @@ def test_period_grouping_preserves_pairs_and_complete_filing_population(db):
     db.commit()
     bundle['scopes'].append(['BBB',2026,3])
     assert [r['id'] for r in _population(db,bundle,'institutional_positions')]==[original.id,added[2].id,added[3].id]
+
+
+def test_prior_receipt_can_install_missing_scope_guard_without_recorrecting(db):
+    from app.services.institutional_history_guard import InstitutionalHistoricalScope,remove_scopes
+    _,bundle,_=package(db)
+    rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'])
+    after=state(db);remove_scopes(db,bundle['sha256']);db.commit()
+    result=rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'])
+    assert result['updated']==0 and result['history_guards_added']==1 and state(db)==after
+    guard=db.get(InstitutionalHistoricalScope,('AAA',2026,2))
+    assert guard.repair_plan_hash==bundle['sha256'] and guard.publish_since==SINCE
+    guard.repair_plan_hash='different_review';db.commit()
+    with pytest.raises(ValueError,match='different reviewed repair owner'):
+        rehearse_bundle(db,bundle,expected_plan_hash=bundle['sha256'])
+    assert state(db)==after
+
+
+def test_complete_event_guard_detects_new_event_for_previously_unpublished_activity(db):
+    from app.models import InstitutionalActivityEvent
+    from app.services.institutional_repair_bundle import _population
+    _,bundle,_=package(db)
+    activity_row=InstitutionalActivityEvent(symbol='AAA',normalized_symbol='AAA',event_type='institutional_new_position',
+        title='Existing activity',summary='Existing activity',filing_date=SINCE,report_year=2026,report_quarter=2)
+    db.add(activity_row);db.flush()
+    bundle['guards']['institutional_activity_events']['ids'].append(activity_row.id)
+    new=Event(event_type=activity_row.event_type,symbol='AAA',source='13F filing',ts=datetime(2026,8,1),payload_json='{}',
+        source_filing_id=f'institutional:{activity_row.id}:{activity_row.event_type}:2026q2')
+    db.add(new);db.commit()
+    assert not bundle['event_sources']
+    assert [r['id'] for r in _population(db,bundle,'events')]==[new.id]
