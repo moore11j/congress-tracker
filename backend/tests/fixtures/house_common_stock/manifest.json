@@ -1,0 +1,557 @@
+{
+  "cases": [
+    {
+      "document_id": 11451,
+      "metadata": {
+        "district": "OK01",
+        "filing_date": "2026-10-13",
+        "filing_id": "20035588",
+        "form": "PTR",
+        "key": "2026:20035588",
+        "member_name": "Kevin Hern",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035588.pdf"
+      },
+      "source_sha256": "ac0a2b3e9bf36c8dc7a07bb192f962e43b69688e8eacd3c5627d16ea8cc77347",
+      "source_first_seen_at": "2026-10-14T18:21:16.545612+00:00",
+      "file": "11451.pdf.gz",
+      "source_bytes": 94459,
+      "rows": 24,
+      "qualified": [],
+      "held": [
+        {
+          "symbol": "AIO",
+          "line": "24",
+          "issuer": "Virtus Artificial Intelligence & Technology Opportunities Fund Common Shares of Beneficial Interest (AIO)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        }
+      ]
+    },
+    {
+      "document_id": 11452,
+      "metadata": {
+        "district": "PA09",
+        "filing_date": "2026-10-14",
+        "filing_id": "20035487",
+        "form": "PTR",
+        "key": "2026:20035487",
+        "member_name": "Daniel Meuser",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035487.pdf"
+      },
+      "source_sha256": "2c9b7ceaecfd00893cff3537a4ae64bda340b9493c5bbbc4e3e4960cc5ae1e6c",
+      "source_first_seen_at": "2026-10-14T18:21:16.580536+00:00",
+      "file": "11452.pdf.gz",
+      "source_bytes": 70531,
+      "rows": 1,
+      "qualified": [
+        {
+          "symbol": "NVDA",
+          "line": "1",
+          "issuer": "NVIDIA Corporation - Common Stock (NVDA)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        }
+      ],
+      "held": []
+    },
+    {
+      "document_id": 31365,
+      "metadata": {
+        "district": "LA06",
+        "filing_date": "2026-10-22",
+        "filing_id": "20035669",
+        "form": "PTR",
+        "key": "2026:20035669",
+        "member_name": "Cleo Fields",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035669.pdf"
+      },
+      "source_sha256": "ecca5d2450243130898e280ab1c87931912046c975bd51d790c8f8f380264a83",
+      "source_first_seen_at": "2026-10-23T20:18:09.405513+00:00",
+      "file": "31365.pdf.gz",
+      "source_bytes": 73055,
+      "rows": 4,
+      "qualified": [
+        {
+          "symbol": "NVDA",
+          "line": "1",
+          "issuer": "NVIDIA Corporation - Common Stock (NVDA)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        },
+        {
+          "symbol": "NVDA",
+          "line": "2",
+          "issuer": "NVIDIA Corporation - Common Stock (NVDA)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        },
+        {
+          "symbol": "NVDA",
+          "line": "3",
+          "issuer": "NVIDIA Corporation - Common Stock (NVDA)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        }
+      ],
+      "held": []
+    },
+    {
+      "document_id": 37977,
+      "metadata": {
+        "district": "OH02",
+        "filing_date": "2026-10-29",
+        "filing_id": "20035727",
+        "form": "PTR",
+        "key": "2026:20035727",
+        "member_name": "David J. Taylor",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035727.pdf"
+      },
+      "source_sha256": "0d7865d4d8b7c9b6800368afeb40e196796a6d65b1fdfed4f802bef2017efa30",
+      "source_first_seen_at": "2026-10-30T17:17:42.763430+00:00",
+      "file": "37977.pdf.gz",
+      "source_bytes": 98048,
+      "rows": 8,
+      "qualified": [
+        {
+          "symbol": "PLD",
+          "line": "5",
+          "issuer": "Prologis, Inc. Common Stock (PLD)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        },
+        {
+          "symbol": "PLD",
+          "line": "6",
+          "issuer": "Prologis, Inc. Common Stock (PLD)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        }
+      ],
+      "held": []
+    },
+    {
+      "document_id": 45378,
+      "metadata": {
+        "district": "PA09",
+        "filing_date": "2026-11-05",
+        "filing_id": "20035662",
+        "form": "PTR",
+        "key": "2026:20035662",
+        "member_name": "Daniel Meuser",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035662.pdf"
+      },
+      "source_sha256": "8f3473155b6c2dfc2e40b1e8393bf2e161d4cddc4aa37c3e6153531121fed1ab",
+      "source_first_seen_at": "2026-11-06T01:33:16.342808+00:00",
+      "file": "45378.pdf.gz",
+      "source_bytes": 70355,
+      "rows": 1,
+      "qualified": [
+        {
+          "symbol": "NVDA",
+          "line": "1",
+          "issuer": "NVIDIA Corporation - Common Stock (NVDA)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        }
+      ],
+      "held": []
+    },
+    {
+      "document_id": 45379,
+      "metadata": {
+        "district": "FL27",
+        "filing_date": "2026-11-05",
+        "filing_id": "20035778",
+        "form": "PTR",
+        "key": "2026:20035778",
+        "member_name": "Maria Elvira Salazar",
+        "url": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/20035778.pdf"
+      },
+      "source_sha256": "ea47a32f2e3943e7593df9be9ff3a7e70fb540a677c3aad2fdc6de7b3d0fb7b3",
+      "source_first_seen_at": "2026-11-06T01:33:16.347023+00:00",
+      "file": "45379.pdf.gz",
+      "source_bytes": 74892,
+      "rows": 5,
+      "qualified": [
+        {
+          "symbol": "NVDA",
+          "line": "2",
+          "issuer": "NVIDIA Corporation - Common Stock (NVDA)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        },
+        {
+          "symbol": "NVDA",
+          "line": "3",
+          "issuer": "NVIDIA Corporation - Common Stock (NVDA)",
+          "security": null,
+          "parser": "official_congress_rows_v2"
+        }
+      ],
+      "held": []
+    }
+  ],
+  "securities": [
+    {
+      "id": 4801,
+      "symbol": "AIO",
+      "name": "Virtus AllianzGI Artificial Intelligence & Technology Opportunities Fund",
+      "asset_class": "Other Investment Fund",
+      "sector": null
+    },
+    {
+      "id": 702,
+      "symbol": "CB",
+      "name": "CHUBB LIMITED CMN",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 167,
+      "symbol": "CSCO",
+      "name": "Cisco Systems Inc",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 117,
+      "symbol": "CVX",
+      "name": "Chevron Corp",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 165,
+      "symbol": "DVN",
+      "name": "Devon Energy Corp",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 371,
+      "symbol": "EMR",
+      "name": "Emerson Electric Co",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 31,
+      "symbol": "HD",
+      "name": "The Home Depot Inc",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 297,
+      "symbol": "LIN",
+      "name": "Linde PLC",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 289,
+      "symbol": "LMT",
+      "name": "Lockheed Martin Corp",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 177,
+      "symbol": "LOW",
+      "name": "Lowe's Companies, Inc. Common Stock",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 33,
+      "symbol": "LRCX",
+      "name": "Lam Research Corp",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 817,
+      "symbol": "MPC",
+      "name": "Marathon Petroleum Corp (2)",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 185,
+      "symbol": "MRSH",
+      "name": "Marsh & McLennan Companies Inc",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 75,
+      "symbol": "NEE",
+      "name": "NextEra Energy Inc",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 43,
+      "symbol": "NVDA",
+      "name": "NVIDIA Corporation",
+      "asset_class": "Stock Option",
+      "sector": null
+    },
+    {
+      "id": 40,
+      "symbol": "PG",
+      "name": "The Procter & Gamble Co",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 20,
+      "symbol": "PLD",
+      "name": "Prologis Inc",
+      "asset_class": "REIT",
+      "sector": null
+    },
+    {
+      "id": 452,
+      "symbol": "ROK",
+      "name": "Rockwell Automation Inc",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 9,
+      "symbol": "RPM",
+      "name": "RPM International Inc",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 69,
+      "symbol": "SBUX",
+      "name": "Starbucks Corp",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 39,
+      "symbol": "T",
+      "name": "AT&T Inc",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 3,
+      "symbol": "TSM",
+      "name": "Taiwan Semiconductor Manufacturing Co Ltd",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 55,
+      "symbol": "UNH",
+      "name": "Unitedhealth Group Inc",
+      "asset_class": "Stock",
+      "sector": null
+    },
+    {
+      "id": 24,
+      "symbol": "V",
+      "name": "Visa Inc",
+      "asset_class": "Stock",
+      "sector": null
+    }
+  ],
+  "directory": [
+    {
+      "id": {
+        "bioguide": "H001082"
+      },
+      "name": {
+        "first": "Kevin",
+        "middle": "R.",
+        "last": "Hern",
+        "official_full": "Kevin Hern"
+      },
+      "terms": [
+        {
+          "type": "rep",
+          "start": "2018-11-13",
+          "end": "2019-01-03",
+          "state": "OK",
+          "district": 1,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2019-01-03",
+          "end": "2021-01-03",
+          "state": "OK",
+          "district": 1,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2021-01-03",
+          "end": "2023-01-03",
+          "state": "OK",
+          "district": 1,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2023-01-03",
+          "end": "2025-01-03",
+          "state": "OK",
+          "district": 1,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2025-01-03",
+          "end": "2027-01-03",
+          "state": "OK",
+          "district": 1,
+          "party": "Republican"
+        }
+      ]
+    },
+    {
+      "id": {
+        "bioguide": "M001204"
+      },
+      "name": {
+        "first": "Daniel",
+        "last": "Meuser",
+        "official_full": "Daniel Meuser"
+      },
+      "terms": [
+        {
+          "type": "rep",
+          "start": "2019-01-03",
+          "end": "2021-01-03",
+          "state": "PA",
+          "district": 9,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2021-01-03",
+          "end": "2023-01-03",
+          "state": "PA",
+          "district": 9,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2023-01-03",
+          "end": "2025-01-03",
+          "state": "PA",
+          "district": 9,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2025-01-03",
+          "end": "2027-01-03",
+          "state": "PA",
+          "district": 9,
+          "party": "Republican"
+        }
+      ]
+    },
+    {
+      "id": {
+        "bioguide": "S000168"
+      },
+      "name": {
+        "first": "Maria",
+        "middle": "Elvira",
+        "last": "Salazar",
+        "official_full": "Maria Elvira Salazar"
+      },
+      "terms": [
+        {
+          "type": "rep",
+          "start": "2021-01-03",
+          "end": "2023-01-03",
+          "state": "FL",
+          "district": 27,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2023-01-03",
+          "end": "2025-01-03",
+          "state": "FL",
+          "district": 27,
+          "party": "Republican"
+        },
+        {
+          "type": "rep",
+          "start": "2025-01-03",
+          "end": "2027-01-03",
+          "state": "FL",
+          "district": 27,
+          "party": "Republican"
+        }
+      ]
+    },
+    {
+      "id": {
+        "bioguide": "F000110"
+      },
+      "name": {
+        "first": "Cleo",
+        "last": "Fields",
+        "official_full": "Cleo Fields"
+      },
+      "terms": [
+        {
+          "type": "rep",
+          "start": "1993-01-05",
+          "end": "1995-01-03",
+          "state": "LA",
+          "district": 4,
+          "party": "Democrat"
+        },
+        {
+          "type": "rep",
+          "start": "1995-01-04",
+          "end": "1997-01-03",
+          "state": "LA",
+          "district": 4,
+          "party": "Democrat"
+        },
+        {
+          "type": "rep",
+          "start": "2025-01-03",
+          "end": "2027-01-03",
+          "state": "LA",
+          "district": 6,
+          "party": "Democrat"
+        }
+      ]
+    },
+    {
+      "id": {
+        "bioguide": "T000490"
+      },
+      "name": {
+        "first": "David",
+        "middle": "J.",
+        "last": "Taylor",
+        "official_full": "David J. Taylor"
+      },
+      "terms": [
+        {
+          "type": "rep",
+          "start": "2025-01-03",
+          "end": "2027-01-03",
+          "state": "OH",
+          "district": 2,
+          "party": "Republican"
+        }
+      ]
+    }
+  ]
+}

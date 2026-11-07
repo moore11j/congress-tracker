@@ -2,6 +2,7 @@
 from datetime import date, datetime, timezone
 import hashlib
 import json
+import re
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, or_
@@ -20,6 +21,32 @@ from app.backfill_events_from_trades import _congress_event_from_transaction
 
 def _hash(value):
     return hashlib.sha256(dumps(value).encode()).hexdigest()
+
+
+def _source_common_stock_proof(feed, row, security):
+    """Resolve two legacy issuer labels only with an explicit original stock row.
+
+    A symbol-level option label can describe an older transaction, while REIT
+    describes the issuer. Neither changes a verified common-stock row into an
+    option. Fund/ETF and unknown conflicts stay held; the shared Security row
+    and previously recorded transactions/events are never changed here.
+    """
+    if (feed != 'house_ptr' or (security.asset_class or '').strip().lower() not in {'stock option', 'reit'}
+            or row.get('asset_type_raw') != 'stock' or row.get('asset_type_normalized') != 'stock'
+            or row.get('amendment_flag') or row.get('ticker_normalized') != security.symbol):
+        return None
+    from app.services.official_congress import CONGRESS_ROW_PARSER_VERSION
+    if row.get('parser_version') != CONGRESS_ROW_PARSER_VERSION:
+        return None
+    names = [str(row.get(key) or '').strip() for key in ('issuer_name_raw', 'security_name_raw')]
+    if not names[0] or (names[1] and names[0] != names[1]):
+        return None
+    match = re.fullmatch(r'(.+?)\s*[-,]?\s+Common Stock\s+\(' + re.escape(security.symbol) + r'\)', names[0], re.I)
+    name_key = lambda value: ''.join(re.findall(r'[a-z0-9]+', value.casefold()))
+    if not match or not name_key(security.name) or name_key(match[1]) != name_key(security.name):
+        return None
+    return {'basis': 'official_house_common_stock_v1', 'source_line_ref': row['source_line_ref'],
+            'source_asset_type': row['asset_type_raw'], 'security_asset_class': security.asset_class}
 
 
 def _context(db, url, member):
@@ -129,6 +156,7 @@ def _project(db, document, metadata, raw, directory, boundary):
     matched = {r['source_line_ref']: r for r in plan['matched']}
     event_by_id = {e['id']: e for e in state['events']}
     securities = {}
+    classification_proofs = {}
     for row in rows:
         if row['asset_type_normalized'] == 'stock':
             if plan['status'] == 'existing':
@@ -137,8 +165,11 @@ def _project(db, document, metadata, raw, directory, boundary):
                         match['transaction_id'], plan['filing_ids'][0], correct_disclosure=True):
                     return {'status': 'held', 'reason': 'Existing public event conflicts with verified source row'}
             security = db.scalar(select(Security).where(Security.symbol == row['ticker_normalized']))
-            if security and security.asset_class.lower() not in {'stock', 'stocks', 'equity'}:
-                return {'status': 'held', 'reason': 'Existing security classification conflicts'}
+            if security and (security.asset_class or '').lower() not in {'stock', 'stocks', 'equity'}:
+                proof = _source_common_stock_proof(document.feed, row, security)
+                if proof is None:
+                    return {'status': 'held', 'reason': 'Existing security classification conflicts'}
+                classification_proofs[row['source_line_ref']] = proof
             securities[row['ticker_normalized']] = security
         elif plan['status'] == 'existing' and matched[row['source_line_ref']]['event_ids']:
             match=matched[row['source_line_ref']]
@@ -179,6 +210,8 @@ def _project(db, document, metadata, raw, directory, boundary):
                 payload.update(source_line_ref=row['source_line_ref'], normalized_hash=row['normalized_hash'],
                     source_sha256=document.content_hash, source_transaction_type=row['transaction_type_raw'],
                     source_asset_type=row['asset_type_raw'])
+                if row['source_line_ref'] in classification_proofs:
+                    payload['source_security_classification'] = classification_proofs[row['source_line_ref']]
                 # A newly published direct record was not available to Walnut
                 # at its older transaction/filing date. Retain the official
                 # event_date, but index its arrival and execution availability.

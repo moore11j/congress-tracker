@@ -1,0 +1,51 @@
+name: House Source Classification
+on:
+  pull_request:
+    paths:
+      - 'backend/app/services/direct_congress_worker.py'
+      - 'backend/tests/test_house_common_stock_classification.py'
+      - 'backend/tests/fixtures/house_common_stock/**'
+      - '.github/workflows/house-source-classification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  house-source-classification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite://
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - working-directory: backend
+        run: >-
+          python -m pytest
+          tests/test_house_common_stock_classification.py
+          tests/test_direct_congress_worker.py
+          tests/test_direct_congress_repair.py
+          tests/test_direct_congress_reconciliation.py
+          tests/test_direct_congress_nonstock_repair.py
+          tests/test_direct_congress_dates.py
+          tests/test_house_cutover.py
+          tests/test_house_ptr_pdf.py
+          tests/test_house_ptr_review.py
+          tests/test_house_scan_preparation.py
+          tests/test_house_scan_quarantine.py
+          tests/test_senate_backup_publication.py
+          tests/test_senate_backup_reconciliation.py
+          tests/test_senate_freshness_recovery.py
+          tests/test_event_availability.py
+          -q --disable-warnings --junitxml=house-classification.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: house-classification-results
+          path: backend/house-classification.xml
+          retention-days: 7
