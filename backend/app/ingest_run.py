@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from sqlalchemy import func, select, update
+from sqlalchemy.orm import load_only
 
 from app.compute_trade_outcomes import run_compute
 from app.db import SessionLocal, engine, ensure_outcome_ledger_schema, ensure_price_cache_volume_columns, ensure_ticker_financials_cache_schema
@@ -1293,6 +1294,11 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
         bounded_limit = max(1, snapshot_limit)
         entry_pairs = db.execute(
             select(ConfirmationScoreSnapshot, OutcomeEntry)
+            .options(load_only(
+                ConfirmationScoreSnapshot.id,
+                ConfirmationScoreSnapshot.ticker_at_time,
+                raiseload=True,
+            ))
             .join(OutcomeEntry, OutcomeEntry.snapshot_id == ConfirmationScoreSnapshot.id)
             .where(ConfirmationScoreSnapshot.calculation_type == "live")
         ).all()
@@ -1354,7 +1360,9 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
             .group_by(OutcomeEvidenceProvenance.snapshot_id)
             .subquery()
         )
-        missing_entry_base = select(ConfirmationScoreSnapshot).where(
+        missing_entry_base = select(ConfirmationScoreSnapshot).options(
+            load_only(ConfirmationScoreSnapshot.id, raiseload=True),
+        ).where(
             ConfirmationScoreSnapshot.calculation_type == "live",
             ConfirmationScoreSnapshot.market_date <= expected_date,
             ConfirmationScoreSnapshot.active_source_count > 0,
@@ -1397,7 +1405,15 @@ def _run_outcome_ledger_price_hydrator_job() -> dict[str, object]:
             selected_rows.append(snapshot)
             selected_ids.add(snapshot_id)
         rows_by_id = {int(snapshot.id): snapshot for snapshot in selected_rows[:bounded_limit]}
-        rows = list(rows_by_id.values())
+        # Only the selected bounded batch needs full evidence for entry
+        # materialization. Reuse its original order, independent of SQL IN order.
+        full_rows_by_id = {
+            int(snapshot.id): snapshot
+            for snapshot in db.scalars(select(ConfirmationScoreSnapshot).where(
+                ConfirmationScoreSnapshot.id.in_(rows_by_id),
+            ).execution_options(populate_existing=True)).all()
+        } if rows_by_id else {}
+        rows = [full_rows_by_id[snapshot_id] for snapshot_id in rows_by_id if snapshot_id in full_rows_by_id]
         entry_by_snapshot = {int(entry.snapshot_id): entry for _snapshot, entry in entry_pairs}
 
         windows: dict[str, tuple[date, date]] = {}

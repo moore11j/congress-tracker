@@ -69,7 +69,12 @@ def test_public_horizon_repair_batches_over_100_anchors_and_ignores_internal_ver
             return 1
 
         monkeypatch.setattr(repair, "hydrate_split_adjusted_ohlc", hydrate)
+        statements = []
+        sqlalchemy_event.listen(engine, "before_cursor_execute", lambda conn, cursor, sql, params, context, many: statements.append(sql))
         result = repair.repair_public_outcome_horizons(db, as_of=date(2026, 1, 13))
+        snapshot_reads = [sql for sql in statements if "FROM confirmation_score_snapshots" in sql]
+        assert snapshot_reads
+        assert all("source_contributions_json" not in sql for sql in snapshot_reads)
         assert result["due_observations"] == 105
         assert result["observations_created"] == 105
         assert calls == [("SPY", "2026-01-12", "2026-01-12"), ("CRM", "2026-01-12", "2026-01-12")]
@@ -179,6 +184,7 @@ def _snapshot(
     direction: str = "bullish",
     legacy_reference_price: float | None = None,
     methodology_version_id: int = 1,
+    source_contributions_json: str = "{}",
 ):
     snapshot = ConfirmationScoreSnapshot(
         security_id=security_id,
@@ -193,7 +199,7 @@ def _snapshot(
         reference_price_source="test" if legacy_reference_price is not None else None,
         active_source_count=1,
         active_sources_json='["congress"]',
-        source_contributions_json="{}",
+        source_contributions_json=source_contributions_json,
         source_freshness_json="{}",
         input_hash=f"{ticker}-{calculated_at.isoformat()}-{score}",
         methodology_version_id=methodology_version_id,

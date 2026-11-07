@@ -67,6 +67,13 @@ def test_top_missing_symbols_statement_groups_by_raw_symbol_for_postgres() -> No
 
 
 def test_daily_outcome_coverage_report_normalizes_unresolved_symbols(monkeypatch) -> None:
+    class FixtureDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 6, 17, tzinfo=timezone.utc).astimezone(tz)
+
+    # This coverage window is relative to the fixture, not the day CI runs.
+    monkeypatch.setattr(ingest_run, "datetime", FixtureDateTime)
     engine = create_engine("sqlite:///:memory:", future=True)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine, tables=[Event.__table__, TradeOutcome.__table__])
