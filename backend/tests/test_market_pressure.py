@@ -320,7 +320,8 @@ def test_market_pressure_classifies_complete_canonical_confirmation_and_divergen
         "FW": _bundle("FW", {"price_volume": _source("bearish"), "signals": _source("bearish")}),
         "AB": _bundle("AB", {"price_volume": _source("bullish"), "signals": _source("bullish")}),
         "AD": _bundle("AD", {"price_volume": _source("bearish"), "signals": _source("bearish")}),
-        "MIX": _bundle("MIX", {"price_volume": _source("bullish"), "signals": _source("bearish")}),
+        # Both sides must be material under the current shared source weights.
+        "MIX": _bundle("MIX", {"congress": _source("bullish"), "price_volume": _source("bearish")}),
         "NEU": _bundle("NEU", {"price_volume": _source("neutral"), "fundamentals": _source("neutral")}),
         "MISS": _bundle("MISS", {}),
         "OLD": _bundle("OLD", {"price_volume": _source("bullish", freshness_days=45), "signals": _source("bullish", freshness_days=45)}),
@@ -344,6 +345,7 @@ def test_market_pressure_classifies_complete_canonical_confirmation_and_divergen
     assert tiles["FW"]["divergence"] == "fragile_winner"
     assert tiles["AB"]["divergence"] == "aligned_bullish"
     assert tiles["AD"]["divergence"] == "aligned_bearish"
+    assert bundles["MIX"]["direction"] == "mixed"
     assert tiles["MIX"]["confirmationDirection"] == "conflicted"
     assert tiles["NEU"]["confirmationDirection"] == "neutral"
     assert tiles["MISS"]["confirmationDirection"] == "unavailable"

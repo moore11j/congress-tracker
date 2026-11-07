@@ -1,0 +1,42 @@
+name: Index Membership Regressions
+on:
+  pull_request:
+    paths:
+      - "backend/app/services/index_memberships.py"
+      - "backend/app/jobs/refresh_market_pressure_snapshots.py"
+      - "backend/tests/test_index_membership*.py"
+      - "backend/tests/fixtures/index_membership_originals/**"
+      - ".github/workflows/index-membership-regression.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  index-memberships:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite://
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - working-directory: backend
+        run: >-
+          python -m pytest
+          tests/test_index_membership_providers.py
+          tests/test_index_membership_freshness.py
+          tests/test_market_pressure.py
+          tests/test_market_pressure_ingest.py
+          tests/test_fmp_shutdown_transport.py
+          -q --disable-warnings --junitxml=index-memberships.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: index-membership-results
+          path: backend/index-memberships.xml
+          retention-days: 7

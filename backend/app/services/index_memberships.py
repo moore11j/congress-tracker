@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 INDEX_MEMBERSHIP_STALE_AFTER_DAYS = 7
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
+WIKIPEDIA_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 WIKIPEDIA_PARSER_VERSION = "wikipedia_component_table_v1"
 WIKIPEDIA_SOURCE_KIND = "community_maintained_component_table"
 WIKIPEDIA_USER_AGENT = os.getenv(
@@ -199,7 +201,7 @@ class WikipediaIndexMembershipProvider:
         for attempt in range(self.max_retries + 1):
             retrieved_at = datetime.now(timezone.utc)
             try:
-                response = self.session.get(WIKIPEDIA_API_URL, params=params, headers=headers, timeout=self.timeout_s)
+                response = self.session.get(WIKIPEDIA_API_URL, params=params, headers=headers, timeout=self.timeout_s, stream=True, allow_redirects=False)
             except requests.RequestException as exc:
                 last_error = str(exc)
                 if attempt >= self.max_retries:
@@ -208,15 +210,26 @@ class WikipediaIndexMembershipProvider:
                 continue
 
             if response.status_code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
+                response.close()
                 time.sleep(0.5 * (2 ** attempt))
                 continue
-            if response.status_code >= 400:
+            if response.status_code != 200:
+                response.close()
                 raise ValueError(f"wikipedia_http_error:{response.status_code}")
 
             try:
-                payload = response.json()
-            except ValueError as exc:
+                content = bytearray()
+                for chunk in response.iter_content(65536):
+                    if len(content) + len(chunk) > WIKIPEDIA_MAX_RESPONSE_BYTES:
+                        raise ValueError("wikipedia_response_too_large")
+                    content.extend(chunk)
+                payload = json.loads(content)
+            except json.JSONDecodeError as exc:
                 raise ValueError("wikipedia_invalid_json") from exc
+            except UnicodeDecodeError as exc:
+                raise ValueError("wikipedia_invalid_json") from exc
+            finally:
+                response.close()
             if not isinstance(payload, dict):
                 raise ValueError("wikipedia_invalid_payload")
             return payload, retrieved_at
@@ -349,9 +362,10 @@ def refresh_index_memberships_from_provider(
     *,
     source: str | None = None,
     dry_run: bool = False,
+    provider: IndexMembershipProvider | None = None,
 ) -> IndexMembershipRefreshResult:
     definition = _require_definition(index_code)
-    provider = _provider_for_source(source or _configured_source(definition.code))
+    provider = provider or _provider_for_source(source or _configured_source(definition.code))
     try:
         dataset = provider.fetch_memberships(definition.code)
     except FMPSubscriptionRestrictedError as exc:
@@ -378,6 +392,33 @@ def refresh_index_memberships_from_provider(
         )
 
     return refresh_index_memberships_from_dataset(db, dataset, dry_run=dry_run)
+
+
+def refresh_due_wikipedia_memberships(
+    db: Session, *, universes: list[str] | None = None, now: datetime | None = None,
+) -> list[IndexMembershipRefreshResult]:
+    """Maintain already selected free memberships within the existing worker.
+
+    At most two source calls per invocation, no retries. Successful verification
+    suppresses another check for 24 hours. Failed checks keep the last good rows
+    and their original freshness; they can retry on the next existing job run.
+    This helper never calls a paid provider or changes provider selection.
+    """
+    reference_now = now or datetime.now(timezone.utc)
+    selected = set(universes if universes is not None else INDEX_UNIVERSES)
+    results = []
+    for code in INDEX_UNIVERSES:
+        if code not in selected or _configured_source(code).lower() not in {"wiki", "wikipedia"}:
+            continue
+        snapshot = active_index_membership_snapshot(db, code, now=reference_now)
+        if snapshot.status == "available" and snapshot.source == "wikipedia" and snapshot.refreshed_at:
+            age = _aware_utc(reference_now) - datetime.fromisoformat(snapshot.refreshed_at.replace("Z", "+00:00"))
+            if timedelta(0) <= age < timedelta(hours=24):
+                continue
+        results.append(refresh_index_memberships_from_provider(
+            db, code, provider=WikipediaIndexMembershipProvider(max_retries=0),
+        ))
+    return results
 
 
 def refresh_all_index_memberships_from_provider(
@@ -427,7 +468,23 @@ def refresh_index_memberships_from_dataset(
     incoming = set(dataset.symbols)
     active_symbols = set(active_by_symbol)
     active_revision = _single_metadata_value(getattr(row, "source_revision_id", None) for row in active_rows)
-    if active_symbols == incoming and active_revision and active_revision == dataset.source_revision_id:
+    same_source = all(
+        all(getattr(row, key, None) == getattr(dataset, key) for key in (
+            "source", "source_kind", "source_page", "source_revision_id", "resolved_source_title", "parser_version",
+        )) for row in active_rows
+    )
+    if active_symbols == incoming and active_revision and active_revision == dataset.source_revision_id and same_source:
+        # A fresh successful observation of the same revision is still a check.
+        # Preserve membership/effective dates and revision observation history.
+        if not dry_run:
+            try:
+                for row in active_rows:
+                    if row.refreshed_at is None or _aware_utc(dataset.retrieved_at) > _aware_utc(row.refreshed_at):
+                        row.refreshed_at = dataset.retrieved_at
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
         return _refresh_result(definition, dataset, status="unchanged", active_count=len(active_by_symbol))
 
     if dry_run:

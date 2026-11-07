@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 
 import pytest
@@ -8,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
-from app.models import IndexMembership, UserAccount, Watchlist
+from app.models import IndexMembership, Security, UserAccount, Watchlist, WatchlistItem
 from app.services import index_memberships
 from app.services.index_memberships import (
     FmpIndexMembershipProvider,
@@ -26,7 +27,7 @@ from app.services.market_pressure import build_market_pressure_response
 
 def _session_factory():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
-    Base.metadata.create_all(bind=engine, tables=[IndexMembership.__table__, UserAccount.__table__, Watchlist.__table__])
+    Base.metadata.create_all(bind=engine, tables=[IndexMembership.__table__, Security.__table__, UserAccount.__table__, Watchlist.__table__, WatchlistItem.__table__])
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -138,12 +139,16 @@ def test_wikipedia_provider_sends_user_agent_and_handles_redirected_title():
     class Response:
         status_code = 200
 
-        def json(self):
-            return _payload("nasdaq100", _nasdaq_symbols(), title="NASDAQ-100")
+        def iter_content(self, _size):
+            yield json.dumps(_payload("nasdaq100", _nasdaq_symbols(), title="NASDAQ-100")).encode()
+
+        def close(self):
+            pass
 
     class Session:
-        def get(self, url, params, headers, timeout):
+        def get(self, url, params, headers, timeout, stream, allow_redirects):
             seen.update({"url": url, "params": params, "headers": headers, "timeout": timeout})
+            assert stream is True and allow_redirects is False
             return Response()
 
     dataset = WikipediaIndexMembershipProvider(session=Session()).fetch_memberships("nasdaq100")
