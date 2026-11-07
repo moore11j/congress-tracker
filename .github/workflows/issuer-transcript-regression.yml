@@ -33,7 +33,7 @@ jobs:
           python -m pytest tests/test_issuer_sec_date_separator.py tests/test_issuer_sofi_content_link.py tests/test_issuer_reddit_content_link.py tests/test_issuer_alphabet_discovery.py tests/test_issuer_alphabet_archive.py
           tests/test_issuer_q4_pdf_discovery.py tests/test_issuer_index_freshness.py
           tests/test_issuer_transcripts.py tests/test_issuer_discovery.py
-          tests/test_issuer_collection_fairness.py tests/test_issuer_pdf.py
+          tests/test_issuer_collection_fairness.py tests/test_issuer_failed_index_priority.py tests/test_issuer_pdf.py
           tests/test_issuer_pdf_text_cache.py tests/test_issuer_sec_discovery.py
           tests/test_issuer_ibm_discovery.py tests/test_issuer_microsoft_discovery.py
           tests/test_issuer_moderna_discovery.py tests/test_issuer_unilever_discovery.py
