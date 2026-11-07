@@ -398,13 +398,30 @@ def latest_metadata(db, registry, symbol, static, *, observed_by=None):
     return max(candidates, key=lambda m: (m['fiscal_year'], m['fiscal_quarter'])) if candidates else None
 
 
+def _next_discovery_candidate(eligible, current_indexes, now):
+    """Retry a due failed current index before routine historical PDF checks."""
+    first = eligible[0]
+    checked = first[0].checked_at
+    if checked is not None and checked.tzinfo is None:
+        checked = checked.replace(tzinfo=timezone.utc)
+    # Existing new/aging-index priority keeps its 12-hour freshness margin.
+    if first[0].feed == INDEX_FEED and (checked is None or checked <= now-timedelta(hours=36)):
+        return first
+    return next((item for item in eligible if item[0].feed == INDEX_FEED
+                 and item[0].status == 'failed' and item[0].source_key in current_indexes), first)
+
+
 def collect_discovery(db, client, registry, *, limit, recheck_hours):
     """Spend the existing issuer budget on index pages and linked PDFs combined."""
     companies = {c['symbol']: c for c in registry if enabled_company(c)}
     now = utcnow()
+    current_indexes = set()
     for company in companies.values():
         for year in ((None,) if company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA', 'UL'} else (now.year, now.year-1)):
-            discover(db, INDEX_FEED, index_metadata(company, year))
+            metadata = index_metadata(company, year)
+            discover(db, INDEX_FEED, metadata)
+            if year in (None, now.year):
+                current_indexes.add(metadata['key'])
     db.commit()
     spent, processed, errors, stop_reason = 0, 0, [], None
     static_keys = {f"{c['symbol']}:{d['document_type']}:{d['fiscal_year']}:Q{d['fiscal_quarter']}"
@@ -434,7 +451,7 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
         if not eligible:
             db.commit()
             break
-        row, metadata = eligible[0]
+        row, metadata = _next_discovery_candidate(eligible, current_indexes, now)
         # An identified SEC transcript should not sit behind older covers.
         # Preserve other issuers' positions and the shared two-request budget.
         if metadata.get('discovery_kind') == SEC_KIND and row.feed == EVENT_FEED:
