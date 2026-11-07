@@ -200,7 +200,7 @@ function formatSnapshotUpdatedAt(value: string | null | undefined): string | nul
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return `Updated: ${formatDateShort(value)}`;
+  return `Snapshot updated: ${formatDateShort(value)}`;
 }
 
 function deltaClassName(value: number | null | undefined): string {
@@ -474,9 +474,9 @@ export function MarketSnapshot({ snapshot }: Props) {
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Market Snapshot</h2>
           {snapshot.status === "ok" || snapshot.status === "partial" ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-300" title="Values may have different observation dates.">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-              Live
+              {snapshot.status === "partial" ? "Partial data" : "Snapshot data"}
             </span>
           ) : (
             <span className="text-xs font-semibold text-slate-500">Unavailable</span>
