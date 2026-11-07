@@ -1,0 +1,13 @@
+# Temporary backoff for suspended FMP accounts
+
+The bounded production request on November 6 returned HTTP 403 with an explicit account-suspension message. The preceding 24-hour telemetry recorded 1,140 denied profile requests and another 1,140 denied light-history requests, among other calls. Continuing a large refresh after this account-wide refusal wastes provider requests and worker time without producing data.
+
+The shared request guard now holds further requests in the same process for ten minutes after a bounded JSON response explicitly says `Account suspended.` with HTTP 403. The detecting request keeps its existing error contract. Subsequent callers receive a `ProviderUnavailable` subtype with reason `provider_account_suspended`, preserving their normal cache or unavailable paths. The global shutdown switch still has priority.
+
+Only the actual request credential's in-memory fingerprint is associated with the hold. A different credential does not inherit it. The monotonic deadline expires automatically; the body, credential and fingerprint are never written to provider telemetry. There is no persistent database/configuration change and no recurring task. Ordinary endpoint/plan 403s, invalid credentials, rate limits, server errors and malformed/oversized bodies do not open the account-wide hold.
+
+The profile/fundamentals, controlled FMP client and daily-price transports supply the response evidence. Concurrent requests already in flight can finish; this is a process-local backoff, not a distributed request quota. Existing cached prices remain readable and their observation dates remain unchanged. No missing price is replaced with zero, and no denied response is admitted to the price cache. This reduces futile work; it does not restore market data, change providers or establish readiness to retire FMP.
+
+The focused source/caller checks include a serial 1,000-symbol refusal that makes one simulated request, subsequent controlled errors, endpoint-restriction isolation, expiration, credential changes, cache preservation and recovery. All 24 account-backoff checks pass locally. Broader caller, alert, shutdown and Linux validation are required before release.
+
+The final complete local selection passes all 197 checks, covering existing shutdown gates, cache readers, price dates, quote behavior, financial snapshots, Outcomes price reads and watchlist alerts. An earlier run had one concurrency-test failure; that unchanged quote test passed independently on both baseline and candidate, and passes in the complete final selection. No quote-lock code or test expectations were altered. Linux and installed verification remain separate release gates.

@@ -85,7 +85,7 @@ def request_fmp_json(
         raise FMPControlledError("provider_error") from exc
 
     duration_ms = round((time.perf_counter() - started) * 1000, 1)
-    record_provider_response(category=category, symbol=symbol, status_code=response.status_code)
+    record_provider_response(category=category, symbol=symbol, status_code=response.status_code, response=response, request_api_key=api_key)
     if response.status_code >= 400:
         reason = reason_for_status(response.status_code)
         record_fallback(category=category, symbol=symbol, reason=reason)

@@ -105,7 +105,7 @@ def _request_rows(endpoint: str, *, params: dict[str, Any] | None = None, timeou
     request_params = {"apikey": _api_key(), **(params or {})}
     try:
         response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=timeout_s)
-        record_provider_response(category=f"fundamentals:{endpoint}", symbol=(params or {}).get("symbol"), status_code=response.status_code)
+        record_provider_response(category=f"fundamentals:{endpoint}", symbol=(params or {}).get("symbol"), status_code=response.status_code, response=response, request_api_key=request_params["apikey"])
     except requests.RequestException as exc:
         raise FMPClientError(f"FMP fundamentals request failed endpoint={endpoint}: {exc}") from exc
 
