@@ -7,6 +7,7 @@ on:
       - "backend/app/services/fundamentals_cache.py"
       - "backend/app/services/price_lookup.py"
       - "backend/tests/test_fmp_account_suspension.py"
+      - "backend/tests/test_provider_usage_contention.py"
       - ".github/workflows/provider-backoff-regression.yml"
   workflow_dispatch:
 permissions:
@@ -32,6 +33,7 @@ jobs:
           tests/test_fmp_account_suspension.py
           tests/test_fmp_shutdown_transport.py
           tests/test_provider_usage_hot_routes.py
+          tests/test_provider_usage_contention.py
           tests/test_cache_first_fmp_remaining.py
           tests/test_price_lookup_index.py
           tests/test_price_lookup_date_clamping.py
