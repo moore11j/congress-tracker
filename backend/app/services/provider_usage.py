@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import os
 import threading
 import time
@@ -47,6 +49,10 @@ class ProviderBudgetExceeded(ProviderUnavailable):
     reason = "provider_budget_exceeded"
 
 
+class ProviderAccountSuspended(ProviderUnavailable):
+    reason = "provider_account_suspended"
+
+
 @dataclass
 class _UsageState:
     started_at: float = field(default_factory=time.time)
@@ -56,6 +62,8 @@ class _UsageState:
     route_counters: Counter[str] = field(default_factory=Counter)
     category_counters: Counter[str] = field(default_factory=Counter)
     reason_counters: Counter[str] = field(default_factory=Counter)
+    account_suspension_key_hash: str | None = None
+    account_suspension_until: float = 0.0
 
 
 _STATE = _UsageState()
@@ -274,6 +282,8 @@ def reset_provider_usage() -> None:
         _STATE.category_counters.clear()
         _STATE.reason_counters.clear()
         _STATE.started_at = time.time()
+        _STATE.account_suspension_key_hash = None
+        _STATE.account_suspension_until = 0.0
         _BUDGET_FALLBACK_LOG_COUNTERS.clear()
         _BUDGET_FALLBACK_LOG_SUPPRESSED.clear()
         _BUDGET_FALLBACK_LOG_SAMPLES.clear()
@@ -331,6 +341,15 @@ def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None, allow_u
         reason = "page_fetch_blocked"
         record_fallback(category=category, symbol=symbol, reason=reason)
         raise ProviderDisabled(reason)
+
+    key = os.getenv("FMP_API_KEY", "").strip()
+    fingerprint = hashlib.sha256(key.encode()).hexdigest() if key else None
+    with _LOCK:
+        suspended = (fingerprint is not None and fingerprint == _STATE.account_suspension_key_hash
+                     and time.monotonic() < _STATE.account_suspension_until)
+    if suspended:
+        record_fallback(category=category, symbol=symbol, reason=ProviderAccountSuspended.reason)
+        raise ProviderAccountSuspended(ProviderAccountSuspended.reason)
 
     now = time.time()
     with _LOCK:
@@ -392,7 +411,25 @@ def record_cache_miss(*, category: str, symbol: str | None = None) -> None:
     _record("cache_miss", category=category, symbol=symbol)
 
 
-def record_provider_response(*, category: str, symbol: str | None = None, status_code: int | str | None = None) -> None:
+def record_provider_response(*, category: str, symbol: str | None = None, status_code: int | str | None = None,
+                             response: Any = None, request_api_key: str | None = None) -> None:
+    # Only the explicit account-wide refusal opens this process-local circuit.
+    # A normal endpoint/plan 403 must not prevent other entitled endpoints.
+    # Never retain the response body, credential or credential hash in telemetry.
+    if status_code == 403 and isinstance(request_api_key, str) and request_api_key.strip():
+        raw = getattr(response, "content", None)
+        if isinstance(raw, bytes) and 0 < len(raw) <= 8192:
+            try:
+                payload = json.loads(raw)
+            except (ValueError, UnicodeError, RecursionError):
+                payload = None
+            if isinstance(payload, dict):
+                message = next((payload[k] for k in ("Error Message", "error", "message")
+                                if isinstance(payload.get(k), str)), "")
+                if message.strip().lower().startswith("account suspended."):
+                    with _LOCK:
+                        _STATE.account_suspension_key_hash = hashlib.sha256(request_api_key.strip().encode()).hexdigest()
+                        _STATE.account_suspension_until = time.monotonic() + 600.0
     if status_code == 429:
         _record("throttle", category=category, symbol=symbol, reason="provider_rate_limited", status_code=status_code)
     elif isinstance(status_code, int) and status_code >= 400:

@@ -855,7 +855,7 @@ def get_index_eod_map(symbol: str, start_date: str, end_date: str) -> dict[str, 
         },
         timeout=15,
     )
-    record_provider_response(category="price:index-eod", symbol=symbol, status_code=response.status_code)
+    record_provider_response(category="price:index-eod", symbol=symbol, status_code=response.status_code, response=response, request_api_key=api_key)
     response.raise_for_status()
 
     data = response.json()
@@ -988,7 +988,7 @@ def get_eod_close_with_meta(
         if response is None:
             saw_cooldown = True
             continue
-        record_provider_response(category="price:eod", symbol=candidate_symbol, status_code=response.status_code)
+        record_provider_response(category="price:eod", symbol=candidate_symbol, status_code=response.status_code, response=response, request_api_key=api_key)
 
         if response.status_code == 402:
             saw_402 = True
@@ -1202,7 +1202,7 @@ def _fetch_provider_eod_payload(
         retries=1,
     )
     if response is not None:
-        record_provider_response(category=f"price:{endpoint}", symbol=candidate_symbol, status_code=response.status_code)
+        record_provider_response(category=f"price:{endpoint}", symbol=candidate_symbol, status_code=response.status_code, response=response, request_api_key=api_key)
     if response is None or response.status_code != 200:
         return response
 
