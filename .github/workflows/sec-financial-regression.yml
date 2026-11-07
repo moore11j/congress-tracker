@@ -47,6 +47,12 @@ jobs:
         working-directory: backend
         run: >-
           python -m pytest
+          tests/test_sec_rental_revenue.py
+          tests/test_sec_rental_revenue_consumers.py
+          tests/test_sec_revenue_series.py
+          tests/test_sec_revenue_series_consumers.py
+          tests/test_sec_financial_continuity.py
+          tests/test_sec_tagged_foreign.py
           tests/test_sec_bank_revenue.py
           tests/test_sec_bank_revenue_continuity.py
           tests/test_sec_statement_shareholder.py
