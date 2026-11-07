@@ -1,0 +1,34 @@
+{
+  "reports-2025.json": {
+    "url": "https://abc.xyz/feed/FinancialReport.svc/GetFinancialReportList?LanguageId=1&reportTypes=First+Quarter%7CSecond+Quarter%7CThird+Quarter%7CFourth+Quarter&reportSubType=First+Quarter&reportSubType=Second+Quarter&reportSubType=Third+Quarter&reportSubType=Fourth+Quarter&reportSubTypeList=First+Quarter&reportSubTypeList=Second+Quarter&reportSubTypeList=Third+Quarter&reportSubTypeList=Fourth+Quarter&pageSize=10&pageNumber=0&tagList=&includeTags=true&year=2025&excludeSelection=1",
+    "sha256": "8c458bc009395e89f264f52ab0b388423f64caf48dce49facb3b3e60dbc63a55",
+    "bytes": 12568
+  },
+  "archive-2025-0.html": {
+    "url": "https://abc.xyz/investor/events/event-details/2026/2025-Q4-Earnings-Call-2026-Dr_C033hS6/default.aspx",
+    "status": 200,
+    "redirect": null,
+    "bytes": 129510,
+    "sha256": "747565e0b98e2d32e21223c7738021b62054da359debe3d20dca71d457594abc"
+  },
+  "archive-2025-1.html": {
+    "url": "https://abc.xyz/investor/events/event-details/2025/2025-Q3-Earnings-Call-2025-4OI4Bac_Q9/default.aspx",
+    "status": 200,
+    "redirect": null,
+    "bytes": 128159,
+    "sha256": "65edc673d591881753192af13402a5893575f472078f30dc468f42bf044f35a6"
+  },
+  "archive-2025-q2-canonical.html": {
+    "url": "https://abc.xyz/investor/events/event-details/2025/2025-Q2-Earnings-Call/",
+    "status": 200,
+    "bytes": 124638,
+    "sha256": "0d84c0099b4534ad18ec791a6cc44fd260f0719a0c290a60d2b891ea7f6a01fa"
+  },
+  "archive-2025-3.html": {
+    "url": "https://abc.xyz/investor/events/event-details/2025/2025-Q1-Earnings-Call/default.aspx",
+    "status": 200,
+    "redirect": null,
+    "bytes": 158674,
+    "sha256": "da07756ba61cc1ff911d946d8fb90f07bc65882a2a6880b21176e416a0e02633"
+  }
+}

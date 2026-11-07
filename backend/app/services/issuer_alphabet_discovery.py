@@ -33,6 +33,22 @@ def publication_pattern(day):
     return rf'{MONTHS[day.month-1]}\s+{day.day},\s*{day.year}'
 
 
+def transcript_url(value,year,quarter):
+    """Resolve reviewed issuer routes while keeping fiscal and event years apart."""
+    if not isinstance(value,str):
+        raise DirectSourceError('Unreviewed Alphabet transcript URL')
+    absolute='https://abc.xyz'+value if value.startswith('/investor/') else value
+    event_year=rf'(?:{year}|{year+1})' if quarter==4 else str(year)
+    prefix=rf'https://abc\.xyz/investor/events/event-details/(?P<event_year>{event_year})/{year}-Q{quarter}-Earnings-Call'
+    allowed=prefix+r'(?:-(?P=event_year)-[A-Za-z0-9_-]+/default\.aspx|/default\.aspx|/?)'
+    if not re.fullmatch(allowed,absolute):
+        raise DirectSourceError('Unreviewed Alphabet transcript URL')
+    # The complete 2025 Q2 index links this extensionless issuer route; its
+    # observed same-origin 301 supplies the trailing slash. No generic redirect
+    # following or unrelated host/path is enabled.
+    return absolute+'/' if absolute.endswith('Earnings-Call') else absolute
+
+
 def parse_index(raw,company,year,observed):
     source_url=index_url(company,year)
     if not raw or len(raw)>2_000_000:
@@ -62,10 +78,8 @@ def parse_index(raw,company,year,observed):
         # Coalesce only the identical transcript link, never competing versions.
         matches=[d for d in docs if 'transcript' in str(d.get('DocumentTitle','')).lower()]
         for item in matches:
-            url=item.get('DocumentPath')
-            allowed=rf'https://abc\.xyz/investor/events/event-details/{year}/{year}-Q{quarter}-Earnings-Call-{year}-[A-Za-z0-9_-]+/default\.aspx'
-            if (not isinstance(url,str) or not re.fullmatch(allowed,url)
-                    or item.get('DocumentTitle')!='Webcast & Transcript'
+            url=transcript_url(item.get('DocumentPath'),year,quarter)
+            if (item.get('DocumentTitle')!='Webcast & Transcript'
                     or item.get('DocumentCategory')!='webcast' or item.get('DocumentType')!='Online'
                     or item.get('DocumentFileType') is not None or item.get('LanguageId')!=1):
                 raise DirectSourceError('Unreviewed Alphabet transcript link or type')
@@ -104,7 +118,7 @@ def parse_candidate(raw,metadata,observed):
     if ' '.join(titles[0].text_content().split())!=f'{year} Q{quarter} Earnings Call':
         raise DirectSourceError('Alphabet call page fiscal title mismatch')
     stamp=' '.join(dates[0].text_content().split())
-    match=re.fullmatch(DATE_PATTERN+r'\s+(?:[1-9]|1[0-2]):[0-5]\d\s+(?:AM|PM) PT',stamp)
+    match=re.fullmatch(DATE_PATTERN+r'\s+(?:[1-9]|1[0-2]):[0-5]\d\s+(?:AM|PM) (?:PT|\| America/Los Angeles)',stamp)
     if not match:raise DirectSourceError('Alphabet call page date missing')
     try:publication=date(int(match[3]),MONTHS.index(match[1])+1,int(match[2]))
     except ValueError as exc:raise DirectSourceError('Invalid Alphabet call date') from exc
