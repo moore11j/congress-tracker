@@ -38,3 +38,9 @@ final focused cases correct them. The full Linux regression workflow remains
 required on the exact release. Installed proof and ordinary qualification follow
 deployment. Core fundamentals, transcripts and prices remain FMP-selected;
 discovery publication and institutional publication gates remain unchanged.
+
+The first full Linux run, 42336445106, passed 1,240 cases and failed one older
+currency-hold retry expectation. That test now requires the new one-time font
+policy receipt before reusing the held result and still checks that an already
+qualified receipt is unchanged. Application bytes and the 49-scope comparison
+are unchanged. The corrected exact release must pass the full run before merge.
