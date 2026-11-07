@@ -5,6 +5,7 @@ on:
       - 'backend/app/services/sec_form4_recollection.py'
       - 'backend/app/services/direct_feed_collection.py'
       - 'backend/tests/test_form4_exact_recollection.py'
+      - 'backend/tests/test_direct_source_http_connections.py'
       - '.github/workflows/form4-exact-recollection.yml'
   workflow_dispatch:
 permissions:
@@ -28,6 +29,10 @@ jobs:
         run: >-
           python -m pytest
           tests/test_form4_exact_recollection.py
+          tests/test_direct_source_http_connections.py
+          tests/test_issuer_collection_fairness.py
+          tests/test_house_scan_quarantine.py
+          tests/test_senate_backup_collection.py
           tests/test_direct_feeds.py
           tests/test_direct_feed_worker.py
           tests/test_direct_feed_rehearsal.py
