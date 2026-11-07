@@ -90,7 +90,13 @@ export const PUBLIC_STALE_PAGE_REVALIDATE_SECONDS = 60 * 60 * 24;
 // Keep Vercel's long-lived anonymous ticker-page fetch cache aligned with the
 // backend Context payload contract. Bump this alongside bundle fields.
 // Version both SSR paths when selected provider semantics change. Next data caches survive deployments.
-const TICKER_CONTEXT_BUNDLE_CACHE_VERSION = 13;
+const TICKER_CONTEXT_BUNDLE_CACHE_VERSION = 14;
+
+function tickerPageFetchInit(enabled?: boolean): Pick<ApiRequestInit, "cache" | "next"> {
+  return enabled
+    ? { cache: "force-cache", next: { revalidate: 300 } }
+    : { cache: "no-store", next: { revalidate: 0 } };
+}
 
 // Source corrections must not remain in anonymous member pages for a day.
 // Version the request to retire caches created before the direct-feed cutover.
@@ -5458,7 +5464,7 @@ export async function getTickerContextBundle(
   if (params?.activeUser) headers["X-Walnut-Active-User"] = "browser";
   const requestInit = {
     headers,
-    ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.authToken && !params?.activeUser)),
+    ...tickerPageFetchInit(Boolean(params?.stalePageCache && !params?.authToken && !params?.activeUser)),
     signal: params?.signal,
     source: params?.source ?? "TickerContextBundle",
     component: "context-bundle",
@@ -5554,13 +5560,14 @@ export async function getTickerSignalsSummary(
     side: params?.side ?? "all",
     limit: params?.limit ?? 3,
     lookback_days: params?.lookback_days,
+    context_version: TICKER_CONTEXT_BUNDLE_CACHE_VERSION,
   });
   const request = (signal?: AbortSignal) => fetchJson<TickerSignalsSummaryResponse>(url, {
     headers: {
       ...authHeaders(params?.authToken),
       ...(params?.activeUser ? { "X-Walnut-Active-User": "browser" } : {}),
     },
-    ...publicStalePageFetchInit(Boolean(params?.stalePageCache && !params?.authToken && !params?.activeUser)),
+    ...tickerPageFetchInit(Boolean(params?.stalePageCache && !params?.authToken && !params?.activeUser)),
     signal,
     source: params?.source ?? "TickerSignalsSummary",
   });
@@ -6840,7 +6847,7 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
     return serverCachedJson(
       `ticker-profile:${url}`,
       () => fetchJson<TickerProfile>(url, {
-        ...publicStalePageFetchInit(options?.stalePageCache),
+        ...tickerPageFetchInit(options?.stalePageCache),
         source: options?.source ?? "TickerProfile",
       }),
     );
@@ -6849,7 +6856,7 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
     `ticker-profile:${url}`,
     options?.signal,
     (signal) => fetchJson<TickerProfile>(url, {
-      ...publicStalePageFetchInit(options?.stalePageCache),
+      ...tickerPageFetchInit(options?.stalePageCache),
       signal,
       source: options?.source ?? "TickerProfile",
     }),
