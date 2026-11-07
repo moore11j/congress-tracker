@@ -56,11 +56,21 @@ def combine(values, metrics):
 def fetch_fundamentals(symbol):
     # SEC verifies issuer identity and preserves the independently selected
     # Massive market-data path. Neither fallback calls FMP.
-    values = sec_fundamentals.fetch_fundamentals(symbol)
+    from app.services.independent_fundamentals import IndependentMetricsEligible
+    unavailable = None
+    try:
+        values = sec_fundamentals.fetch_fundamentals(symbol)
+    except IndependentMetricsEligible as exc:
+        unavailable, values = exc, exc.values
     try:
         metrics = finnhub_metrics.prepare(symbol)
-        return combine(values, metrics)
+        result = combine(values, metrics)
+        if unavailable is not None and not json.loads(result['source_evidence_json'])['supplement']['used_fields']:
+            raise unavailable
+        return result
     except FinnhubUnavailable as exc:
+        if unavailable is not None:
+            raise unavailable from exc
         values['provider'] = 'free_direct'
         evidence = json.loads(values['source_evidence_json'])
         evidence.update(methodology=VERSION, supplement_error=str(exc))
