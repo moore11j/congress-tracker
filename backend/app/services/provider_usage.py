@@ -380,27 +380,31 @@ def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None, allow_u
                     "budget_limit": call_limit,
                 }
             )
-            _persist_event(_STATE.events[0])
-            raise ProviderBudgetExceeded("provider_budget_exceeded")
-        _STATE.provider_call_timestamps.append(now)
-        _STATE.counters["provider_call"] += 1
-        _STATE.route_counters[f"{_context_route()}|provider_call"] += 1
-        _STATE.category_counters[f"{category}|provider_call"] += 1
-        _STATE.events.appendleft(
-            {
-                "ts": _now_iso(),
-                "provider": PROVIDER,
-                "kind": "provider_call",
-                "route": _context_route(),
-                "source": _source_context(_context_route()),
-                "category": category,
-                "symbol": symbol,
-                "reason": None,
-                "cache_age_seconds": None,
-                "status_code": None,
-            }
-        )
-        _persist_event(_STATE.events[0])
+        else:
+            _STATE.provider_call_timestamps.append(now)
+            _STATE.counters["provider_call"] += 1
+            _STATE.route_counters[f"{_context_route()}|provider_call"] += 1
+            _STATE.category_counters[f"{category}|provider_call"] += 1
+            _STATE.events.appendleft(
+                {
+                    "ts": _now_iso(),
+                    "provider": PROVIDER,
+                    "kind": "provider_call",
+                    "route": _context_route(),
+                    "source": _source_context(_context_route()),
+                    "category": category,
+                    "symbol": symbol,
+                    "reason": None,
+                    "cache_age_seconds": None,
+                    "status_code": None,
+                }
+            )
+        # Reserve the budget and capture this caller's event atomically, but do
+        # not hold the shared telemetry lock during database pool waits/writes.
+        event = _STATE.events[0]
+    _persist_event(event)
+    if event["kind"] == "throttle":
+        raise ProviderBudgetExceeded("provider_budget_exceeded")
 
 
 def record_cache_hit(*, category: str, symbol: str | None = None, cache_age_seconds: float | None = None) -> None:
