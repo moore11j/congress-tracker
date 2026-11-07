@@ -135,6 +135,8 @@ def _quotes_disabled_status() -> str | None:
         return None
     if _quotes_disable_reason and "402" in _quotes_disable_reason:
         return "provider_402"
+    if _quotes_disable_reason and "403" in _quotes_disable_reason:
+        return "provider_403"
     if _quotes_disable_reason and "429" in _quotes_disable_reason:
         return "provider_429"
     return "provider_unavailable"
@@ -886,6 +888,7 @@ def get_current_prices_meta_db(
                 ]
 
             saw_402 = False
+            saw_403 = False
             saw_429 = False
             try:
                 for endpoint_request in endpoint_requests:
@@ -932,6 +935,7 @@ def get_current_prices_meta_db(
                     if response.status_code != 200:
                         _record_miss(response.status_code)
                         saw_402 = saw_402 or response.status_code == 402
+                        saw_403 = saw_403 or response.status_code == 403
                         saw_429 = saw_429 or response.status_code == 429
                         if response.status_code >= 500:
                             _disable_quotes(minutes=1, reason="quote_provider_5xx")
@@ -968,6 +972,10 @@ def get_current_prices_meta_db(
                 return False
             if saw_429:
                 _disable_quotes(minutes=2, reason="rate_limited_429_configured_quote")
+                disable_triggered = True
+                return False
+            if saw_403:
+                _disable_quotes(minutes=10, reason="access_denied_403_configured_quote")
                 disable_triggered = True
                 return False
             return True

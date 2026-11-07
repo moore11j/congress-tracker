@@ -347,7 +347,20 @@ def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: date
     closes = [float(row.adjusted_close or row.close) for row in rows if (row.adjusted_close or row.close) is not None]
     if metric == "price":
         quote = db.get(QuoteCache, ticker)
-        return (float(quote.price) if quote and quote.price is not None else (closes[-1] if closes else None), [])
+        current = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        session = current.astimezone(ZoneInfo("America/New_York")).date()
+        asof = quote.asof_ts if quote is not None else None
+        if isinstance(asof, datetime) and asof.tzinfo is None:
+            asof = asof.replace(tzinfo=timezone.utc)
+        if (quote is not None and quote.price is not None and isinstance(asof, datetime)
+                and current - PRICE_QUOTE_FRESHNESS <= asof <= current
+                and asof.astimezone(ZoneInfo("America/New_York")).date() == session):
+            return float(quote.price), []
+        # A historical quote or prior-session close is not a current threshold
+        # observation. Missing data leaves durable alert state unchanged.
+        today = next((row for row in reversed(rows) if row.date == session.isoformat()), None)
+        return (float(today.adjusted_close or today.close) if today is not None
+                and (today.adjusted_close or today.close) is not None else None), []
     if metric == "price_change_pct":
         delta = _window_delta(condition["time_window"])
         # Daily price moves follow the exchange's date, not UTC midnight.
