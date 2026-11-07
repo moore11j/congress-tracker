@@ -130,6 +130,15 @@ def test_revision_collision_between_providers_does_not_skip_metadata(db):
     assert service.active_index_membership_snapshot(db, 'sp500', now=NOW).source == 'wikipedia'
 
 
+def test_incomplete_revision_metadata_is_repaired_before_unchanged_shortcut(db):
+    data = original()
+    service.refresh_index_memberships_from_dataset(db, data)
+    db.query(IndexMembership).first().source_revision_id = None
+    db.commit()
+    assert service.refresh_index_memberships_from_dataset(db, data).status == 'ok'
+    assert all(row.source_revision_id == data.source_revision_id for row in db.query(IndexMembership))
+
+
 def test_due_checks_skip_fresh_unselected_paid_and_etf_scopes(db, monkeypatch):
     data = original()
     service.refresh_index_memberships_from_dataset(db, data)

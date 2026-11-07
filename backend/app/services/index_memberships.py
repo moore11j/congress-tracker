@@ -470,7 +470,7 @@ def refresh_index_memberships_from_dataset(
     active_revision = _single_metadata_value(getattr(row, "source_revision_id", None) for row in active_rows)
     same_source = all(
         all(getattr(row, key, None) == getattr(dataset, key) for key in (
-            "source", "source_kind", "source_page", "resolved_source_title", "parser_version",
+            "source", "source_kind", "source_page", "source_revision_id", "resolved_source_title", "parser_version",
         )) for row in active_rows
     )
     if active_symbols == incoming and active_revision and active_revision == dataset.source_revision_id and same_source:
