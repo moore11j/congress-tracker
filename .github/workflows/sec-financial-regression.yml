@@ -58,6 +58,7 @@ jobs:
           tests/test_sec_statement_shareholder.py
           tests/test_sec_statement_layout.py
           tests/test_sec_caption_rows.py
+          tests/test_sec_font_statements.py
           tests/test_sec_statement_heading_order.py
           tests/test_sec_statement_sections.py
           tests/test_sec_tabular_financials.py

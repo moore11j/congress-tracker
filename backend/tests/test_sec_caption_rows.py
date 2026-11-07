@@ -125,6 +125,9 @@ def test_only_legacy_relevant_holds_retry_under_existing_worker_bounds(qualified
         statement_layout_policy=layout.POLICY)
     assert reader.validate_receipt(receipt,cover,now=kw['observed_at']) is None
     receipt['statement_caption_rows_policy']=layout.CAPTION_ROWS_POLICY
+    assert reader.validate_receipt(receipt,cover,now=kw['observed_at']) is None
+    from app.services.sec_statement_font_context import POLICY as font_policy
+    receipt['statement_font_policy']=font_policy
     assert reader.validate_receipt(receipt,cover,now=kw['observed_at'])==receipt
     receipt['holds'][0]['reason']='table_translation_column_unproved'
     receipt.pop('statement_caption_rows_policy')

@@ -150,6 +150,9 @@ def test_single_filing_qualifies_but_does_not_bypass_incomplete_discovery():
     assert reader.validate_receipt(old,cover,now=NOW) is None
     from app.services.sec_statement_layout import CAPTION_ROWS_POLICY
     old['statement_caption_rows_policy']=CAPTION_ROWS_POLICY
+    assert reader.validate_receipt(old,cover,now=NOW) is None
+    from app.services.sec_statement_font_context import POLICY as font_policy
+    old['statement_font_policy']=font_policy
     assert reader.validate_receipt(old,cover,now=NOW)==old
 
 

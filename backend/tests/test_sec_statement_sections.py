@@ -165,6 +165,9 @@ def test_legacy_currency_hold_retries_once_and_qualified_receipt_is_unchanged(so
     old=copy.deepcopy(PROOF['receipts'][0]);key=discovery._fingerprint(old['candidate']);cover=state['receipts'][key]
     assert reader.validate_receipt(old,cover,now=kw['observed_at']) is None
     old['statement_section_policy']=POLICY
+    assert reader.validate_receipt(old,cover,now=kw['observed_at']) is None
+    from app.services.sec_statement_font_context import POLICY as font_policy
+    old['statement_font_policy']=font_policy
     assert reader.validate_receipt(old,cover,now=kw['observed_at'])==old
     current=cover['qualification']
     assert current['status']=='qualified' and 'statement_section_policy' not in current

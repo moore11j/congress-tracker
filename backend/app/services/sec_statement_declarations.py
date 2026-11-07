@@ -2,7 +2,7 @@
 import re
 
 POLICY = 'explicit_ifrs_statement_declarations_v1'
-IFRS = r'(?:IAS\s+34(?:\s+Interim Financial Reporting)?|International Accounting Standard\s+34|IFRS(?:\s+Accounting Standards)?(?!\s*\d)|International Financial Reporting Standards)'
+IFRS = r'''(?:IAS\s+34(?:\s+Interim Financial Reporting)?|International Accounting Standard(?:\s+\((?:"IAS"|'IAS'|“IAS”|‘IAS’|IAS)\))?\s+34|IFRS(?:\s+Accounting Standards)?(?!\s*\d)|International Financial Reporting Standards)'''
 SUBJECT = r'(?:financial statements|financial information|financial performance|results)'
 VERB = r'(?:prepared(?: and presented)?|presented) in accordance with'
 

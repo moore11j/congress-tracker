@@ -135,6 +135,9 @@ def validate_receipt(receipt,cover,*,now):
             from app.services.sec_statement_layout import CAPTION_ROWS_POLICY
             if any(h['reason'] in layout_reasons for h in holds) and receipt.get('statement_caption_rows_policy')!=CAPTION_ROWS_POLICY:
                 return None
+            from app.services.sec_statement_font_context import POLICY as font_policy, RETRY_REASONS as font_reasons
+            if any(h['reason'] in font_reasons for h in holds) and receipt.get('statement_font_policy')!=font_policy:
+                return None
         return deepcopy(receipt)
     except (ValueError,TypeError,KeyError,AttributeError) as exc:
         raise discovery.DiscoveryError('discovery_qualification_invalid') from exc
@@ -337,5 +340,8 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
             receipt['statement_layout_policy']=layout_policy
             from app.services.sec_statement_layout import CAPTION_ROWS_POLICY
             receipt['statement_caption_rows_policy']=CAPTION_ROWS_POLICY
+        from app.services.sec_statement_font_context import POLICY as font_policy, RETRY_REASONS as font_reasons
+        if any(h['reason'] in font_reasons for h in receipt['holds']):
+            receipt['statement_font_policy']=font_policy
     receipt=validate_receipt(receipt,hint,now=observed_at)
     return {'receipt':receipt,'supplement':supplement}
