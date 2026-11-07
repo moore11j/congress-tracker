@@ -1,0 +1,40 @@
+name: Macro Refresh Regressions
+on:
+  pull_request:
+    paths:
+      - "backend/app/services/macro_positioning.py"
+      - "backend/app/jobs/refresh_macro_positioning.py"
+      - "backend/tests/test_macro_refresh_isolation.py"
+      - ".github/workflows/macro-refresh-regression.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macro-refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite://
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - working-directory: backend
+        run: >-
+          python -m pytest tests/test_macro_refresh_isolation.py
+          tests/test_insights_macro_positioning.py tests/test_macro_positioning_schedule.py
+          tests/test_confirmation_net_evidence.py tests/test_confirmation_score_bundle.py
+          tests/test_financial_consumer_provider.py tests/test_ticker_context_canonical_projection.py
+          tests/test_ticker_decision_layer.py
+          -q --disable-warnings --junitxml=macro-refresh.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macro-refresh-results
+          path: backend/macro-refresh.xml
+          retention-days: 7
