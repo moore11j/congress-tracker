@@ -1,0 +1,18 @@
+{
+  "observed_at": "2026-11-07T06:11:25.897201+00:00",
+  "limitations": "Finnhub observed November 7; companyfacts retained October 17. Complete source compatibility fixtures, not live SEC coverage acceptance. Company and filing originals are separately pinned in sec_ifrs_declarations/sources.json.",
+  "sources": [
+    {
+      "file": "ONON-metrics.json.gz",
+      "source": "finnhub stock/metric symbol=ONON metric=all",
+      "sha256": "9260863fe28a501fbfec906b6f5b45b50fdfbba7bb5f0564f03fae29bd70bbd3",
+      "bytes": 44537
+    },
+    {
+      "file": "ONON-facts.json.gz",
+      "source": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001858985.json",
+      "sha256": "3c3581c0fcd12da51538f056fcd783f2c5508717209c5b91868e75647803fb87",
+      "bytes": 530425
+    }
+  ]
+}

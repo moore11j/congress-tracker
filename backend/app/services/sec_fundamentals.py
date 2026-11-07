@@ -46,7 +46,11 @@ def company_directory(day: str):
 
 
 def fetch_fundamentals(symbol: str):
-    from app.clients.direct_sources import DirectSourceClient
+    from app.clients.direct_sources import DirectSourceClient, DirectSourceError
+    from app.services.independent_fundamentals import IndependentMetricsEligible
+    from app.services.sec_tagged_foreign import TaggedCurrencyError
+    from app.services.sec_statement_currency import StatementCurrencyError
+    from app.services.sec_tabular_reporting import TabularReportingError
     now = datetime.now(timezone.utc)
     item = company_directory(str(now.date())).get(symbol)
     if item is None:
@@ -54,11 +58,22 @@ def fetch_fundamentals(symbol: str):
     cik = item['cik']
     client = DirectSourceClient()
     company = client.get(f'https://data.sec.gov/submissions/CIK{cik}.json')
-    facts = client.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json')
+    facts_url = f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json'
+    try:
+        facts = client.get(facts_url)
+    except DirectSourceError as exc:
+        if str(exc) != f'Source HTTP 404: {facts_url}':
+            raise
+        raise IndependentMetricsEligible(symbol=symbol, cik=cik, company_raw=company,
+            facts_raw=None, observed_at=now, reason='sec_company_facts_not_found') from exc
     from app.services.sec_financial_continuity import fetch_history
     history = fetch_history(symbol,cik,client=client,observed_at=now)
     from app.services.sec_inline_financials import acquire
-    filing = acquire(facts,company,symbol=symbol,cik=cik,observed_at=now,client=client,include_debt_precision=True)
+    try:
+        filing = acquire(facts,company,symbol=symbol,cik=cik,observed_at=now,client=client,include_debt_precision=True)
+    except (TaggedCurrencyError, StatementCurrencyError, TabularReportingError) as exc:
+        raise IndependentMetricsEligible(symbol=symbol, cik=cik, company_raw=company,
+            facts_raw=facts, observed_at=now, reason=str(exc)) from exc
     try:
         values = project_fundamentals(facts, company, symbol=symbol, cik=cik, observed_at=now, history_raw=history, filing_supplement=filing)
     except SecFundamentalsCoverageError as exc:
@@ -81,6 +96,9 @@ def fetch_fundamentals(symbol: str):
                 'company': {'url': f'https://data.sec.gov/submissions/CIK{cik}.json', 'sha256': hashlib.sha256(company).hexdigest()},
                 'current': {}, 'prior': {}, 'instant': {}, 'calculations': {},
                 'limitations': ['Financial facts unavailable; market data is independently verified']})}
+    except (TaggedCurrencyError, StatementCurrencyError, TabularReportingError) as exc:
+        raise IndependentMetricsEligible(symbol=symbol, cik=cik, company_raw=company,
+            facts_raw=facts, observed_at=now, reason=str(exc)) from exc
     from app.services.sec_issuer_cash_flow import supplement
     values = supplement(values, facts, company, client=client)
     if symbol in ISSUER_PROFILES:

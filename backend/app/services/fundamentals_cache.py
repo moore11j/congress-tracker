@@ -906,6 +906,9 @@ def fundamentals_summary_from_cache_row(
             if used:
                 source_label = 'SEC EDGAR + Finnhub'
                 source_note = 'Finnhub metrics use provider observations; valuation timestamps and forecast horizons are not supplied.'
+                if json.loads(row.source_evidence_json or '{}').get('independent_metrics'):
+                    source_label = 'Finnhub'
+                    source_note = 'Company identity verified with SEC EDGAR; SEC financial values are unavailable. ' + source_note
             for key, metric in metrics.items():
                 field = 'roe' if key == 'return_on_equity' else key
                 if field in used:
