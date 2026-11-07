@@ -7306,7 +7306,7 @@ def _ticker_context_bundle_public_payload(value: Any) -> Any:
     return value
 
 
-def _ticker_context_bundle_cache_payload_is_complete(payload: dict[str, Any] | None) -> bool:
+def _ticker_context_bundle_cache_payload_is_complete(payload: dict[str, Any] | None, *, allow_stale_quote: bool = False) -> bool:
     if not isinstance(payload, dict):
         return False
     if payload.get("status") in {"lightweight", "skipped"}:
@@ -7318,7 +7318,7 @@ def _ticker_context_bundle_cache_payload_is_complete(payload: dict[str, Any] | N
     quote = payload.get("quote")
     if not isinstance(quote, dict) or _parse_numeric(quote.get("current_price")) is None:
         return False
-    if bool(quote.get("stale")):
+    if bool(quote.get("stale")) and not allow_stale_quote:
         return False
     source_cards = payload.get("source_cards")
     required_cards = {"price_volume", "fundamentals", "insiders", "congress", "government_contracts"}
@@ -7348,6 +7348,7 @@ def _ticker_context_bundle_cached_for_segment(
     limit: int,
     lookback_days: int,
     started_at: float,
+    public_snapshot: bool = False,
 ) -> dict[str, Any] | None:
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
@@ -7359,13 +7360,26 @@ def _ticker_context_bundle_cached_for_segment(
         limit=max(1, min(int(limit or 3), 3)),
         lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
     )
-    return _ticker_context_bundle_cache_get(
+    cached = _ticker_context_bundle_cache_get(
         db,
         cache_key,
         symbol=normalized_symbol,
         user_segment=user_segment,
         started_at=started_at,
     )
+    if cached is not None or not public_snapshot:
+        return cached
+    from app.services.public_ticker_snapshot import prepared_snapshot
+    try:
+        payload = prepared_snapshot(db.get(TickerContextBundleCache, cache_key),
+                                    symbol=normalized_symbol, now=datetime.now(timezone.utc))
+    except Exception:
+        db.rollback()
+        logger.debug("public_ticker_snapshot_read_failed symbol=%s", normalized_symbol, exc_info=True)
+        return None
+    if payload is not None and _ticker_context_bundle_cache_payload_is_complete(payload, allow_stale_quote=True):
+        return payload
+    return None
 
 
 def _ticker_context_bundle_bot_payload(symbol: str) -> dict[str, Any]:
@@ -7480,6 +7494,7 @@ def _ticker_context_bundle_cached_or_live_response(
         limit=limit,
         lookback_days=lookback_days,
         started_at=started_at,
+        public_snapshot=cached_only,
     )
     if cached is not None:
         projected = _project_ticker_context_bundle_for_entitlements(
