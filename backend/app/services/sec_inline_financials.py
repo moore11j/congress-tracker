@@ -649,6 +649,16 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
             # Keep independently valid inline metrics; a failed total-revenue
             # proof never authorizes the alternate series or a partial splice.
             result['evidence']['revenue_series_hold'] = type(exc).__name__+':'+str(exc)
+    if native_basis is None and form in FORMS:
+        from app.services import sec_rental_revenue
+        from app.clients.direct_sources import DirectSourceError
+        try:
+            selection = sec_rental_revenue.acquire(payload, company, cik=cik, available_by=available,
+                client=retained, originals={url: result})
+            if selection is not None:
+                result['evidence']['rental_revenue_selection'] = selection
+        except (ValueError, DirectSourceError) as exc:
+            result['evidence']['rental_revenue_hold'] = type(exc).__name__+':'+str(exc)
     return result
 
 

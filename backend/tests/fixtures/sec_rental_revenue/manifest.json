@@ -1,0 +1,27 @@
+{
+  "VMRK-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0000906107.json",
+    "bytes": 158378,
+    "sha256": "8e9794c0bdcc7226f3e82557f81dc5b731a1c2ea4124bcf2efdbc003effccfe1"
+  },
+  "VMRK-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000906107.json",
+    "bytes": 4752175,
+    "sha256": "37c83ad0c835de423704177ce4071e2c62fcc9349f98adb1e86b17762b97c600"
+  },
+  "VMRK-current.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/906107/000119312526326170/eqr-20260630.htm",
+    "bytes": 6293032,
+    "sha256": "1c3d24d66131e6799a476278c74998117b446e5d11cf7cf9cde0825f893dffe4"
+  },
+  "VMRK-annual.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/906107/000119312526051433/eqr-20251231.htm",
+    "bytes": 16694714,
+    "sha256": "56e5ada43941bd8acead92a42acc8f4986cac8322e93401f563965ef27963c4a"
+  },
+  "VMRK-prior.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/906107/000095017025104090/eqr-20250630.htm",
+    "bytes": 6357696,
+    "sha256": "8076bc17c620777a0e865caa57899ffeb5da126b966a9dab0208bc5189dea8d0"
+  }
+}
