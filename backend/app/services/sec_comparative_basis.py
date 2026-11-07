@@ -9,6 +9,7 @@ import json
 import re
 
 POLICY='sec_exact_annual_comparative_basis_v1'
+LAYOUT_POLICY='sec_abbreviated_dates_parent_deficit_v1'
 ANCHORS={'current_assets':'AssetsCurrent','total_assets':'Assets',
          'current_liabilities':'LiabilitiesCurrent','total_equity':'StockholdersEquity'}
 ANNUAL={'20-F','20-F/A','40-F','40-F/A'}
@@ -36,12 +37,12 @@ def definition(text):
     # A generic GAAP label, non-GAAP heading or US-dollar declaration alone
     # cannot establish the current statement's accounting basis.
     if re.search(r'\bIFRS\b|\b(?:non[- ]US|Israeli|Japanese|Canadian|Taiwan(?:ese)?)\s+GAAP\b',text,re.I):return None
-    pattern=(r'\b(?:financial results (?:are |were )?(?:prepared(?: and presented)? )?'
+    pattern=(r'\b(?:(?:financial results|financial information|financial statements) (?:are |were )?(?:prepared(?: and presented)? )?'
              r'|results (?:are |were )?prepared(?: and presented)? )in accordance with '
              r'(?:generally accepted accounting principles,? (?:or )?)?GAAP\b')
     found=[]
     for match in re.finditer(pattern,text,re.I):
-        if re.search(r'\b(?:not|never|unlike|hypothetical|forecast|projected|expected)\s+(?:\w+\s+){0,3}$',
+        if re.search(r'\b(?:not|never|unlike|hypothetical|forecast|projected|expected|non[- ]GAAP)\s+(?:\w+\s+){0,3}$',
                      text[max(0,match.start()-60):match.start()],re.I):continue
         # The unqualified GAAP sentence must end here. Jurisdiction qualifiers,
         # hypothetical predicates and other continuations need explicit review.
@@ -104,12 +105,15 @@ def prove(text,observations,*,company_raw,facts_raw,available_by):
                     and p.get('filed')==annual['filed'] and p.get('end')==annual['period']]
         anchors=[]
         for metric,tag in ANCHORS.items():
-            printed=[p for p in observations['facts'] if p['metric']==metric and p['start'] is None and p['end']==annual['period']]
+            reported_metric=metric
+            if metric=='total_equity' and any(p['metric']=='parent_equity' and p['start'] is None and p['end']==annual['period'] for p in observations['facts']):
+                reported_metric='parent_equity'
+            printed=[p for p in observations['facts'] if p['metric']==reported_metric and p['start'] is None and p['end']==annual['period']]
             need(len(printed)==1 and printed[0]['currency']=='USD','comparative_missing')
             points=[p for p in annual_points(tag) if not p.get('start')]
             values={number(p['val']) for p in points};need(len(values)==1,'annual_anchor_missing_or_conflicting')
             value=number(printed[0]['value']);need(value in values,'comparative_mismatch')
-            anchors.append(dict(metric=metric,tag=tag,value=value))
+            anchors.append(dict(metric=reported_metric,tag=tag,value=value))
         income=[p for p in annual_points('NetIncomeLoss') if p.get('start')
                 and 350<=(period-date.fromisoformat(p['start'])).days+1<=380]
         need(income and len({(p['start'],number(p['val'])) for p in income})==1,'income_taxonomy_missing_or_conflicting')
@@ -143,7 +147,8 @@ def cached_valid(proof,source,current_period):
             and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.html?',annual['document']) is not None
             and 0<(current-period).days<=366 and period<=filed<=statement_filed and current<=statement_filed
             and 350<=(period-income_start).days+1<=380
-            and [(a['metric'],a['tag']) for a in anchors]==list(ANCHORS.items())
+            and [(a['metric'],a['tag']) for a in anchors] in (list(ANCHORS.items()),
+                list(ANCHORS.items())[:-1]+[('parent_equity','StockholdersEquity')])
             and all(isinstance(a['value'],str) and Decimal(a['value']).is_finite() for a in anchors)
             and re.fullmatch(r'[0-9a-f]{64}',proof['companyfacts_sha256']) is not None
             and proof['companyfacts_url']==f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json'
