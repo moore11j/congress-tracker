@@ -3026,6 +3026,8 @@ async function DeferredTickerContent({
   const confirmationLookbackDays = confirmationBundle.lookback_days;
   const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending;
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
+  const closeDate = formatDateShort(priceVolumeContext?.latest_date ?? null);
+  const closeObservation = closeDate === "—" ? "Closing date unavailable" : `Close as of ${closeDate}`;
   const priceVolumeChange = typeof priceVolumeContext?.change_pct_1d === "number" ? priceVolumeContext.change_pct_1d : null;
   const priceVolumeChangeTone = priceVolumeChange === null
     ? "text-slate-500"
@@ -3474,6 +3476,7 @@ showGovernmentContracts ? (
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Latest close · {normalizedSymbol}</p>
                   <p className="text-xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)} <span className={`ml-2 text-xs ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)} <span className="text-slate-500">1D</span></span></p>
+                  <p className="mt-1 text-xs text-slate-400">{closeObservation}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] uppercase tracking-wider text-slate-500">Volume vs 30D avg</p>
@@ -3515,6 +3518,7 @@ showGovernmentContracts ? (
                   <p className="text-3xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)}</p>
                   <p className={`pb-1 text-sm font-semibold tabular-nums ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)}</p>
                 </div>
+                <p className="mt-1 text-xs text-slate-400">{closeObservation}</p>
                 <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
                 <div className="mt-3 grid gap-1.5">
                   {priceVolume.diagnostics.slice(2).map((diagnostic) => (
