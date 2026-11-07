@@ -16,8 +16,39 @@ LABELS={'pretax':{'income before income taxes','loss before income taxes','incom
         'tax':{'income tax provision','income tax expense','provision for income taxes','income tax benefit','income tax expense (benefit)','provision for (benefit from) income taxes','federal and state income taxes','tax expense'}}
 TAGS={'pretax':PRETAX,'tax':{'us-gaap:IncomeTaxExpenseBenefit'},'income':{'us-gaap:NetIncomeLoss'}}
 
-def statement_rows(raw,filing,issuer):
+LABELS['pretax'].update({'income from continuing operations before income taxes','loss from continuing operations before income taxes'})
+REVERSED_TAX_LABELS={'income tax benefit (expense)','income tax benefit (provision)'}
+LABELS['tax'].update(REVERSED_TAX_LABELS)
+DISCONTINUED_LABELS={'discontinued operations, net of income taxes','discontinued operations, net of tax'}
+TAGS['discontinued']={'us-gaap:IncomeLossFromDiscontinuedOperationsNetOfTax',
+                      'us-gaap:IncomeLossFromDiscontinuedOperationsNetOfTaxAttributableToReportingEntity'}
+
+
+def _statement_issuer(tree,filing,issuer,jurisdiction):
+    """Resolve only a metadata jurisdiction suffix corroborated by this cover."""
+    match=re.fullmatch(r'(.+)/([A-Z]{2})',issuer)
+    if not match or match[2]!=jurisdiction:return issuer,None
+    entity_contexts=set()
+    for context in inline.nodes(tree,'context'):
+        ids=inline.nodes(context,'identifier')
+        if (not inline.nodes(context,'segment') and not inline.nodes(context,'scenario')
+                and len(ids)==1 and ids[0].get('scheme')=='http://www.sec.gov/CIK'
+                and ids[0].text_content().strip().zfill(10)==filing['cik']):
+            entity_contexts.add(context.get('id'))
+    names=[n for n in tree.iter() if n.tag=='ix:nonnumeric' and n.get('name')=='dei:EntityRegistrantName']
+    if (len(names)!=1 or names[0].get('contextref') not in entity_contexts
+            or names[0].get('continuedat') or inline._nil_fact(names[0])
+            or tables.clean(names[0].text_content())!=issuer):return issuer,None
+    # DEI identity metadata may be in ix:hidden. Amounts below must still be
+    # visible in the independently named consolidated statement itself.
+    return match[1],dict(registry_name=issuer,statement_name=match[1],jurisdiction=jurisdiction,
+                        context=names[0].get('contextref'),cik=filing['cik'],
+                        cover_name_hidden=any(a.tag=='ix:hidden' for a in names[0].iterancestors()))
+
+
+def statement_rows(raw,filing,issuer,*,jurisdiction=None):
     parsed=inline.parse(raw,**filing);tree=html.fromstring(raw);contexts={}
+    issuer,issuer_proof=_statement_issuer(tree,filing,issuer,jurisdiction)
     for n in inline.nodes(tree,'context'):
         if inline.nodes(n,'segment') or inline.nodes(n,'scenario'):continue
         ids,starts,ends=(inline.nodes(n,k) for k in ('identifier','startdate','enddate'))
@@ -43,9 +74,11 @@ def statement_rows(raw,filing,issuer):
                 label=tables.clean(line[0]['text']).lower().rstrip(':')
                 label=re.sub(r'\s+\(\s*notes?\s+\d+(?:\s*(?:,|and|&|-)\s*\d+)*\s*\)$','',label)
                 # Parent allocations cannot precede an admitted consolidated total.
-                if any(word in label for word in ('attributable','noncontrolling','non-controlling','redeemable','discontinued')):
+                if any(word in label for word in ('attributable','noncontrolling','non-controlling','redeemable')):
                     ambiguous=True;break
-                kind='income' if ri==point['row'] else next((k for k,v in LABELS.items() if label in v),None)
+                if 'discontinued' in label and label not in DISCONTINUED_LABELS:
+                    ambiguous=True;break
+                kind='income' if ri==point['row'] else 'discontinued' if label in DISCONTINUED_LABELS else next((k for k,v in LABELS.items() if label in v),None)
                 if kind is None:continue
                 own=[c for c in line if c['row']==ri]
                 if len(own)!=len(cells):continue
@@ -55,17 +88,28 @@ def statement_rows(raw,filing,issuer):
                     parent_cells=n.xpath('ancestor::td|ancestor::th');pos=locations.get(id(parent_cells[-1])) if parent_cells else None
                     if not pos or not point['column_start']<=pos['start']<pos['end']<=point['column_end']:continue
                     value=inline._number(n,tree)
-                    if value!=tables.amount(line,point['column_start'],point['column_end'],point['scale']):continue
+                    displayed=tables.amount(line,point['column_start'],point['column_end'],point['scale'])
+                    if displayed is None and kind=='discontinued' and value==0:
+                        printed=''.join(c['text'] for c in line if point['column_start']<=c['start']<point['column_end']).strip()
+                        # A visible dash is zero only when its same-cell inline
+                        # fact explicitly decodes to zero under a valid transform.
+                        if printed in {'-','\u2014','\u2013'} and tables.clean(n.text_content())==printed:displayed=0
+                    sign=-1 if kind=='tax' and label in REVERSED_TAX_LABELS else 1
+                    if displayed is None or value!=sign*displayed or (kind=='discontinued' and value!=0):continue
                     accepted.append((value,n.get('contextref'),n.get('name')))
                 if len(set(accepted))!=1 or kind in components:ambiguous=True;break
                 components[kind]=accepted[0];positions[kind]=ri
-            if ambiguous or set(components)!={'pretax','tax','income'} or not positions['pretax']<positions['tax']<positions['income']:continue
+            if ambiguous or set(components)-{'discontinued'}!={'pretax','tax','income'} or not positions['pretax']<positions['tax']<positions['income']:continue
+            if 'discontinued' in positions and not positions['tax']<positions['discontinued']<positions['income']:continue
             pretax,tax,income=(components[k][0] for k in ('pretax','tax','income'))
             if not math.isfinite(income) or pretax-tax!=income or income!=point['value']:continue
             proof={**{k:filing[k] for k in ('cik','accession','filed','url')},'start':period[0],'end':period[1],
                 'value':income,'pretax':pretax,'tax':tax,'source_sha256':parsed['evidence']['sha256'],
                 'heading':panel['heading'],'row_label':point['label'],'context':components['income'][1],
                 'methodology':VERSION,'unit':'USD','basis':BASIS,'missing_allocations':'Not assumed zero; reported consolidated statement total is independently reconciled.'}
+            if issuer_proof:proof['issuer_jurisdiction']=issuer_proof
+            if 'discontinued' in components:
+                proof['reported_zero_discontinued']=dict(value=0,context=components['discontinued'][1],tag=components['discontinued'][2])
             key=period+(filing['accession'],)
             if key in out and out[key]!=proof:raise ValueError('Competing primary statement totals')
             out[key]=proof
@@ -120,13 +164,17 @@ def plan(payload, company, *, symbol, cik, available_by):
         if not filing or filing['filed']!=fact['filed'] or fact['end']>filing['report_date']:continue
         rows.append({'fact':fact,'filing':filing})
     if not rows or len({r['filing']['url'] for r in rows})>3:return None
-    return {'cik':cik,'period_end':str(end),'rows':rows}
+    result={'cik':cik,'period_end':str(end),'rows':rows}
+    jurisdiction=company.get('stateOfIncorporation')
+    if isinstance(jurisdiction,str) and re.fullmatch(r'[A-Z]{2}',jurisdiction) and company.get('name','').endswith('/'+jurisdiction):
+        result['issuer_jurisdiction']=jurisdiction
+    return result
 
 
 def qualify(expected, documents, *, issuer):
     verified={}
     for filing in {r['filing']['url']:r['filing'] for r in expected['rows']}.values():
-        verified.update(statement_rows(documents[filing['url']],filing,issuer))
+        verified.update(statement_rows(documents[filing['url']],filing,issuer,jurisdiction=expected.get('issuer_jurisdiction')))
     rows=[]
     for item in expected['rows']:
         f=item['fact'];p=verified.get((f['start'],f['end'],f['accession']))
@@ -176,6 +224,19 @@ def cached_valid(proof,*,cik):
             if source_identity(r['url'])!=(cik,r['accession']) or r['cik']!=cik or r['unit']!='USD' or r['methodology']!=VERSION or r['basis']!=BASIS:return False
             if not re.fullmatch(r'[0-9a-f]{64}',r['source_sha256']) or not isinstance(r['context'],str) or not r['context']:return False
             if not isinstance(r['heading'],list) or not r['heading'] or any(not isinstance(h,str) or not h.strip() for h in r['heading']):return False
+            if 'issuer_jurisdiction' in r:
+                owner=r['issuer_jurisdiction']
+                if (not isinstance(owner,dict) or owner.get('cik')!=cik
+                        or not isinstance(owner.get('jurisdiction'),str) or not re.fullmatch(r'[A-Z]{2}',owner['jurisdiction'])
+                        or not isinstance(owner.get('statement_name'),str) or not owner['statement_name']
+                        or owner.get('registry_name')!=owner['statement_name']+'/'+owner['jurisdiction']
+                        or not isinstance(owner.get('context'),str) or not owner['context']
+                        or type(owner.get('cover_name_hidden')) is not bool
+                        or not any(tables.company_key(h)==tables.company_key(owner['statement_name']) for h in r['heading'])):return False
+            if 'reported_zero_discontinued' in r:
+                zero=r['reported_zero_discontinued']
+                if (not isinstance(zero,dict) or type(zero.get('value')) not in (int,float) or zero['value']!=0
+                        or zero.get('context')!=r['context'] or zero.get('tag') not in TAGS['discontinued']):return False
             if r['row_label'].lower() not in {'net income','net loss','net (loss) income','net income (loss)'}:return False
             if any(type(r[k]) not in (int,float) or not math.isfinite(r[k]) for k in ('value','pretax','tax')) or r['pretax']-r['tax']!=r['value']:return False
             if r['url'] in hashes and hashes[r['url']]!=r['source_sha256']:return False
