@@ -1,0 +1,27 @@
+{
+  "observed_at": "2026-11-07T06:32:37.830312+00:00",
+  "sources": [
+    {
+      "code": "sp500",
+      "url": "https://en.wikipedia.org/w/api.php?action=parse&page=List_of_S%26P_500_companies&prop=text%7Crevid%7Cdisplaytitle&redirects=1&format=json&formatversion=2",
+      "status": 200,
+      "bytes": 302069,
+      "sha256": "1001f2ab1960816799dcfa1dccb3bddca25194fb1a513afc1fa40d8183108cd3",
+      "revision": 1383776342
+    },
+    {
+      "code": "nasdaq100",
+      "url": "https://en.wikipedia.org/w/api.php?action=parse&page=List_of_NASDAQ-100_companies&prop=text%7Crevid%7Cdisplaytitle&redirects=1&format=json&formatversion=2",
+      "status": 200,
+      "bytes": 101276,
+      "sha256": "6ce86221ed680eb3ef4a7cfdafd6d826f4b07bd4eeb1da06177eeda37c6a0e17",
+      "revision": 1381716526
+    }
+  ],
+  "active_baseline": {
+    "bytes": 353741,
+    "sha256": "a56c2df42c13eb4d3e14ba539f471ff8cb1883b020913055a0fb0c744beb651c",
+    "rows": 606,
+    "production_writes": 0
+  }
+}

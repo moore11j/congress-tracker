@@ -6,7 +6,8 @@ import sys
 
 from app.db import Base, SessionLocal, engine, ensure_market_pressure_snapshot_schema, ensure_price_cache_volume_columns, ensure_quote_cache_market_cap_schema
 from app.models import FundamentalsCache, IndexMembership, MarketPressureSnapshot, PriceCache, QuoteCache, Security, TickerMeta
-from app.services.market_pressure_ingest import refresh_market_pressure_snapshots
+from app.services.market_pressure_ingest import is_market_hours, refresh_market_pressure_snapshots
+from app.services.index_memberships import refresh_due_wikipedia_memberships
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ def run(
     selected = None if all_universes else universes
     db = SessionLocal()
     try:
+        if force or not market_hours_only or is_market_hours():
+            memberships = refresh_due_wikipedia_memberships(db, universes=selected)
+            logger.info("market_pressure_membership_checks results=%s", [result.__dict__ for result in memberships])
         results = refresh_market_pressure_snapshots(
             db,
             universes=selected,
