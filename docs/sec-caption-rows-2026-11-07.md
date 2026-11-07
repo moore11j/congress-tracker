@@ -1,0 +1,11 @@
+# Explicit adjacent statement captions, November 7, 2026
+
+Eltek's August 18, 2026 SEC release places each statement's issuer, consolidated title and USD scale in a separate three-row caption table immediately before the values. The existing parser did not connect those captions to the values. Its explicit US GAAP reporting declaration was also outside the accepted wording.
+
+The shared reader now accepts this exact adjacent layout with independently matching issuer, unadjusted consolidated title and explicit US dollar scale. It does not cross substantive content or infer currency, parent ownership, missing values or accounting policy. The added GAAP clause is admitted only when the older declaration parser finds no supported clause, preserving existing evidence output. Non-GAAP reconciliation tables remain excluded.
+
+Three complete originals are retained with sizes and SHA256 hashes in `backend/tests/fixtures/sec_caption_rows_nov7`. The current statement recovers 20 USD observations across three statements, including separate quarterly and six-month revenue, consolidated income and operating cash flow. Quarterly revenue is $11.534 million; six-month revenue is $21.970 million. The existing financial-panel and fundamentals consumers repeat exactly, retain partial status and do not manufacture TTM, parent income or free cash flow. This is one qualified filing, not acceptance of the whole issuer scan or broad financial cutover.
+
+Only older held receipts with relevant financial-hint/accounting-basis failures retry through the existing bounded collection schedule. Successful receipts and unrelated holds retain their existing behavior. No schedule, collection budget, provider flag or publication gate changes.
+
+Validation before release: 18 focused original/consumer/cache/hold tests and 54 existing layout/reporting tests pass locally. The Linux financial workflow includes the new cases for current-revision regression validation. Deployment, installed-original proof and ordinary recovery remain pending.

@@ -581,4 +581,6 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
         available_by=available_by,_layout=True)
     if not clean_recovery(recovered):return result
     recovered['source']['statement_layout_policy']=layout.POLICY
+    if any(len(t['heading'])==3 and re.fullmatch(r'U\.?S\.? dollars in (?:thousands|millions)(?: \(except per share data\))?',t['heading'][-1],re.I) for t in recovered['tables']):
+        recovered['source']['statement_caption_rows_policy']=layout.CAPTION_ROWS_POLICY
     return recovered
