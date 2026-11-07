@@ -134,7 +134,7 @@ def test_known_nickname_does_not_authorize_unreviewed_spelling():
 
 
 @pytest.mark.parametrize('damage',[None,'raw','parsed','manifest','stale','retired'])
-def test_staged_inspector_revalidates_sources_and_does_not_write(bundle,damage):
+def test_staged_inspector_revalidates_sources_and_does_not_write(bundle,damage,monkeypatch):
     from datetime import timedelta
     from sqlalchemy import create_engine,select,func
     from sqlalchemy.orm import Session
@@ -144,6 +144,8 @@ def test_staged_inspector_revalidates_sources_and_does_not_write(bundle,damage):
     from app.services.senate_backup_collection import stage_bundle,FEED
     from app.services.senate_backup_reconciliation import inspect_staged
     from test_senate_backup_evidence import NOW
+    # Keep the captured snapshot older than the deliberately newer scope below.
+    monkeypatch.setattr('app.services.direct_feed_store.utcnow', lambda: NOW)
     engine=create_engine('sqlite:///:memory:');Base.metadata.create_all(engine)
     with Session(engine) as db:
         stage_bundle(db,bundle,now=NOW);db.commit()
