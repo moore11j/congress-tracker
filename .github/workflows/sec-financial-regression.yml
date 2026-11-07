@@ -86,6 +86,7 @@ jobs:
           tests/test_sec_duplicate_overlap.py
           tests/test_sec_inline_financials.py
           tests/test_sec_primary_income.py
+          tests/test_sec_primary_layout.py
           tests/test_sec_inline_fiscal_periods.py
           tests/test_sec_debt_precision.py
           tests/test_sec_depreciation_components.py

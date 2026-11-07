@@ -1,0 +1,30 @@
+{
+  "sources": {
+    "company.json": {
+      "url": "https://data.sec.gov/submissions/CIK0000804328.json",
+      "bytes": 160418,
+      "sha256": "af9b24add8492c2c44b63298ede3ee9dad6aece9755415e7be1beda792ece29c",
+      "file": "QCOM-company.json.gz"
+    },
+    "facts.json": {
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000804328.json",
+      "bytes": 4437930,
+      "sha256": "94dcddda02f3722dcdb325770eb0726c01a95bf304b47ba6255fbddceaca19f0",
+      "file": "QCOM-facts.json.gz"
+    },
+    "primary.htm": {
+      "url": "https://www.sec.gov/Archives/edgar/data/804328/000080432826000128/qcom-20260927.htm",
+      "bytes": 1917176,
+      "sha256": "92c42544a1a01304616489608cf03aef2a280836d787cfbd0defb29bb9a5a578",
+      "file": "QCOM-primary.htm.gz"
+    }
+  },
+  "filing": {
+    "cik": "0000804328",
+    "accession": "0000804328-26-000128",
+    "form": "10-K",
+    "filed": "2026-11-04",
+    "report_date": "2026-09-27",
+    "url": "https://www.sec.gov/Archives/edgar/data/804328/000080432826000128/qcom-20260927.htm"
+  }
+}

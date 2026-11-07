@@ -9,6 +9,17 @@ import re
 from app.services import sec_tabular_financials as tables
 
 
+def shared_annual_header(header, rows):
+    """Corroborate a lone printed annual heading with each column's XBRL period."""
+    durations={tables.clean(c['text']).lower() for row in rows for c in row
+               if re.search(r'\b(?:months?|years?|quarters?|weeks?|periods?)\b',c['text'],re.I)}
+    if (len(durations)==1 and next(iter(durations)) in
+            {'year ended','years ended','for the year ended','for the years ended'}
+            and not re.search(r'\b(?:months?|years?|quarters?|weeks?|periods?)\b',header,re.I)):
+        return next(iter(durations))+' '+header
+    return header
+
+
 def resolve(header,kind,filed,periods):
     def held():raise tables.TabularFinancialError('inline_fiscal_period_unproved')
     if kind!='income':held()

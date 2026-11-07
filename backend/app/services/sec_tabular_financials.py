@@ -438,8 +438,8 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
                 start,finish,months=column_period(header,texts,shared_periods,kind,filed)
             except TabularFinancialError as exc:
                 if _fiscal_periods is None or str(exc)!='column_duration_unsupported':raise
-                from app.services.sec_inline_fiscal_periods import resolve
-                start,finish,months=resolve(header,kind,filed,_fiscal_periods)
+                from app.services.sec_inline_fiscal_periods import resolve, shared_annual_header
+                start,finish,months=resolve(shared_annual_header(header,header_rows),kind,filed,_fiscal_periods)
         if periods_only:
             columns.append({'start':str(start) if start else None,'end':str(finish),'months':months,'header':texts})
             continue
