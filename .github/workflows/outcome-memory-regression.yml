@@ -1,0 +1,35 @@
+name: Outcome Memory Regressions
+on:
+  pull_request:
+    paths:
+      - "backend/app/ingest_run.py"
+      - "backend/app/services/outcome_horizon_repair.py"
+      - "backend/tests/test_outcome_hydrator_memory.py"
+      - "backend/tests/test_outcome_integrity.py"
+      - ".github/workflows/outcome-memory-regression.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  outcome-memory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite://
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - working-directory: backend
+        run: python -m pytest tests/test_outcome_integrity.py tests/test_outcome_hydrator_memory.py tests/test_outcome_hydration_continuation.py tests/test_daily_outcome_repair.py tests/test_ingest_run.py -q --disable-warnings --junitxml=outcome-memory.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outcome-memory-results
+          path: backend/outcome-memory.xml
+          retention-days: 7

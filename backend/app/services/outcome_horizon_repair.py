@@ -42,7 +42,19 @@ def _repair_public_outcome_horizons(db: Session, *, as_of: date, max_seconds: fl
     cached = materialize_cached_outcome_horizons(db, as_of=as_of)
     db.commit()
     entries = {row.snapshot_id: row for row in db.scalars(select(OutcomeEntry)).all()}
-    snapshots = db.scalars(select(ConfirmationScoreSnapshot).where(ConfirmationScoreSnapshot.calculation_type == "live")).all()
+    # Event grouping only needs these scalars. Loading the complete immutable
+    # score records also materializes every historical source-evidence blob.
+    # Plain rows cannot trigger deferred ORM loads during projection.
+    snapshots = db.execute(select(
+        ConfirmationScoreSnapshot.id,
+        ConfirmationScoreSnapshot.security_id,
+        ConfirmationScoreSnapshot.calculation_type,
+        ConfirmationScoreSnapshot.calculated_at,
+        ConfirmationScoreSnapshot.market_date,
+        ConfirmationScoreSnapshot.direction,
+        ConfirmationScoreSnapshot.score,
+        ConfirmationScoreSnapshot.active_source_count,
+    ).where(ConfirmationScoreSnapshot.calculation_type == "live")).all()
     events = _project_directional_outcome_events(snapshots, verified_snapshot_ids=set(entries))
     observed = defaultdict(list)
     for row in db.scalars(select(OutcomeHorizonObservation)).all():
