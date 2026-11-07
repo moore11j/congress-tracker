@@ -5,6 +5,8 @@ on:
       - "backend/app/main.py"
       - "backend/app/services/public_ticker_snapshot.py"
       - "backend/tests/test_public_ticker*.py"
+      - "frontend/lib/api.ts"
+      - "frontend/tests/ticker-fetch-freshness.test.mjs"
       - ".github/workflows/public-ticker-regression.yml"
   workflow_dispatch:
 permissions:
@@ -32,3 +34,17 @@ jobs:
           name: public-ticker-results
           path: backend/public-ticker-results.xml
           retention-days: 7
+  ticker-fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - working-directory: frontend
+        run: node --test tests/ticker-fetch-freshness.test.mjs tests/ticker-context-bundle.test.mjs tests/ticker-edge-cache.test.mjs
