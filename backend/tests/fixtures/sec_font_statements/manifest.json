@@ -1,0 +1,40 @@
+{
+  "symbol": "BLDP",
+  "cik": "0001453015",
+  "available_by": "2026-11-06",
+  "candidate": {
+    "accession": "0001628280-26-051245",
+    "cik": "0001453015",
+    "cover_url": "https://www.sec.gov/Archives/edgar/data/1453015/000162828026051245/bldp063026-6k.htm",
+    "filed": "2026-07-31",
+    "form": "6-K",
+    "report_date": "2026-06-30",
+    "symbol": "BLDP"
+  },
+  "sources": [
+    {
+      "file": "BLDP-company.json.gz",
+      "url": "https://data.sec.gov/submissions/CIK0001453015.json",
+      "bytes": 143925,
+      "sha256": "c16dd50a0a38e49ca817ececde47af23f637320a35ed88f262fea3995920a93f"
+    },
+    {
+      "file": "BLDP-facts.json.gz",
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001453015.json",
+      "bytes": 500787,
+      "sha256": "1481c9d799a29a0299b7cea602735325d7e300663820ad89efc876021e2bbbe8"
+    },
+    {
+      "file": "BLDP-0001628280-26-051245-0.htm.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/1453015/000162828026051245/bldp063026-6k.htm",
+      "bytes": 16113,
+      "sha256": "7b179686cff852955ba0a363d03af2591bcde88cbd356b90dc7425792164742a"
+    },
+    {
+      "file": "BLDP-0001628280-26-051245-1.htm.gz",
+      "url": "https://www.sec.gov/Archives/edgar/data/1453015/000162828026051245/bldp063026-ex991fs.htm",
+      "bytes": 545812,
+      "sha256": "73846873c11b567ff05af89a0a9430033236f365caaf002d0ca4150cdc24850f"
+    }
+  ]
+}

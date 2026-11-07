@@ -317,10 +317,19 @@ def amount(cells,start,end,scale):
     return float(value)
 
 
-def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False,_layout=False,_fiscal_periods=None):
+def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False,_layout=False,_fiscal_periods=None,_font=False):
     rows=grid(table)
     if not rows:return None
     local=preceding_text(table, nonempty=_nonempty_context)
+    def kind_for(value):
+        if _font:
+            from app.services.sec_statement_font_context import table_kind as font_kind
+            return font_kind(value)
+        return table_kind(value,expanded=_expanded)
+    if _font:
+        from app.services.sec_statement_font_context import context
+        local=context(table,issuer)
+        if local is None:return None
     if _layout:
         from app.services.sec_statement_layout import context
         local=context(table,issuer)
@@ -339,7 +348,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     caption_pattern=CAPTION if _expanded else r'consolidated (?:(?:interim|condensed) )?(?:balance sheets?|statements? of)'
     captions=[(i,b) for i,b in enumerate(identity_blocks) if re.search(caption_pattern,b,re.I)]
     if not captions:return None
-    caption_index,caption=captions[-1];kind=table_kind(caption,expanded=_expanded)
+    caption_index,caption=captions[-1];kind=kind_for(caption)
     if (kind is None and re.search(r'consolidated (?:(?:interim|condensed) )?statements? of comprehensive$',caption,re.I)
             and caption_index+1<len(identity_blocks)
             and re.fullmatch(r'(?:income|loss)',identity_blocks[caption_index+1],re.I)):
@@ -347,7 +356,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
         # exact missing final word, retaining the original blocks in evidence.
         caption=caption+' '+identity_blocks[caption_index+1]
         identity_blocks[caption_index:caption_index+2]=[caption]
-        kind=table_kind(caption,expanded=_expanded)
+        kind=kind_for(caption)
     if kind is None:return None
     issuer_key=company_key(issuer)
     if any(company_key(b)==issuer_key for b in identity_blocks[caption_index+1:]):
@@ -360,7 +369,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
         return neutral_context(value,table_kind,statement_prefix,statement_layout_context)
 
     for index,block in enumerate(identity_blocks):
-        if table_kind(block,expanded=_expanded) != kind:
+        if kind_for(block) != kind:
             continue
         prefix=statement_prefix(block)
         if not prefix and document_scope and company_key(document_scope.get('issuer',''))==issuer_key and all(scoped_context(v) for v in identity_blocks[:index] if v.strip()):
@@ -375,7 +384,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     if not issuer_key or not identified or not identified[-1]:
         if not _nonempty_context:
             return parse_table(table,issuer=issuer,filed=filed,document_scope=document_scope,
-                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True,_expanded=_expanded,_layout=_layout,_fiscal_periods=_fiscal_periods)
+                currency_scope=currency_scope,periods_only=periods_only,_nonempty_context=True,_expanded=_expanded,_layout=_layout,_fiscal_periods=_fiscal_periods,_font=_font)
         raise TabularFinancialError('table_issuer_unproved')
     scales={Decimal('1000') for _ in re.finditer(r'\bin thousands\b',intro,re.I)}
     scales.update(Decimal('1000000') for _ in re.finditer(r'\bin (?:[€£¥]\s+|USD |EUR |CHF )?millions\b',intro,re.I))
@@ -446,10 +455,17 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
                         'start':str(start) if start else None,'end':str(finish),'months':months,'currency':next(iter(unit)),
                         'scale':int(scale),'header':texts})
     if periods_only:return {'kind':kind,'columns':columns,'heading':local}
+    revenue_rows={};revenue_proof=None
+    if _font:
+        from app.services.sec_statement_font_context import revenue_rows as prove_revenue
+        revenue_rows,revenue_proof=prove_revenue(rows,columns,kind)
     observations=[];holds=[]
     for row_number,row in enumerate(rows[boundary:],boundary):
         if not row:continue
         label=row[0]['text'];metric=metric_for(label,kind,issuer,expanded=_expanded)
+        if row_number in revenue_rows:metric=revenue_rows[row_number]
+        if _font and kind=='income' and clean(label).lower()=='net loss for the period':
+            metric='consolidated_income'
         if _layout and kind=='income' and clean(label).lower()=='net income for the period':
             metric='consolidated_income'
         if not metric:continue
@@ -461,6 +477,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
             observations.append({'metric':metric,'value':value,'label':label,'row':row_number,**col})
     if not observations:return None
     result={'kind':kind,'heading':local,'columns':columns,'observations':observations,'holds':holds}
+    if revenue_proof is not None:result['revenue_total_proof']=revenue_proof
     if scope_used:result['document_scope']=document_scope
     if currency_used:result['currency_scope']=currency_scope
     return result
@@ -487,7 +504,7 @@ def inspect_statement_period(raw,*,issuer,filed):
             'source_sha256':hashlib.sha256(raw).hexdigest(),'financial_values_qualified':False}
 
 
-def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by,_expanded=False,_layout=False):
+def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by,_expanded=False,_layout=False,_font=False):
     from app.services.sec_document_sets import candidates
     from app.services.sec_statement_currency import source_identity
     if not isinstance(raw,bytes) or not raw or len(raw)>MAX_BYTES:raise TabularFinancialError('source_size')
@@ -516,7 +533,7 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
             for attempt in range(3):
                 try:
                     quoted=bool(table.xpath('ancestor::blockquote'))
-                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope,_expanded=_expanded,_layout=_layout)
+                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope,_expanded=_expanded,_layout=_layout,_font=_font)
                 except TabularFinancialError as exc:
                     # New grammar requires the explicit local company and
                     # currency context. Legacy document-wide declarations
@@ -558,8 +575,12 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
                 'Missing or ambiguous columns remain held; no values or zero amounts are inferred.']}
 
     from app.services.sec_statement_sections import extend
-    if _expanded or _layout:return result
+    if _expanded or _layout or _font:return result
     result=extend(result,raw,company_raw)
+    from app.services.sec_statement_font_context import recover
+    recovered=recover(result,tree,raw,source_url=source_url,company_raw=company_raw,
+        cover_raw=cover_raw,cover_url=cover_url,symbol=symbol,cik=cik,available_by=available_by)
+    if recovered is not None:return recovered
     # Recover a previously empty, unambiguous document only. Existing facts,
     # numeric conflicts and qualification holds retain their exact output.
     if result['facts'] or result['holds'] or result['conflicts']:return result
