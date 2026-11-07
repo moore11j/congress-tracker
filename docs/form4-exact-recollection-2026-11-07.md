@@ -1,0 +1,11 @@
+# Exact published Form 4 recollection
+
+The November 7 coverage audit found 75 already published Form 4 documents in quarantine. Ordinary recollection compares economic fields and sees multiple possible matches when an original contains separate, economically identical lots. Publication already preserved distinct occurrence hashes, but recollection did not use the existing verified receipt to recognize them.
+
+All 75 complete retained SEC originals were re-parsed against current production canonical records in bounded read-only transactions. They contain 699 source rows. Every field, occurrence identity and canonical publication hash matches; every projection repeats exactly. Final candidate receipt `form4-exact-recollection-1794020515.json` binds source SHA-256 `19d9f49c18e521ef23b79507cf72f3bc2ae5bd7be924f48c48de6590f56c7c4e`. No production record, provider request or email was generated.
+
+The collection-only fallback requires a published direct-source receipt, matching current source owner/generation/cutoff, the same original bytes and metadata, unchanged complete canonical receipt, exact row/event counts, unique occurrence hashes and equality of every parsed transaction field. It recognizes the existing one-to-one rows without updating canonical transactions, events, dates, alerts or receipts. Missing, altered or legacy evidence retains the ordinary reconciliation hold. Amendment and joint-owner parse holds remain unchanged.
+
+Tests exercise ordinary collection followed by publisher repeat twice, complete canonical-state equality, separate identical lots and negative controls for changed prices, dates, sources, metadata, owner/generation/cutoff, row populations, duplicate flags, occurrence IDs and receipt evidence. The final expanded local selection passes all168 checks in83.22seconds, including22 new cases. Linux release checks, installed proof and ordinary recollection recovery remain to verify.
+
+This repairs repeat integrity for records already present. It does not claim coverage for the 99 unattempted legacy discrepancy cases, joint-owner filings, amendments, incomplete identities or holding-only documents identified by the separate audit. No source switch, new schedule, backfill or customer message is included.

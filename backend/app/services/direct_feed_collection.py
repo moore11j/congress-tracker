@@ -357,6 +357,13 @@ def collect_direct_feeds(db, client, *, sources=SOURCES, start, end, symbols=(),
                     else:
                         document.reconciliation_json = dumps(reconcile_congress(db, parsed))
                 reconciliation = json.loads(document.reconciliation_json or "{}")
+                if (feed == 'sec_form4' and not reasons and
+                        (reconciliation.get('ambiguous') or reconciliation.get('existing_only_ids'))):
+                    from app.services.sec_form4_recollection import reconcile_published_original
+                    verified = reconcile_published_original(db, document, raw, parsed)
+                    if verified is not None:
+                        reconciliation = verified
+                        document.reconciliation_json = dumps(verified)
                 if reconciliation.get("ambiguous") or reconciliation.get("existing_only_ids"):
                     document.status = "quarantined"
                     document.error = "; ".join(filter(None, [document.error,

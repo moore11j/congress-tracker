@@ -1,0 +1,45 @@
+name: Form 4 Exact Recollection
+on:
+  pull_request:
+    paths:
+      - 'backend/app/services/sec_form4_recollection.py'
+      - 'backend/app/services/direct_feed_collection.py'
+      - 'backend/tests/test_form4_exact_recollection.py'
+      - '.github/workflows/form4-exact-recollection.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  form4-exact-recollection:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite://
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest httpx==0.28.1
+      - working-directory: backend
+        run: >-
+          python -m pytest
+          tests/test_form4_exact_recollection.py
+          tests/test_direct_feeds.py
+          tests/test_direct_feed_worker.py
+          tests/test_direct_feed_rehearsal.py
+          tests/test_direct_feed_alert_parity.py
+          tests/test_form4_distinct_owner_evidence.py
+          tests/test_official_disclosure_pipelines.py
+          tests/test_event_availability.py
+          tests/test_direct_sec_collection.py
+          -q --disable-warnings --junitxml=form4-recollection.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: form4-recollection-results
+          path: backend/form4-recollection.xml
+          retention-days: 7
