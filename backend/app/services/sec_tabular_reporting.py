@@ -46,6 +46,11 @@ def declaration(raw, observations):
                if not re.search(r'\b(?:not|never|unlike)\b', m.group(0), re.I)
                and not re.search(r'\b(?:not|never|unlike)\s+(?:\w+\s+){0,3}$',
                                  text[max(0,m.start()-70):m.start()],re.I)]
+    if not matches:
+        reported = r'\bThe (?:Company|Group) reports financial results in accordance with\s+' + standard
+        matches = [m.group(0) for m in re.finditer(reported,text,re.I)
+                   if not re.search(r'\b(?:not|never|unlike|hypothetical|if)\s+(?:\w+\s+){0,6}$',
+                                    text[max(0,m.start()-70):m.start()],re.I)]
     from app.services.sec_statement_declarations import declarations, POLICY
     ifrs_matches = declarations(text)
     accounting_basis = 'US GAAP'

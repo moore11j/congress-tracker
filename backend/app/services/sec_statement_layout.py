@@ -2,6 +2,7 @@
 import re
 
 POLICY='adjacent_statement_layout_v1'
+CAPTION_ROWS_POLICY='explicit_adjacent_statement_caption_rows_v1'
 RETRY_REASONS={'financial_hint_not_qualified','table_accounting_basis_unproved'}
 
 
@@ -20,6 +21,15 @@ def context(table,issuer):
         if not text and node.tag in {'p','div'} and not node.xpath('.//table'):continue
         if node.tag!='table' or node.xpath('.//table') or node.xpath('ancestor::blockquote'):return None
         rows=tab.grid(node)
+        if len(rows)==3 and all(len(row)==1 and row[0]['start']==0 and row[0]['end']==1 for row in rows):
+            blocks=[row[0]['text'] for row in rows]
+            from app.services.sec_statement_declarations import unnamed_heading
+            if tab.table_kind(blocks[1]) is None:return None
+            if not unnamed_heading(blocks[1]) or tab.company_key(blocks[0])!=tab.company_key(issuer):
+                raise tab.TabularFinancialError('layout_statement_owner_unproved')
+            if not re.fullmatch(r'U\.?S\.? dollars in (?:thousands|millions)(?: \(except per share data\))?',blocks[2],re.I):
+                raise tab.TabularFinancialError('layout_currency_caption_unproved')
+            return blocks
         if len(rows)!=1 or sum(bool(c['text']) for c in rows[0])!=1:return None
         blocks=[tab.visible_text(n) for n in node.xpath('.//p') if tab.visible_text(n)]
         if len(blocks) not in {3,4} or len(text)>700:return None

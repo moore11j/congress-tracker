@@ -132,6 +132,9 @@ def validate_receipt(receipt,cover,*,now):
             from app.services.sec_statement_layout import POLICY as layout_policy, RETRY_REASONS as layout_reasons
             if any(h['reason'] in layout_reasons for h in holds) and receipt.get('statement_layout_policy')!=layout_policy:
                 return None
+            from app.services.sec_statement_layout import CAPTION_ROWS_POLICY
+            if any(h['reason'] in layout_reasons for h in holds) and receipt.get('statement_caption_rows_policy')!=CAPTION_ROWS_POLICY:
+                return None
         return deepcopy(receipt)
     except (ValueError,TypeError,KeyError,AttributeError) as exc:
         raise discovery.DiscoveryError('discovery_qualification_invalid') from exc
@@ -332,5 +335,7 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
         from app.services.sec_statement_layout import POLICY as layout_policy, RETRY_REASONS as layout_reasons
         if any(h['reason'] in layout_reasons for h in receipt['holds']):
             receipt['statement_layout_policy']=layout_policy
+            from app.services.sec_statement_layout import CAPTION_ROWS_POLICY
+            receipt['statement_caption_rows_policy']=CAPTION_ROWS_POLICY
     receipt=validate_receipt(receipt,hint,now=observed_at)
     return {'receipt':receipt,'supplement':supplement}

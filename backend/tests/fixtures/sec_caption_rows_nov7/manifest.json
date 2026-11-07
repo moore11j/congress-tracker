@@ -1,0 +1,25 @@
+{
+  "symbol": "ELTK",
+  "cik": "0001024672",
+  "available_by": "2026-11-06",
+  "cover_url": "https://www.sec.gov/Archives/edgar/data/1024672/000117891326004176/zk2635980.htm",
+  "statement_url": "https://www.sec.gov/Archives/edgar/data/1024672/000117891326004176/exhibit_99-1.htm",
+  "originals": {
+    "https://www.sec.gov/Archives/edgar/data/1024672/000117891326004176/exhibit_99-1.htm": {
+      "file": "original-0.gz",
+      "bytes": 117252,
+      "sha256": "7fa04b8ac81fa654fa06aff44842abfdc3f3a009c2a0ca02efa9afa4f015ee10"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1024672/000117891326004176/zk2635980.htm": {
+      "file": "original-1.gz",
+      "bytes": 9720,
+      "sha256": "d97ecf9b42e29da3ecfb897d50a22cabb820e68923ef0f5cb882486cb35152ec"
+    },
+    "https://data.sec.gov/submissions/CIK0001024672.json": {
+      "file": "original-2.gz",
+      "bytes": 79608,
+      "sha256": "80f66de0d9f92d54c2fa7b2b0c05a3c45a7cc3b919ba9195e1be5b4078ee61f9"
+    }
+  },
+  "company_url": "https://data.sec.gov/submissions/CIK0001024672.json"
+}
