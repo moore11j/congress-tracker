@@ -3027,7 +3027,7 @@ async function DeferredTickerContent({
   const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending;
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
   const closeDate = formatDateShort(priceVolumeContext?.latest_date ?? null);
-  const closeObservation = closeDate === "—" ? "Closing date unavailable" : `Close as of ${closeDate}`;
+  const closeObservation = closeDate === "—" ? "Price date unavailable" : `Price as of ${closeDate}`;
   const priceVolumeChange = typeof priceVolumeContext?.change_pct_1d === "number" ? priceVolumeContext.change_pct_1d : null;
   const priceVolumeChangeTone = priceVolumeChange === null
     ? "text-slate-500"
@@ -3474,7 +3474,7 @@ showGovernmentContracts ? (
             mobileQuote={
               <div aria-label="Price and volume summary" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-white/10 bg-slate-950/40 px-4 py-3 xl:hidden">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Latest close · {normalizedSymbol}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Latest available price · {normalizedSymbol}</p>
                   <p className="text-xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)} <span className={`ml-2 text-xs ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)} <span className="text-slate-500">1D</span></span></p>
                   <p className="mt-1 text-xs text-slate-400">{closeObservation}</p>
                 </div>
