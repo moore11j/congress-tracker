@@ -62,6 +62,8 @@ MACRO_AI_SUMMARY_MODEL = "MACRO_AI_SUMMARY_MODEL"
 MACRO_AI_SUMMARY_MAX_CHARS = 520
 MACRO_TICKER_INTERPRETATION_MODEL = "MACRO_TICKER_INTERPRETATION_MODEL"
 DEFAULT_MACRO_TICKER_INTERPRETATION_MODEL = "gpt-5.4-nano"
+MACRO_REFRESH_BATCH_SIZE = 50
+MACRO_COMMENTARY_MAX_REQUESTS = 3
 MACRO_IMPACT_SCORES = {
     "STRONG_TAILWIND": 2,
     "TAILWIND": 1,
@@ -379,7 +381,7 @@ def locked_insights_macro_positioning_payload() -> dict[str, Any]:
     }
 
 
-def get_insights_macro_positioning(db: Session) -> dict[str, Any]:
+def get_insights_macro_positioning(db: Session, *, prepare_summary: bool = False) -> dict[str, Any]:
     if not macro_positioning_feature_enabled(db):
         return _insights_unavailable_payload(status="unavailable", message="Macro positioning is temporarily unavailable.")
 
@@ -404,7 +406,7 @@ def get_insights_macro_positioning(db: Session) -> dict[str, Any]:
     latest_positioning_date = max((market["positioning_date"] for market in markets if market.get("positioning_date")), default=None)
     stale = _is_stale_positioning_date(latest_positioning_date)
     updated_at = (max(fetched_dates) if fetched_dates else max(updated_dates) if updated_dates else datetime.now(timezone.utc)).isoformat()
-    summary = _market_picture_summary(db, markets)
+    summary = _market_picture_summary(db, markets, generate=prepare_summary)
     return {
         "status": "stale" if stale else "available",
         "entitlement": {"required_plan": "pro", "unlocked": True},
@@ -964,7 +966,7 @@ def _insights_positioning_summary(markets: list[dict[str, Any]]) -> str:
     return " ".join(parts)
 
 
-def _market_picture_summary(db: Session, markets: list[dict[str, Any]]) -> dict[str, str | None]:
+def _market_picture_summary(db: Session, markets: list[dict[str, Any]], *, generate: bool = False) -> dict[str, str | None]:
     """Return one cached model synthesis for the exact current positioning set."""
     fallback = _insights_positioning_summary(markets)
     fingerprint = _market_picture_fingerprint(markets)
@@ -978,6 +980,9 @@ def _market_picture_summary(db: Session, markets: list[dict[str, Any]]) -> dict[
                 "generated_at": cached_payload.get("generated_at") if isinstance(cached_payload.get("generated_at"), str) else None,
             }
 
+    if not generate:
+        return {"text": fallback, "source": "derived", "generated_at": None}
+
     # ai_marketing imports confirmation-score, which imports this module. Keep
     # this dependency lazy so normal application startup never forms a cycle.
     from app.services.ai_marketing import OPENAI_API_KEY, resolved_setting_value
@@ -988,6 +993,9 @@ def _market_picture_summary(db: Session, markets: list[dict[str, Any]]) -> dict[
 
     try:
         model = os.getenv(MACRO_AI_SUMMARY_MODEL, "").strip() or DEFAULT_MACRO_AI_SUMMARY_MODEL
+        # Scheduled preparation has already saved source and ticker data.
+        # Release the settings lookup transaction before waiting on the model.
+        db.commit()
         text = _generate_market_picture_summary(db, api_key=api_key, model=model, markets=markets)
         if not text:
             raise ValueError("OpenAI macro summary response was empty.")
@@ -1003,8 +1011,8 @@ def _market_picture_summary(db: Session, markets: list[dict[str, Any]]) -> dict[
         db.commit()
         return {"text": text, "source": "openai", "generated_at": generated_at}
     except Exception:
-        # Positioning remains usable even during an API outage; the next request
-        # retries the model synthesis rather than persisting a generic fallback.
+        # Positioning remains usable during an outage. Scheduled preparation can
+        # retry; public requests keep using the deterministic fallback.
         logger.exception("macro_positioning_ai_summary_failed")
         db.rollback()
         return {"text": fallback, "source": "derived", "generated_at": None}
@@ -1280,23 +1288,36 @@ def refresh_macro_positioning_cache(
     generated_at = datetime.now(timezone.utc)
     refreshed = 0
     skipped = 0
-    for symbol in normalized_symbols:
-        mapping = _mapping_for_symbol(db, symbol)
+    # Persist deterministic facts before optional text generation. A failed
+    # model request rolls its own transaction back and must not erase data.
+    commentary = []
+    for index, symbol in enumerate(normalized_symbols):
+        if index % MACRO_REFRESH_BATCH_SIZE == 0:
+            db.commit()
+            batch = normalized_symbols[index:index + MACRO_REFRESH_BATCH_SIZE]
+            profiles = _profiles_for_symbols(db, batch)
+            previous_rows = {r.symbol: r for r in db.scalars(select(MacroPositioningCache).where(MacroPositioningCache.symbol.in_(batch)))}
+        profile = profiles[symbol]
+        mapping = _mapping_for_profile(profile)
         if mapping is None:
             skipped += 1
             continue
-        interpreted = _interpret_mapping(symbol, mapping, assets, profile=_profile_for_symbol(db, symbol), updated=updated, generated_at=generated_at)
+        interpreted = _interpret_mapping(symbol, mapping, assets, profile=profile, updated=updated, generated_at=generated_at)
         if interpreted is None:
             skipped += 1
             continue
-        row = db.get(MacroPositioningCache, symbol)
+        row = previous_rows.get(symbol)
         interpreted = _apply_cached_ticker_interpretation(
             db,
             symbol=symbol,
-            profile=_profile_for_symbol(db, symbol),
+            profile=profile,
             interpreted=interpreted,
             previous=row,
+            generate=False,
         )
+        if len(commentary) < MACRO_COMMENTARY_MAX_REQUESTS and not any(f.get('interpretation_source') == 'openai' for f in interpreted['drivers']):
+            from copy import deepcopy
+            commentary.append((symbol, profile, deepcopy(interpreted)))
         if row is None:
             row = MacroPositioningCache(symbol=symbol, summary=interpreted["summary"], updated=updated, generated_at=generated_at)
             db.add(row)
@@ -1312,7 +1333,23 @@ def refresh_macro_positioning_cache(
         row.source_refresh_at = interpreted["source_refresh_at"]
         refreshed += 1
     db.commit()
-    return {"status": "ok", "refreshed": refreshed, "skipped": skipped, "updated": updated.isoformat()}
+    attempted = enriched = 0
+    for symbol, profile, interpreted in commentary:
+        attempted += 1
+        enriched_value = _apply_cached_ticker_interpretation(
+            db, symbol=symbol, profile=profile, interpreted=interpreted, previous=None)
+        if not any(f.get('interpretation_source') == 'openai' for f in enriched_value['drivers']):
+            db.rollback()
+            break
+        row = db.scalar(select(MacroPositioningCache).where(MacroPositioningCache.symbol == symbol).with_for_update())
+        # A concurrent source refresh must not receive older commentary.
+        if row is not None and row.generated_at.replace(tzinfo=timezone.utc) == generated_at:
+            row.summary = enriched_value['summary']
+            row.drivers_json = json.dumps(enriched_value['drivers'], separators=(",", ":"))
+            enriched += 1
+        db.commit()
+    return {"status": "ok", "refreshed": refreshed, "skipped": skipped, "updated": updated.isoformat(),
+            "commentary_attempted": attempted, "commentary_enriched": enriched}
 
 
 def _known_symbols(db: Session) -> list[str]:
@@ -1347,7 +1384,10 @@ def _latest_asset_date(assets: dict[str, dict[str, Any]]) -> date | None:
 
 
 def _mapping_for_symbol(db: Session, symbol: str) -> MacroMapping | None:
-    profile = _profile_for_symbol(db, symbol)
+    return _mapping_for_profile(_profile_for_symbol(db, symbol))
+
+
+def _mapping_for_profile(profile: dict[str, Any]) -> MacroMapping | None:
     config = load_macro_positioning_mappings()
     asset_class = str(profile.get("asset_class") or "").strip().lower()
     sector = str(profile.get("sector") or "").strip().lower()
@@ -1367,6 +1407,31 @@ def _profile_for_symbol(db: Session, symbol: str) -> dict[str, Any]:
     meta = db.execute(select(TickerMeta).where(func.upper(TickerMeta.symbol) == symbol).limit(1)).scalar_one_or_none()
     from app.services.fundamentals_cache import cached_fundamentals_by_symbol
     fundamentals = cached_fundamentals_by_symbol(db, [symbol]).get(symbol)
+    return _profile_from_rows(symbol, security, meta, fundamentals)
+
+
+def _profiles_for_symbols(db: Session, symbols: list[str]) -> dict[str, dict[str, Any]]:
+    """Bounded metadata reads with the same selected-provider precedence."""
+    if len(symbols) > MACRO_REFRESH_BATCH_SIZE:
+        raise ValueError('Macro profile batch exceeds limit')
+    from app.services.fundamentals_cache import cached_fundamentals_by_symbol
+    groups = []
+    ambiguous = set()
+    for model in (Security, TickerMeta):
+        rows = {}
+        for row in db.scalars(select(model).where(func.upper(model.symbol).in_(symbols))):
+            key = row.symbol.upper()
+            if key in rows:
+                ambiguous.add(key)
+            rows[key] = row
+        groups.append(rows)
+    fundamentals = cached_fundamentals_by_symbol(db, symbols)
+    return {symbol: _profile_for_symbol(db, symbol) if symbol in ambiguous else
+            _profile_from_rows(symbol, groups[0].get(symbol), groups[1].get(symbol), fundamentals.get(symbol))
+            for symbol in symbols}
+
+
+def _profile_from_rows(symbol, security, meta, fundamentals) -> dict[str, Any]:
     return {
         "asset_class": (security.asset_class if security else None) or "Equity",
         "sector": (security.sector if security else None) or (meta.sector if meta else None) or (fundamentals.sector if fundamentals else None),
@@ -1606,6 +1671,7 @@ def _apply_cached_ticker_interpretation(
     profile: dict[str, Any],
     interpreted: dict[str, Any],
     previous: MacroPositioningCache | None,
+    generate: bool = True,
 ) -> dict[str, Any]:
     """Enrich a deterministic factor assessment in the background refresh only.
 
@@ -1630,7 +1696,7 @@ def _apply_cached_ticker_interpretation(
                 interpreted["summary"] = previous.summary
             return interpreted
 
-    generated = _generate_ticker_interpretation(db, symbol=symbol, profile=profile, factors=factors)
+    generated = _generate_ticker_interpretation(db, symbol=symbol, profile=profile, factors=factors) if generate else None
     if generated:
         by_factor = {item["factor"]: item for item in generated["factors"]}
         for factor in factors:
@@ -1708,6 +1774,9 @@ def _generate_ticker_interpretation(db: Session, *, symbol: str, profile: dict[s
         "max_output_tokens": 700,
     }
     try:
+        # Ticker batches are durable before optional commentary begins. The
+        # settings lookup must not occupy a database slot during external I/O.
+        db.commit()
         response = audited_openai_request(
             feature="ticker_macro_positioning", operation="ticker_macro_interpretation", method="POST", endpoint=OPENAI_RESPONSES_ENDPOINT, payload=request_payload, model=model,
             send=lambda: requests.post(OPENAI_RESPONSES_ENDPOINT, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=request_payload, timeout=25),
