@@ -1,0 +1,17 @@
+# Statement dates and parent-deficit comparatives
+
+A complete current earnings release uses explicit `Jun.`, `Mar.` and `Dec.` dates. The parser previously accepted only full English month names, so it held otherwise unambiguous statement columns. The same release reports parent shareholders' deficit separately from consolidated deficit and declares that its financial information is prepared in accordance with GAAP.
+
+The shared parser accepts spelled-out English abbreviations, including a literal optional period, under the existing date, year, duration and filing-boundary checks. Numeric dates, ambiguous comparisons, invalid calendar days and future periods remain held. There is no ticker allowlist.
+
+The accounting fallback still requires four exact printed annual comparative balances, the latest eligible unamended US-GAAP annual taxonomy, matching CIKs, explicit USD, full-year income taxonomy, current source dates and unmodified complete originals. It recognizes affirmative financial-information/statements declarations using the existing negation, jurisdiction and hypothetical guards. Parent deficit is a distinct observation used only to corroborate the parent StockholdersEquity annual anchor. It never becomes consolidated equity or a ratio denominator. The fallback reparses for this additional anchor only after an otherwise eligible comparative proof lacks an anchor, and requires every pre-existing observation to remain identical. Explicitly qualified statements retain their existing extraction and evidence shape.
+
+Six SHA-bound complete public originals total 1,125,019 bytes. COE June 2026 qualifies 30 observations. The annual parent deficit is -31,357,000; the separate consolidated deficit is -31,253,000 and cannot substitute for it. Current assets/current liabilities are 64,523,000/104,686,000. The current ratio can be recovered; parent income, ROE, debt-to-equity, net-debt/EBITDA and EV/EBITDA remain unavailable. The older March statement remains stale at the validation date. This is partial coverage, not a complete financial migration or restored score classification.
+
+An added layout-policy marker lets only old accounting-basis holds retry within the existing bounded collection. Successful receipts, request/time limits, provider selections, publication gates and schedules are preserved. No production data mutation, customer send, price activation or paid subscription is part of this change.
+
+Local complete-source/cache/consumer checks, regression comparison, Linux release checks and installed/ordinary recovery are separate acceptance gates. See the continuation checkpoint for the latest results; this document does not by itself establish deployment.
+
+## Local acceptance
+
+Final focused run:89 tests pass in64.49 seconds on Windows Python3.14. This includes the full retained company directory through bounded discovery, persisted checkpoint restoration, no further requests on repeat, public-reader default-off behavior, statement/cache tamper rejection and existing tabular observations. Initial broad tests caught extra observations in YI; the final code restricts added deficit observations to the failed comparative fallback and the unchanged YI regression passes. A stale test policy expectation was also updated to require the new held-receipt marker. The prior deployed source fails the complete-original positive on abbreviated dates. Complete49scope comparison and Linux/installed/ordinary checks remain pending.

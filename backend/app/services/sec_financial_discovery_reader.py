@@ -119,8 +119,9 @@ def validate_receipt(receipt,cover,*,now):
         if status=='held' and any(h['reason']=='table_accounting_basis_unproved' for h in holds):
             from app.services.sec_statement_declarations import POLICY
             if receipt.get('accounting_policy')!=POLICY:return None
-            from app.services.sec_comparative_basis import POLICY as comparative_policy
+            from app.services.sec_comparative_basis import POLICY as comparative_policy, LAYOUT_POLICY as comparative_layout_policy
             if receipt.get('comparative_policy')!=comparative_policy:return None
+            if receipt.get('comparative_layout_policy')!=comparative_layout_policy:return None
         if status=='held':
             from app.services.sec_statement_sections import POLICY as section_policy, RETRY_REASONS
             if any(h['reason'] in RETRY_REASONS for h in holds) and receipt.get('statement_section_policy')!=section_policy:
@@ -325,8 +326,9 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
     if receipt['status']=='held' and any(h['reason']=='table_accounting_basis_unproved' for h in receipt['holds']):
         from app.services.sec_statement_declarations import POLICY
         receipt['accounting_policy']=POLICY
-        from app.services.sec_comparative_basis import POLICY as comparative_policy
+        from app.services.sec_comparative_basis import POLICY as comparative_policy, LAYOUT_POLICY as comparative_layout_policy
         receipt['comparative_policy']=comparative_policy
+        receipt['comparative_layout_policy']=comparative_layout_policy
     if receipt['status']=='held':
         from app.services.sec_statement_sections import POLICY as section_policy, RETRY_REASONS
         if any(h['reason'] in RETRY_REASONS for h in receipt['holds']):

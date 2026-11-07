@@ -15,7 +15,12 @@ from lxml import html
 VERSION = 'sec_tabular_financial_evidence_v1'
 MAX_BYTES = 20_000_000
 MONTHS = {name.lower(): n for n, name in enumerate(calendar.month_name) if name}
-MONTH_PATTERN = '|'.join(MONTHS)
+# Explicit English month abbreviations retain the same date/duration guards.
+for _n, _name in enumerate(calendar.month_abbr):
+    if _name:
+        MONTHS.update({_name.lower(): _n, _name.lower()+'.': _n})
+MONTHS.update({'sept': 9, 'sept.': 9})
+MONTH_PATTERN = '|'.join(re.escape(name) for name in sorted(MONTHS, key=len, reverse=True))
 from app.services.sec_statement_currency import ALIASES
 CURRENCIES = {**ALIASES, 'USD': ALIASES['USD'] + r'|US\$', 'EUR': ALIASES['EUR'] + r'|€', 'GBP': ALIASES['GBP'] + r'|£'}
 DURATIONS = {'three':3,'six':6,'nine':9,'twelve':12,'3':3,'6':6,'9':9,'12':12}
@@ -207,12 +212,16 @@ def statement_currency_scope(tree,issuer):
             'declarations':[dict(t) for t in dict.fromkeys(tuple(m.items()) for m in matches)]}
 
 
-def metric_for(label,kind,issuer, *, expanded=False):
+def metric_for(label,kind,issuer, *, expanded=False, parent_deficit=False):
     label=clean(label).lower().replace('\u2019',"'").rstrip(':')
     # Printed numeric note references do not change the financial line item.
     # Keep other parentheses (adjusted, per-share, currency, etc.) meaningful.
     label=re.sub(r'\s+\(\s*notes?\s+\d+(?:\s*(?:,|and|&|-)\s*\d+)*\s*\)$','',label)
     if re.search(r'non.?gaap|adjusted|per share|per ads|non.?controlling',label):return None
+    # A parent deficit is evidence for parent equity only. It must never be
+    # relabelled as consolidated equity or silently supply a ratio denominator.
+    if parent_deficit and kind=='balance' and re.fullmatch(r"total (?:shareholders|stockholders)' deficits?",label):
+        return 'parent_equity'
     exact={
         'total current assets':'current_assets','total current liabilities':'current_liabilities',
         'total assets':'total_assets','total liabilities':'total_liabilities',
@@ -317,7 +326,7 @@ def amount(cells,start,end,scale):
     return float(value)
 
 
-def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False,_layout=False,_fiscal_periods=None,_font=False):
+def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,periods_only=False,_nonempty_context=False,_expanded=False,_layout=False,_fiscal_periods=None,_font=False,_parent_deficit=False):
     rows=grid(table)
     if not rows:return None
     local=preceding_text(table, nonempty=_nonempty_context)
@@ -462,7 +471,7 @@ def parse_table(table,*,issuer,filed,document_scope=None,currency_scope=None,per
     observations=[];holds=[]
     for row_number,row in enumerate(rows[boundary:],boundary):
         if not row:continue
-        label=row[0]['text'];metric=metric_for(label,kind,issuer,expanded=_expanded)
+        label=row[0]['text'];metric=metric_for(label,kind,issuer,expanded=_expanded,parent_deficit=_parent_deficit)
         if row_number in revenue_rows:metric=revenue_rows[row_number]
         if _font and kind=='income' and clean(label).lower()=='net loss for the period':
             metric='consolidated_income'
@@ -504,7 +513,7 @@ def inspect_statement_period(raw,*,issuer,filed):
             'source_sha256':hashlib.sha256(raw).hexdigest(),'financial_values_qualified':False}
 
 
-def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by,_expanded=False,_layout=False,_font=False):
+def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,available_by,_expanded=False,_layout=False,_font=False,_parent_deficit=False):
     from app.services.sec_document_sets import candidates
     from app.services.sec_statement_currency import source_identity
     if not isinstance(raw,bytes) or not raw or len(raw)>MAX_BYTES:raise TabularFinancialError('source_size')
@@ -533,7 +542,7 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
             for attempt in range(3):
                 try:
                     quoted=bool(table.xpath('ancestor::blockquote'))
-                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope,_expanded=_expanded,_layout=_layout,_font=_font)
+                    result=parse_table(table,issuer=issuer,filed=filed,document_scope=None if quoted else scope,currency_scope=None if quoted else currency_scope,_expanded=_expanded,_layout=_layout,_font=_font,_parent_deficit=_parent_deficit)
                 except TabularFinancialError as exc:
                     # New grammar requires the explicit local company and
                     # currency context. Legacy document-wide declarations
@@ -575,7 +584,7 @@ def extract(raw,*,source_url,company_raw,cover_raw,cover_url,symbol,cik,availabl
                 'Missing or ambiguous columns remain held; no values or zero amounts are inferred.']}
 
     from app.services.sec_statement_sections import extend
-    if _expanded or _layout or _font:return result
+    if _expanded or _layout or _font or _parent_deficit:return result
     result=extend(result,raw,company_raw)
     from app.services.sec_statement_font_context import recover
     recovered=recover(result,tree,raw,source_url=source_url,company_raw=company_raw,

@@ -1,0 +1,59 @@
+{
+  "symbol": "COE",
+  "cik": "0001659494",
+  "observed_at": "2026-11-07T05:40:00+00:00",
+  "sources": {
+    "https://data.sec.gov/submissions/CIK0001659494.json": {
+      "file": "d1c090588cfbb45b.gz",
+      "sha256": "d1c090588cfbb45bca46948bb06d5b249a14002cc1d23c9750d5110c9583111e",
+      "bytes": 39071
+    },
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001659494.json": {
+      "file": "300e06a2494a7386.gz",
+      "sha256": "300e06a2494a7386b302429ecbcaee1af90c378c99fdaaef846b0fecb90003e3",
+      "bytes": 707138
+    },
+    "https://www.sec.gov/Archives/edgar/data/1659494/000110465926107703/tm2625389d1_6k.htm": {
+      "file": "9788dc2ce725368a.gz",
+      "sha256": "9788dc2ce725368a71e27b903cfab82f4f12a6b11944f8f6b2b8954200299a15",
+      "bytes": 9562
+    },
+    "https://www.sec.gov/Archives/edgar/data/1659494/000110465926107703/tm2625389d1_ex99-1.htm": {
+      "file": "19abed53b4064d16.gz",
+      "sha256": "19abed53b4064d1602c9268247882f8992e35cb73e8118d2a44a0ff49b2ee3ac",
+      "bytes": 186129
+    },
+    "https://www.sec.gov/Archives/edgar/data/1659494/000110465926073181/tm2617806d1_6k.htm": {
+      "file": "35a93b0873e768d8.gz",
+      "sha256": "35a93b0873e768d882d44f138045a888f32837ba31ff152603b3d7ca4085d5fb",
+      "bytes": 10345
+    },
+    "https://www.sec.gov/Archives/edgar/data/1659494/000110465926073181/tm2617806d1_ex99-1.htm": {
+      "file": "4b5b94d67c5d7903.gz",
+      "sha256": "4b5b94d67c5d790314d612f0e16ecb9dc9d6734f61186f30e852874080a3c7a5",
+      "bytes": 172774
+    }
+  },
+  "candidates": [
+    {
+      "accession": "0001104659-26-107703",
+      "cik": "0001659494",
+      "cover_url": "https://www.sec.gov/Archives/edgar/data/1659494/000110465926107703/tm2625389d1_6k.htm",
+      "filed": "2026-09-15",
+      "form": "6-K",
+      "report_date": "2026-09-15",
+      "symbol": "COE"
+    },
+    {
+      "accession": "0001104659-26-073181",
+      "cik": "0001659494",
+      "cover_url": "https://www.sec.gov/Archives/edgar/data/1659494/000110465926073181/tm2617806d1_6k.htm",
+      "filed": "2026-06-12",
+      "form": "6-K",
+      "report_date": "2026-06-12",
+      "symbol": "COE"
+    }
+  ],
+  "company_url": "https://data.sec.gov/submissions/CIK0001659494.json",
+  "facts_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001659494.json"
+}

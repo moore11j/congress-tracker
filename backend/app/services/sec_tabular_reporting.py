@@ -130,11 +130,28 @@ def normalize(raw, *, source_url, company_raw, cover_raw, cover_url, symbol, cik
         from app.services import sec_comparative_basis
         tree=html.fromstring(raw)
         for node in tree.xpath('//script|//style|//template|//blockquote'):node.drop_tree()
-        try:
-            basis={'version':VERSION,**sec_comparative_basis.prove(tables.visible_text(tree),observations,
+        text=tables.visible_text(tree)
+        def prove(current):
+            return {'version':VERSION,**sec_comparative_basis.prove(text,current,
                 company_raw=company_raw,facts_raw=basis_facts_raw,available_by=available_by)}
-        except sec_comparative_basis.ComparativeBasisError:
-            raise exc
+        try:
+            basis=prove(observations)
+        except sec_comparative_basis.ComparativeBasisError as missing:
+            if str(missing)!='comparative_basis_comparative_missing':raise exc
+            from copy import deepcopy
+            # Parent deficits are comparative anchors only. Preserve every
+            # established observation before admitting the additional evidence.
+            enriched=tables.extract(raw, source_url=source_url, company_raw=company_raw,
+                cover_raw=cover_raw, cover_url=cover_url, symbol=symbol, cik=cik,
+                available_by=available_by, _parent_deficit=True)
+            original=deepcopy(enriched)
+            original['facts']=[f for f in original['facts'] if f['metric']!='parent_equity']
+            for table in original['tables']:
+                table['observations']=[f for f in table['observations'] if f['metric']!='parent_equity']
+            if original!=observations:raise exc
+            try:basis=prove(enriched)
+            except sec_comparative_basis.ComparativeBasisError:raise exc
+            observations=enriched
     from app.services.sec_foreign_statements import profile
     annual_profile=profile(symbol,cik)
     if annual_profile and (basis['currency']!=annual_profile['currency']
