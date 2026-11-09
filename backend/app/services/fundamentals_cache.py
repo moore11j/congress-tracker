@@ -725,6 +725,41 @@ def _row_number(row: FundamentalsCache, field: str) -> float | None:
     return _number(value)
 
 
+def _native_cash_flow_display(row: FundamentalsCache) -> dict[str, Any] | None:
+    """Expose an already qualified amount without populating the USD field.
+
+    This is descriptive context only. Scores, screeners, valuations and alerts
+    continue to use their existing canonical fields and currency policies.
+    """
+    if row.provider not in {"sec_edgar", "free_direct"} or _row_number(row, "free_cash_flow") is not None:
+        return None
+    try:
+        evidence = json.loads(row.source_evidence_json or "{}")
+        native = evidence.get("native_cash_flow", {})
+        currency = native.get("currency")
+        from app.services.sec_statement_currency import ALIASES
+        from app.services.sec_tagged_foreign import cached_currency_valid
+        if (currency not in ALIASES or currency == "USD"
+                or currency != evidence.get("reporting_currency")
+                or not cached_currency_valid(evidence)
+                or row.period_date is None
+                or evidence.get("period_end") != row.period_date.isoformat()):
+            return None
+        # The common projector and reviewed NVO projector retain different keys.
+        amount = native.get("current") if "current" in native else native.get("value")
+        if type(amount) not in (int, float) or not isfinite(amount):
+            return None
+        if "current" in native and "value" in native and native["current"] != native["value"]:
+            return None
+        basis = native.get("formula")
+        if not isinstance(basis, str) or not basis.startswith("TTM ") or len(basis) > 300:
+            return None
+        return {"value": amount, "currency": currency, "period_date": row.period_date.isoformat(),
+                "period_basis": "TTM", "basis": basis}
+    except (ValueError, TypeError, AttributeError, KeyError, OverflowError):
+        return None
+
+
 def _metric_state(value: float | None, *, kind: str) -> str:
     if value is None:
         return "unavailable"
@@ -952,6 +987,7 @@ def fundamentals_summary_from_cache_row(
             "source_label": source_label,
             "source_note": source_note,
             "free_cash_flow": _row_number(row, "free_cash_flow"),
+            **({"free_cash_flow_display": native_cash} if (native_cash := _native_cash_flow_display(row)) else {}),
         },
         "metrics": metrics,
         "data_quality": {

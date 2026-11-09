@@ -6,12 +6,17 @@ import { formatDateShort } from "@/lib/format";
 export function TickerFundamentalsSnapshot({ summary }: { summary: TickerFundamentalsSummary }) {
   const metrics = summary?.metrics ?? {};
   const sourceLabel = summary?.context?.source_label?.trim() || summary?.context?.provider?.trim().toUpperCase();
-  const cash = summary?.context?.free_cash_flow;
+  const reportedCash = summary?.context?.free_cash_flow_display;
+  const useReportedCash = typeof reportedCash?.value === "number" && Number.isFinite(reportedCash.value)
+    && /^[A-Z]{3}$/.test(reportedCash.currency) && reportedCash.period_basis === "TTM"
+    && reportedCash.period_date === summary?.as_of;
+  const cash = useReportedCash ? reportedCash.value : summary?.context?.free_cash_flow;
   const hasCash = typeof cash === "number" && Number.isFinite(cash);
-  const cashDisplay = hasCash ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(cash) : "—";
+  const cashCurrency = useReportedCash ? reportedCash.currency : "USD";
+  const cashDisplay = hasCash ? new Intl.NumberFormat("en-US", { style: "currency", currency: cashCurrency, currencyDisplay: useReportedCash ? "code" : "symbol", notation: "compact", maximumFractionDigits: 1 }).format(cash) : "—";
   const items = [
     { label: "Revenue growth", value: metrics.revenue_growth?.display ?? "—", note: "Reported growth", tone: metrics.revenue_growth?.state },
-    { label: "Cash generation", value: cashDisplay, note: "Free cash flow · latest available", tone: hasCash ? cash > 0 ? "bullish" : cash < 0 ? "bearish" : "neutral" : "unavailable" },
+    { label: "Cash generation", value: cashDisplay, note: useReportedCash ? `Free cash flow · TTM · ${cashCurrency}` : "Free cash flow · latest available", tone: hasCash ? cash > 0 ? "bullish" : cash < 0 ? "bearish" : "neutral" : "unavailable" },
     { label: "Leverage", value: metrics.net_debt_to_ebitda?.display ?? "—", note: "Net debt / EBITDA", tone: metrics.net_debt_to_ebitda?.state },
     { label: "Valuation", value: metrics.ev_to_ebitda?.display ?? "—", note: "EV / EBITDA · no peer comparison", tone: "neutral" },
   ];
@@ -27,6 +32,7 @@ export function TickerFundamentalsSnapshot({ summary }: { summary: TickerFundame
         <p className="mt-1 text-[11px] leading-4 text-slate-500">{item.note}</p>
       </div>)}
     </dl>
+    {useReportedCash ? <p className="mt-2 text-[11px] leading-5 text-slate-400">{reportedCash.basis}. Reported in {cashCurrency}; no currency conversion.</p> : null}
     <p className="mt-3 text-[11px] leading-5 text-slate-400">
       {sourceLabel ? `Source: ${sourceLabel} · ` : "Source unavailable · "}
       {summary?.as_of ? `Period ${formatDateShort(summary.as_of)}` : "Reporting period unavailable"}
