@@ -115,6 +115,9 @@ function buildTickerOutputs(subject: TickerResearchSubject): ResearchOutputs {
   const company = clean(subject.companyName);
   const summary = clean(layer?.summary) || `${symbol} has limited decision-layer context in the current view.`;
   const price = typeof subject.quote?.current_price === "number" ? `$${subject.quote.current_price.toFixed(2)}` : null;
+  const quoteTiming = subject.quote?.is_delayed
+    ? ` Delayed${typeof subject.quote.delay_minutes === "number" && Number.isFinite(subject.quote.delay_minutes) && subject.quote.delay_minutes > 0 ? ` ${subject.quote.delay_minutes} minutes` : " quote"}.${subject.quote.as_of ? ` Observed ${clean(subject.quote.as_of)}.` : ""}`
+    : "";
   const changeText = typeof subject.quote?.change_percent === "number" ? `${subject.quote.change_percent >= 0 ? "+" : ""}${subject.quote.change_percent.toFixed(2)}%` : "Unavailable";
   const volumeVsAverage = typeof subject.signalsSummary?.price_volume?.volume_vs_avg === "number" ? `${subject.signalsSummary.price_volume.volume_vs_avg.toFixed(2)}x` : "Unavailable";
   const recentSignals = typeof subject.signalsSummary?.recent_signal_count === "number" ? String(subject.signalsSummary.recent_signal_count) : "Unavailable";
@@ -134,7 +137,7 @@ function buildTickerOutputs(subject: TickerResearchSubject): ResearchOutputs {
   const title = `${symbol}${company ? " / " + company : ""} Research Brief`;
   const bullets = [
     `- Confirmation: ${score === null ? "unavailable" : score + "/100"} ${label} (${direction}).`,
-    price ? `- Last quote: ${price}${typeof subject.quote?.change_percent === "number" ? ` (${subject.quote.change_percent.toFixed(2)}%)` : ""}.` : "- Last quote: unavailable in current payload.",
+    price ? `- Last quote: ${price}${typeof subject.quote?.change_percent === "number" ? ` (${subject.quote.change_percent.toFixed(2)}%)` : ""}.${quoteTiming}` : "- Last quote: unavailable in current payload.",
     ...itemsToBullets("What changed", layer?.what_changed),
     ...itemsToBullets("Catalysts", layer?.catalysts),
     ...itemsToBullets("Risks", layer?.risks),

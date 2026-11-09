@@ -1084,7 +1084,7 @@ export function PremiumTickerChart({
       value: formatCurrencyCompact(quote?.market_cap, "Unavailable"),
       tone: marketCapUnavailable ? "text-slate-500" : undefined,
     },
-    { label: "Current Price", value: formatMoney(quote?.current_price) },
+    { label: quote?.price_kind === "daily_close" ? "Daily Close" : quote?.is_delayed ? "Delayed Price" : "Current Price", value: formatMoney(quote?.current_price) },
     { label: "Day Change", value: formatMoney(quote?.day_change), tone: dayTone },
     { label: "Day %", value: formatPct(quote?.day_change_pct), tone: dayTone },
     { label: "Day Volume", value: formatCompact(quote?.day_volume, "—") },
@@ -1198,6 +1198,13 @@ export function PremiumTickerChart({
             </div>
           ))}
         </div>
+        {quote?.is_delayed ? (
+          <p className="mt-2 text-xs text-slate-400">
+            {typeof quote.delay_minutes === "number" && Number.isFinite(quote.delay_minutes) && quote.delay_minutes > 0
+              ? `Quotes delayed ${quote.delay_minutes} minutes.` : "Delayed quote."}
+            {quote.asof ? ` Price observed ${formatDate(quote.asof)} UTC.` : " Quote time unavailable."}
+          </p>
+        ) : null}
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-white/10 bg-slate-950/70 p-1">
             {(["line", "candles"] as const).map((mode) => (

@@ -40,6 +40,36 @@ def _selected_reference_close(row):
     return reference_close(row)
 
 
+def selected_current_price_observation(db, ticker: str, now: datetime) -> dict:
+    """Verified current-session price for selected-provider absolute thresholds."""
+    current = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    session = current.astimezone(MARKET_TZ).date()
+    evidence = dict(current_price=None, observed_at=None, price_provider="massive",
+                    session_date=session.isoformat(), status="missing_current_price")
+    if not massive_stocks_selected() or not is_market_trading_day(session):
+        return evidence
+    from app.services.quote_lookup import persisted_quote_metadata
+    quote = db.get(QuoteCache, ticker)
+    metadata = persisted_quote_metadata(quote)
+    asof = quote.asof_ts if quote is not None else None
+    if isinstance(asof, datetime) and asof.tzinfo is None:
+        asof = asof.replace(tzinfo=timezone.utc)
+    price = _positive(quote.price) if quote is not None else None
+    if (metadata.get("source") == "massive_minute_snapshot" and price is not None
+            and isinstance(asof, datetime) and current - timedelta(minutes=30) <= asof <= current
+            and asof.astimezone(MARKET_TZ).date() == session):
+        return {**evidence, "status": "ok", "current_price": price, "observed_at": asof.isoformat(),
+                "price_kind": "minute_close", "is_delayed": True, "delay_minutes": 15}
+    if session <= get_expected_latest_market_date(current):
+        row = db.get(PriceCache, (ticker, session.isoformat()))
+        price = _selected_reference_close(row)
+        if price is not None:
+            return {**evidence, "status": "ok", "current_price": price,
+                    "price_kind": "daily_close", "price_date": session.isoformat(),
+                    "is_delayed": None, "delay_minutes": None}
+    return evidence
+
+
 def daily_price_observation(db, ticker: str, now: datetime) -> dict:
     current = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
     session = current.astimezone(MARKET_TZ).date()
