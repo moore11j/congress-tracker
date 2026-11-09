@@ -493,6 +493,16 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
                            f"to ${evidence['current_price']:.4f}.")
             context["alert_intro"] += " " + explanation
             context["why_notable"] += " " + explanation
+    observation = payload.get("price_observation") if is_custom_alert else None
+    if isinstance(observation, dict) and observation.get("price_provider") == "massive":
+        timing = None
+        if observation.get("is_delayed") is True and observation.get("delay_minutes") == 15 and observation.get("observed_at"):
+            timing = f"Price delayed 15 minutes; observed {observation['observed_at']}."
+        elif observation.get("price_kind") == "daily_close" and observation.get("price_date"):
+            timing = f"Price is the {observation['price_date']} daily close."
+        if timing:
+            context["alert_intro"] += " " + timing
+            context["why_notable"] += " " + timing
     return IntradayAlertCandidate(
         source="custom_alert" if is_custom_alert else "signal",
         user=user,

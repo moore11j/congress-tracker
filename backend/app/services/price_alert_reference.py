@@ -105,6 +105,9 @@ def daily_price_observation(db, ticker: str, now: datetime) -> dict:
         if price is None:
             return {**evidence, "status": "missing_current_price"}
         evidence.update(current_price=price, observed_at=current.isoformat(), current_source="daily_bar")
+        if massive_stocks_selected():
+            evidence.update(observed_at=None, price_date=session.isoformat(), price_provider='massive',
+                            price_kind='daily_close', is_delayed=None, delay_minutes=None)
     return {**evidence, "status": "ok", "change_pct": (price / prior - 1) * 100}
 
 

@@ -69,7 +69,15 @@ def test_source_transition_rebaselines_then_real_crossing_occurs_once(db):
     verified_quote(db,90,NOW-timedelta(minutes=15));assert run(1)['triggered']==0
     verified_quote(db,120,NOW-timedelta(minutes=14));assert run(2)['triggered']==1
     assert run(3)['triggered']==0
-    assert len(db.scalars(select(MonitoringAlert)).all())==1
+    alert=db.scalars(select(MonitoringAlert)).one()
+    evidence=json.loads(alert.payload_json)['price_observation']
+    assert evidence['observed_at']==(NOW-timedelta(minutes=14)).isoformat()
+    assert evidence['current_price']==120 and evidence['is_delayed'] is True
+    from app.services.email_intraday import _signal_alert_candidate
+    candidate=_signal_alert_candidate(user,alert,{'TEST'})
+    assert 'Price delayed 15 minutes' in candidate.context['alert_intro']
+    assert evidence['observed_at'] in candidate.context['why_notable']
+    assert candidate.skip_reason is None
 
 
 def test_unavailable_comparison_price_preserves_existing_state(db):
@@ -79,3 +87,24 @@ def test_unavailable_comparison_price_preserves_existing_state(db):
     result=evaluate_watchlist_custom_alerts(db,user_id=user.id,watchlist_id=watchlist.id,now=NOW)
     assert result['unavailable']==1 and result['triggered']==0
     assert before==(state.current_result,state.previous_result,state.last_evaluated_at,state.values_json)
+
+
+def test_daily_close_evidence_does_not_invent_an_observation_timestamp(db):
+    from app.services.price_alert_reference import daily_price_observation,valid_daily_price_evidence
+    from app.services.email_intraday import _signal_alert_candidate
+    for day,price in [('2026-11-05',100),('2026-11-06',110)]:
+        db.add(PriceCache(symbol='TEST',date=day,close=price,adjusted_close=price,
+            price_source='massive',adjustment_status='split_adjusted_price_return'))
+    db.commit()
+    now=NOW+timedelta(hours=5)
+    evidence=daily_price_observation(db,'TEST',now)
+    assert evidence['status']=='ok' and valid_daily_price_evidence(evidence,now)
+    assert evidence['observed_at'] is None and evidence['price_date']=='2026-11-06'
+    user=UserAccount(id=1,email='closed-price@example.test')
+    alert=MonitoringAlert(id=1,user_id=1,source_id='1',source_type='watchlist',source_name='Test',
+        alert_type='custom_alert',symbol='TEST',event_created_at=now,title='Test',body='Test',
+        payload_json=json.dumps(dict(custom_alert=True,price_alert=True,trigger_price=110,
+            daily_price_rule=True,price_observation=evidence)))
+    candidate=_signal_alert_candidate(user,alert,{'TEST'})
+    assert '2026-11-06 daily close' in candidate.context['alert_intro']
+    assert candidate.skip_reason is None

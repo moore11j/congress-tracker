@@ -671,11 +671,16 @@ def evaluate_watchlist_custom_alerts(
                 if index < len(conditions)
             )
             trigger_price: float | None = None
+            observation = None
             if matched_price_condition:
-                trigger_price, _ = _metric_value(db, ticker, {"metric": "price"}, current)
                 if daily_price_rule:
                     observation = daily_price_observation(db, ticker, current)
                     trigger_price = observation["current_price"]
+                elif isinstance(result.values.get("__price_observation"), dict):
+                    observation = result.values["__price_observation"]
+                    trigger_price = observation["current_price"]
+                else:
+                    trigger_price, _ = _metric_value(db, ticker, {"metric": "price"}, current)
             alert_payload = {
                 "custom_alert": True,
                 "rule_id": rule.id,
@@ -685,7 +690,7 @@ def evaluate_watchlist_custom_alerts(
                 "price_alert": matched_price_condition,
                 "trigger_price": trigger_price,
                 "daily_price_rule": _is_daily_price_rule(conditions),
-                "price_observation": observation if daily_price_rule and matched_price_condition else None,
+                "price_observation": observation,
                 "href": f"/watchlists/{watchlist_id}",
             }
             # Negative IDs live in a distinct namespace from canonical Event IDs.
