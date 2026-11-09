@@ -57,7 +57,11 @@ def select(panel, company):
         if basis in ADDITIONS:
             proof = panel.get('debt_addition_reconciliations', {}).get(ADDITIONS[basis], {})
             if proof.get('status') != 'reported_total_verified':
-                continue
+                from app.services.sec_lease_debt_evidence import verifies_candidate
+                if (basis != 'borrowings_plus_finance_leases'
+                        or proof.get('status') != 'original_disjoint_components_verified'
+                        or not verifies_candidate(row, proof)):
+                    continue
         if (row.get('period_date') != panel.get('period_date') or row.get('unit') != 'USD'
                 or any(not sec_leverage._finite(row.get(k)) for k in
                        ('debt', 'cash', 'net_debt', 'net_debt_to_ebitda'))
@@ -79,8 +83,15 @@ def select(panel, company):
             return held('conflicting_complete_debt_representations')
     priority = {basis: i for i, basis in enumerate((*DIRECT, *ADDITIONS))}
     chosen = min(candidates, key=lambda row: priority[row['basis']])
+    measurement = {}
+    note = NOTE
+    if (chosen['basis'] == 'borrowings_plus_finance_leases'
+            and panel.get('debt_addition_reconciliations', {}).get('leverage_borrowings', {}).get('status')
+                == 'original_disjoint_components_verified'):
+        measurement = {'debt_measurement': 'gross_borrowing_principal_plus_finance_lease_liabilities'}
+        note += ' Borrowings use reported gross principal before discounts and debt issuance costs; finance leases use reported liabilities.'
     return {**result, 'status': 'available', 'value': chosen['net_debt_to_ebitda'],
-            'selected_basis': chosen['basis'], 'basis': NOTE,
+            'selected_basis': chosen['basis'], 'basis': note, **measurement,
             'candidate': deepcopy(chosen), 'reconciled_bases': sorted(row['basis'] for row in candidates),
             'rounding_reconciliation': rounding,
             'ebitda': deepcopy(ebitda)}

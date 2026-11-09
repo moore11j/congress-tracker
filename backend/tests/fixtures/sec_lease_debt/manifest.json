@@ -1,0 +1,44 @@
+{
+  "AZO": {
+    "file": "AZO.html.gz",
+    "bytes": 3210850,
+    "sha256": "f69d9fe80fa329d3d096fa18927d55b970a8689708a089b80d336e254649b796",
+    "complete_original": true,
+    "arguments": {
+      "cik": "0000866787",
+      "accession": "0001104659-26-118791",
+      "filed": "2026-10-26",
+      "report_date": "2026-08-29",
+      "form": "10-K",
+      "url": "https://www.sec.gov/Archives/edgar/data/866787/000110465926118791/azo-20260829x10k.htm"
+    }
+  },
+  "FOX": {
+    "file": "FOX.html.gz",
+    "bytes": 2640229,
+    "sha256": "f06c96d8e583c7bcb035a7fd1c76be2f9ee087c4906870b3385c9e7308b597a8",
+    "complete_original": true,
+    "arguments": {
+      "cik": "0001754301",
+      "accession": "0001628280-26-053960",
+      "filed": "2026-08-06",
+      "report_date": "2026-06-30",
+      "form": "10-K",
+      "url": "https://www.sec.gov/Archives/edgar/data/1754301/000162828026053960/fox-20260630.htm"
+    }
+  },
+  "FWONK": {
+    "file": "FWONK.html.gz",
+    "bytes": 4184335,
+    "sha256": "f7a8d8bb7ec21c5f3c3e96d2cccf25f4de39fa3e2b7a69f9764def6d03c484cc",
+    "complete_original": true,
+    "arguments": {
+      "cik": "0001560385",
+      "accession": "0001104659-26-020653",
+      "filed": "2026-02-26",
+      "report_date": "2025-12-31",
+      "form": "10-K",
+      "url": "https://www.sec.gov/Archives/edgar/data/1560385/000110465926020653/lmca-20251231x10k.htm"
+    }
+  }
+}
