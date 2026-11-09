@@ -12,9 +12,9 @@ test("ticker and compare pages expose Create Research actions", () => {
   assert.match(tickerPage, /<ResearchActions/);
   assert.match(tickerPage, /kind: "ticker"/);
   assert.match(tickerPage, /canCreateResearch=\{canCreateResearch\}/);
-  assert.match(tickerPage, /<ResearchActions[\s\S]*?<AddTickerToWatchlist symbol=\{normalizedSymbol\} \/>/);
+  assert.match(tickerPage, /<ResearchActions[\s\S]*?<TickerFollowButton key=\{normalizedSymbol\} symbol=\{normalizedSymbol\} \/>/);
   assert.match(comparePage, /canCreateResearch/);
-  assert.match(comparePage, /<ResearchActions canCreateResearch=\{canCreateResearch\} subject=\{\{ kind: "compare", data \}\}/);
+  assert.match(comparePage, /<ResearchActions\s+canCreateResearch=\{canCreateResearch\}\s+subject=\{\{ kind: "compare", data \}\}/);
 });
 
 test("Create Research is gated behind admin entitlement checks", () => {

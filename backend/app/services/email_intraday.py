@@ -493,6 +493,11 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
                            f"to ${evidence['current_price']:.4f}.")
             context["alert_intro"] += " " + explanation
             context["why_notable"] += " " + explanation
+    from app.services.price_alert_reference import price_observation_timing
+    timing = price_observation_timing(payload.get("price_observation")) if is_custom_alert else ""
+    if timing:
+        context["alert_intro"] += " " + timing
+        context["why_notable"] += " " + timing
     return IntradayAlertCandidate(
         source="custom_alert" if is_custom_alert else "signal",
         user=user,

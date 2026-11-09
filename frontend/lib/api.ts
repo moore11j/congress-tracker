@@ -4154,6 +4154,9 @@ export type TickerChartMarker = {
 };
 
 export type TickerChartQuote = {
+  is_delayed?: boolean | null;
+  delay_minutes?: number | null;
+  price_kind?: string | null;
   current_price: number | null;
   latest_close?: number | null;
   previous_close?: number | null;
@@ -5290,6 +5293,9 @@ export type TickerContextBundleResponse = TickerProfile & {
     market_cap?: number | null;
     as_of?: string | null;
     stale?: boolean;
+    is_delayed?: boolean | null;
+    delay_minutes?: number | null;
+    price_kind?: string | null;
   } | null;
   source_entitlements?: TickerSourceEntitlements | null;
   source_cards?: Record<string, unknown> | null;

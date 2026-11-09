@@ -33,7 +33,8 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.technical_indicators import _ema, _rsi
-from app.services.price_alert_reference import daily_price_observation
+from app.services.price_alert_reference import daily_price_observation, selected_current_price_observation
+from app.clients.massive_stocks import selected as massive_stocks_selected
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +354,8 @@ def _metric_value(db: Session, ticker: str, condition: dict[str, Any], now: date
     metric = condition["metric"]
     if metric == "price_change_pct" and condition.get("time_window") == {"value": 1, "unit": "day"}:
         return daily_price_observation(db, ticker, now)["change_pct"], []
+    if metric == "price" and massive_stocks_selected():
+        return selected_current_price_observation(db, ticker, now)["current_price"], []
     price_metrics = {"price", "price_change_pct", "volume", "relative_volume", "rsi", "sma", "ema", "macd", "macd_signal", "vwap", "bollinger_upper", "bollinger_lower", "week_52_high", "week_52_low"}
     rows = _price_rows(db, ticker) if metric in price_metrics else []
     closes = [float(row.adjusted_close or row.close) for row in rows if (row.adjusted_close or row.close) is not None]
@@ -509,6 +512,15 @@ def evaluate_rule(db: Session, rule: WatchlistAlertRule, ticker: str, state: Wat
     results: list[dict[str, Any]] = []
     fingerprints: list[str] = []
     values: dict[str, Any] = {}
+    price_metric = any(c.get("metric") == "price" or (
+        c.get("comparison_type") == "metric" and c.get("comparison_metric") == "price") for c in conditions)
+    price_observation = selected_current_price_observation(db, ticker, now) if price_metric and massive_stocks_selected() else None
+    if price_metric and (price_observation is not None or "__price_basis" in old_values):
+        values["__price_basis"] = "massive_stock_price_v1" if price_observation is not None else "fmp_legacy_price_v1"
+        if price_observation is not None:
+            values["__price_observation"] = price_observation
+        if old_values.get("__price_basis") != values["__price_basis"]:
+            old_values = {}
     financial_metrics = {metric for condition in conditions
         for metric in (condition.get("metric"), condition.get("comparison_metric")
             if condition.get("comparison_type") == "metric" else None)
@@ -521,6 +533,8 @@ def evaluate_rule(db: Session, rule: WatchlistAlertRule, ticker: str, state: Wat
 
     def read_metric(condition):
         # Read value and provenance from the same cached row, once per rule.
+        if condition.get("metric") == "price" and price_observation is not None:
+            return price_observation["current_price"], []
         if condition.get("metric") in FUNDAMENTAL_METRICS:
             raw = getattr(fundamentals, condition["metric"], None)
             return (float(raw) if raw is not None else None), []
@@ -579,6 +593,7 @@ def evaluate_watchlist_custom_alerts(
     now: datetime | None = None,
     rule_names: set[str] | None = None,
     daily_price_only: bool = False,
+    include_absolute_price_rules: bool = False,
 ) -> dict[str, int]:
     current = now or datetime.now(timezone.utc)
     rules_query = select(WatchlistAlertRule).where(
@@ -596,7 +611,10 @@ def evaluate_watchlist_custom_alerts(
     for rule in rules:
         conditions = _loads(rule.conditions_json, [])
         daily_price_rule = _is_daily_price_rule(conditions)
-        if daily_price_only and not daily_price_rule:
+        absolute_price_rule = bool(conditions) and all(
+            item.get("metric") == "price" and item.get("comparison_type") == "value"
+            for item in conditions)
+        if daily_price_only and not daily_price_rule and not (include_absolute_price_rules and absolute_price_rule):
             continue
         scoped = [rule.scope_ticker.upper()] if rule.scope_type == "specific_ticker" and rule.scope_ticker else tickers
         for ticker in scoped:
@@ -606,7 +624,9 @@ def evaluate_watchlist_custom_alerts(
             evaluated += 1
             # Missing observations are unknown, not a reset below threshold.
             # Retain the last valid state until prices become available again.
-            if not result.matched and any(item["value"] is None for item in result.condition_results):
+            if not result.matched and any(item["value"] is None or (
+                    condition.get("comparison_type") == "metric" and item["target"] is None)
+                    for item, condition in zip(result.condition_results, conditions)):
                 unavailable += 1
                 continue
             # A missing or stale state is a fresh baseline, not a historical
@@ -618,7 +638,9 @@ def evaluate_watchlist_custom_alerts(
             version_changed = bool(result.values.get("__confirmation_version") and result.values["__confirmation_version"] != (_loads(state.values_json, {}) if state else {}).get("__confirmation_version"))
             basis_changed = ("__fundamental_basis" in result.values and
                 result.values["__fundamental_basis"] != (_loads(state.values_json, {}) if state else {}).get("__fundamental_basis"))
-            if not daily_price_rule and (state is None or version_changed or basis_changed or (last_evaluated_at is not None and last_evaluated_at < current - timedelta(hours=2))):
+            price_basis_changed = ("__price_basis" in result.values and
+                result.values["__price_basis"] != (_loads(state.values_json, {}) if state else {}).get("__price_basis"))
+            if not daily_price_rule and (state is None or version_changed or basis_changed or price_basis_changed or (last_evaluated_at is not None and last_evaluated_at < current - timedelta(hours=2))):
                 if state is None:
                     db.add(WatchlistAlertRuleState(rule_id=rule.id, ticker=ticker, previous_result=result.matched, current_result=result.matched, last_evaluated_at=current, values_json=json.dumps(result.values)))
                 else:
@@ -664,11 +686,16 @@ def evaluate_watchlist_custom_alerts(
                 if index < len(conditions)
             )
             trigger_price: float | None = None
+            observation = None
             if matched_price_condition:
-                trigger_price, _ = _metric_value(db, ticker, {"metric": "price"}, current)
                 if daily_price_rule:
                     observation = daily_price_observation(db, ticker, current)
                     trigger_price = observation["current_price"]
+                elif isinstance(result.values.get("__price_observation"), dict):
+                    observation = result.values["__price_observation"]
+                    trigger_price = observation["current_price"]
+                else:
+                    trigger_price, _ = _metric_value(db, ticker, {"metric": "price"}, current)
             alert_payload = {
                 "custom_alert": True,
                 "rule_id": rule.id,
@@ -678,7 +705,7 @@ def evaluate_watchlist_custom_alerts(
                 "price_alert": matched_price_condition,
                 "trigger_price": trigger_price,
                 "daily_price_rule": _is_daily_price_rule(conditions),
-                "price_observation": observation if daily_price_rule and matched_price_condition else None,
+                "price_observation": observation,
                 "href": f"/watchlists/{watchlist_id}",
             }
             # Negative IDs live in a distinct namespace from canonical Event IDs.
