@@ -72,6 +72,15 @@ def _fundamental_basis(row: FundamentalsCache | None, metrics: set[str]) -> dict
         identity = {"provider": row.provider, "methodology": evidence.get("methodology")}
         if metric in {"revenue_growth", "operating_margin"}:
             identity["revenue_basis"] = evidence.get("revenue_basis")
+        if metric == 'operating_margin':
+            source = evidence.get('inline_filing_supplement')
+            history = source.get('operating_statement_history') if isinstance(source, dict) else None
+            if isinstance(history, dict):
+                bridges = {(r.get('expense_bridge') or {}).get('methodology')
+                           for r in history.get('rows', []) if isinstance(r, dict) and isinstance(r.get('expense_bridge'), dict)}
+                bridges = {b for b in bridges if isinstance(b, str)}
+                if bridges:
+                    identity['operating_measurement'] = sorted(bridges)
         if metric == 'net_debt_to_ebitda' and isinstance(evidence.get('net_debt_policy'), dict):
             identity['net_debt_policy'] = {key: evidence['net_debt_policy'].get(key)
                 for key in ('version', 'formula', 'lease_policy')}

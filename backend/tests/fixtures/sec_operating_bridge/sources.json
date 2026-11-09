@@ -1,0 +1,41 @@
+{
+  "NKE-company.gz": {
+    "file": "NKE-company.gz",
+    "bytes": 159235,
+    "sha256": "033ae7e1e36ca23581e9c8d104d0c99fce41ce0db11916ce3c47334745cf324f",
+    "symbol": "NKE",
+    "kind": "company",
+    "url": "https://data.sec.gov/submissions/CIK0000320187.json"
+  },
+  "NKE-facts.gz": {
+    "file": "NKE-facts.gz",
+    "bytes": 3051424,
+    "sha256": "d7aeceae21e6649e163d195729849349b27d909ab1a6eb4630a7c0c227acd890",
+    "symbol": "NKE",
+    "kind": "facts",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320187.json"
+  },
+  "NKE-0000320187-26-000193.gz": {
+    "file": "NKE-0000320187-26-000193.gz",
+    "bytes": 1353268,
+    "sha256": "98420a521ea9a8c5797f800a99b26eb4751e51ca13ac3b20d8b41b3b99bbdf71",
+    "symbol": "NKE",
+    "kind": "0000320187-26-000193",
+    "url": "https://www.sec.gov/Archives/edgar/data/320187/000032018726000193/nke-20260831.htm"
+  },
+  "NKE-0000320187-26-000088.gz": {
+    "file": "NKE-0000320187-26-000088.gz",
+    "bytes": 2824468,
+    "sha256": "0b7b7a371eed5c4bf8f572e692dea87c2f001fa03cc264f5e35e3dc4784d5f3b",
+    "symbol": "NKE",
+    "kind": "0000320187-26-000088",
+    "url": "https://www.sec.gov/Archives/edgar/data/320187/000032018726000088/nke-20260531.htm"
+  },
+  "NKE-0000320187-25-000097.gz": {
+    "url": "https://www.sec.gov/Archives/edgar/data/320187/000032018725000097/nke-20250831.htm",
+    "file": "NKE-0000320187-25-000097.gz",
+    "bytes": 1499851,
+    "sha256": "2b844e37d1a63f284515086d1e049fdcd21e38a37239b8900886ecbe9d04df47",
+    "observed_at": "2026-11-09T05:13:11.672248+00:00"
+  }
+}
