@@ -44,7 +44,8 @@ for (const [currency, amount, expected] of [["CAD", 1668000000, "1.7B"], ["DKK",
         free_cash_flow_display: { value: amount, currency, period_date: "2026-06-30", period_basis: "TTM", basis: "TTM reviewed cash calculation" } },
     } }));
     assert.ok(html.includes(currency));
-    assert.ok(html.includes(expected));
+    // ICU versions may retain a trailing zero for an integral compact amount.
+    assert.ok(expected === "123M" ? /123(?:\.0+)?M/.test(html) : html.includes(expected));
     assert.ok(html.includes("TTM reviewed cash calculation"));
     assert.ok(html.includes(`Reported in ${currency}; no currency conversion.`));
     assert.ok(!html.includes("$"));
@@ -61,5 +62,5 @@ test("invalid display data stays missing and legacy USD values still render", ()
     assert.ok(!html.includes("no currency conversion"));
   }
   const html = renderToStaticMarkup(exports.TickerFundamentalsSnapshot({ summary: { context: { free_cash_flow: 123000000 } } }));
-  assert.ok(html.includes("$123M"));
+  assert.match(html, /\$123(?:\.0+)?M/);
 });
