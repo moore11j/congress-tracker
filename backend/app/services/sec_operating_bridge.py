@@ -28,6 +28,10 @@ ORDER = tuple(TAGS)
 
 def candidate_expenses(payload, gross, *, available_by):
     from app.services import sec_fundamentals as sec
+    # Most issuers cannot qualify this exact bridge. Avoid scanning their full
+    # historical facts when one required standard component is absent.
+    if not gross or any(tag not in payload.get('facts', {}).get('us-gaap', {}) for tag in TAGS.values()):
+        return {}
     series = {k: sec._records(payload, 'operating_income', available_by, concepts=(v,)) for k,v in TAGS.items() if k!='gross'}
     accepted = {}
     for period,left in gross.items():
