@@ -1,0 +1,103 @@
+{
+  "observed_at": "2026-11-09T04:26:11.096405+00:00",
+  "sources": {
+    "https://data.sec.gov/submissions/CIK0001015922.json": {
+      "file": "CHKP-company.gz",
+      "bytes": 88754,
+      "sha256": "41ea61e390ca218dcfa2062a5787c1b1b7de47245a268584dcf730f68671bd76",
+      "symbol": "CHKP",
+      "kind": "company"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1015922/000117891326004953/zk2636310.htm": {
+      "file": "CHKP-cover.gz",
+      "bytes": 180227,
+      "sha256": "4217edf70ed9c17caf4293d6dc8d235114789e36aa401a13f0a2697e8fd8bf26",
+      "symbol": "CHKP",
+      "kind": "cover"
+    },
+    "https://data.sec.gov/submissions/CIK0001062579.json": {
+      "file": "DOX-company.gz",
+      "bytes": 113558,
+      "sha256": "89d559fa140ab1736d43606c72d1997b094a066e40353143ce053596e6ac9a3a",
+      "symbol": "DOX",
+      "kind": "company"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1062579/000119312526336043/d29115d6k.htm": {
+      "file": "DOX-cover.gz",
+      "bytes": 9919,
+      "sha256": "e48a3e37ca1800d85c188d864a3b510a2c2c40a91dd37b0d894d094daa2435da",
+      "symbol": "DOX",
+      "kind": "cover"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1062579/000119312526336043/d29115dex991.htm": {
+      "file": "DOX-exhibit.gz",
+      "bytes": 323588,
+      "sha256": "b536363234dcc270fbaec56cead4db87c67581b1cfc8e0ee3157ff9279826116",
+      "symbol": "DOX",
+      "kind": "exhibit"
+    },
+    "https://data.sec.gov/submissions/CIK0001709048.json": {
+      "file": "GFS-company.gz",
+      "bytes": 47813,
+      "sha256": "a7aca33e37c18ff4f93a842ca6727cd62af68aee203b9159a4be0416b52fef8c",
+      "symbol": "GFS",
+      "kind": "company"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1709048/000170904826000261/gfs-20260930.htm": {
+      "file": "GFS-cover.gz",
+      "bytes": 105967,
+      "sha256": "4106ff6eccaaf1357bb448247b4723206b0c9e75f509374ce93f371bf5b0bbed",
+      "symbol": "GFS",
+      "kind": "cover"
+    },
+    "https://www.sec.gov/Archives/edgar/data/1709048/000170904826000261/gfs-20260930_d2.htm": {
+      "file": "GFS-exhibit.gz",
+      "bytes": 1247297,
+      "sha256": "ef110674cb1edf36ab2f7a49dc274a148701c15acb11e38224a0b7e1b392ac75",
+      "symbol": "GFS",
+      "kind": "exhibit"
+    },
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001709048.json": {
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001709048.json",
+      "file": "GFS-facts.gz",
+      "bytes": 775352,
+      "sha256": "dfd3178b84d1eaa9005b92a85aed221e901b6ebe603ffd1344098196c0c9c00b",
+      "observed_at": "2026-11-09T04:31:01.980724+00:00",
+      "symbol": "GFS",
+      "kind": "facts"
+    }
+  },
+  "selections": {
+    "CHKP": {
+      "symbol": "CHKP",
+      "cik": "0001015922",
+      "accession": "0001178913-26-004953",
+      "url": "https://www.sec.gov/Archives/edgar/data/1015922/000117891326004953/zk2636310.htm",
+      "observed_at": "2026-11-07T21:06:18.583657+00:00",
+      "current_version": true,
+      "statement_links": []
+    },
+    "DOX": {
+      "symbol": "DOX",
+      "cik": "0001062579",
+      "accession": "0001193125-26-336043",
+      "url": "https://www.sec.gov/Archives/edgar/data/1062579/000119312526336043/d29115d6k.htm",
+      "observed_at": "2026-11-07T13:01:02.674908+00:00",
+      "current_version": true,
+      "statement_links": [
+        "https://www.sec.gov/Archives/edgar/data/1062579/000119312526336043/d29115dex991.htm"
+      ]
+    },
+    "GFS": {
+      "symbol": "GFS",
+      "cik": "0001709048",
+      "accession": "0001709048-26-000261",
+      "url": "https://www.sec.gov/Archives/edgar/data/1709048/000170904826000261/gfs-20260930.htm",
+      "observed_at": "2026-11-07T07:16:08.842979+00:00",
+      "current_version": true,
+      "statement_links": [
+        "https://www.sec.gov/Archives/edgar/data/1709048/000170904826000261/gfs-20260930_d2.htm"
+      ]
+    }
+  }
+}

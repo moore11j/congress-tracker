@@ -97,6 +97,9 @@ def bind(parsed, proof):
     """Require declaration, parsed facts and immutable original to agree."""
     if not isinstance(parsed, dict) or not isinstance(proof, dict):
         raise StatementCurrencyError('statement_currency_basis_mismatch')
+    from app.services import sec_tagged_ifrs_currency as tagged
+    if proof.get('methodology') == tagged.POLICY:
+        return tagged.bind(parsed,proof)
     evidence = parsed.get('evidence', {})
     if not isinstance(evidence, dict):
         raise StatementCurrencyError('statement_currency_basis_mismatch')
@@ -171,6 +174,26 @@ def accounting_basis(raw, *, url):
 
 
 def acquire_candidate(metadata, company_raw, *, symbol, cik, available_by, client):
+    """Preserve explicit declarations; try tagged IFRS proof only if absent."""
+    from app.services import sec_tagged_ifrs_currency as tagged,sec_inline_financials as inline
+    originals={}
+    class Retained:
+        def get(self,url):
+            if url not in originals:
+                if len(originals)>=2:raise StatementCurrencyError('statement_currency_original_bound')
+                originals[url]=client.get(url)
+            return originals[url]
+    retained=Retained()
+    args=dict(symbol=symbol,cik=cik,available_by=available_by,client=retained)
+    try:
+        return _acquire_candidate_declared(metadata,company_raw,**args)
+    except StatementCurrencyError as original:
+        if str(original)!='statement_currency_unavailable':raise
+        try:return tagged.acquire_candidate(metadata,company_raw,**args)
+        except (StatementCurrencyError,inline.InlineFactsError):raise original
+
+
+def _acquire_candidate_declared(metadata, company_raw, *, symbol, cik, available_by, client):
     """Acquire and bind one directory-qualified statement in its native currency.
 
     This returns source evidence for normalization. It does not assert that the
@@ -290,7 +313,8 @@ def reporting_basis(supplement):
         'policy':REPORTING_POLICY, 'review':{
             'policy':REPORTING_POLICY, 'source_url':proof['source_url'],
             'source_sha256':proof['source_sha256'], 'declaration':proof,
-            'amount_basis':'Reported amounts in the declared statement currency; no FX or ADS conversion.',
+            'amount_basis':(proof['basis'] if proof.get('status')=='tagged' else
+                'Reported amounts in the declared statement currency; no FX or ADS conversion.'),
             'margin_basis':'Margins use aligned reported revenue and matching parent income or operating subtotals.',
             'cash_flow_basis':'Free cash flow subtracts reported property and equipment purchases; other investing and financing flows are excluded.'}}
 
