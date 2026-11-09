@@ -63,6 +63,8 @@ jobs:
           tests/test_sec_revenue_series.py
           tests/test_sec_revenue_series_consumers.py
           tests/test_sec_financial_continuity.py
+          tests/test_sec_operating_history.py
+          tests/test_sec_operating_bridge.py
           tests/test_sec_tagged_foreign.py
           tests/test_sec_tagged_ifrs_currency.py
           tests/test_sec_tagged_ifrs_consumers.py

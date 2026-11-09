@@ -964,6 +964,18 @@ def fundamentals_summary_from_cache_row(
                 source_note = ' '.join(value for value in (note, source_note) if value)
         except (TypeError, ValueError, AttributeError):
             pass
+    if row.provider in {'sec_edgar', 'free_direct'} and operating_margin_expansion is not None:
+        try:
+            evidence = json.loads(row.source_evidence_json or '{}')
+            history = evidence.get('inline_filing_supplement', {}).get('operating_statement_history', {})
+            from app.services.sec_operating_bridge import METHOD, BASIS
+            from app.services.sec_operating_history import cached_valid
+            if (any(r.get('expense_bridge', {}).get('methodology') == METHOD for r in history.get('rows', []))
+                and cached_valid(history, cik=evidence.get('cik'))):
+                metrics['operating_margin_expansion']['provenance'] = {'source': 'SEC EDGAR', 'version': METHOD, 'basis': BASIS}
+                source_note = ' '.join(note for note in (source_note, 'Operating margins include a calculated subtotal: gross profit less total selling and administrative expense, reconciled to reported pretax income.') if note)
+        except (TypeError, ValueError, AttributeError):
+            pass
     if row.provider in {'sec_edgar', 'free_direct'} and net_debt_to_ebitda is not None:
         try:
             policy = json.loads(row.source_evidence_json or '{}').get('net_debt_policy', {})
