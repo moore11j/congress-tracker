@@ -582,6 +582,7 @@ def evaluate_watchlist_custom_alerts(
     now: datetime | None = None,
     rule_names: set[str] | None = None,
     daily_price_only: bool = False,
+    include_absolute_price_rules: bool = False,
 ) -> dict[str, int]:
     current = now or datetime.now(timezone.utc)
     rules_query = select(WatchlistAlertRule).where(
@@ -599,7 +600,10 @@ def evaluate_watchlist_custom_alerts(
     for rule in rules:
         conditions = _loads(rule.conditions_json, [])
         daily_price_rule = _is_daily_price_rule(conditions)
-        if daily_price_only and not daily_price_rule:
+        absolute_price_rule = bool(conditions) and all(
+            item.get("metric") == "price" and item.get("comparison_type") == "value"
+            for item in conditions)
+        if daily_price_only and not daily_price_rule and not (include_absolute_price_rules and absolute_price_rule):
             continue
         scoped = [rule.scope_ticker.upper()] if rule.scope_type == "specific_ticker" and rule.scope_ticker else tickers
         for ticker in scoped:

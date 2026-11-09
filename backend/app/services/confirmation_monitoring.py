@@ -472,12 +472,14 @@ def refresh_all_monitored_watchlist_confirmation_monitoring(
                 # The built-in 5% intraday move alert is enabled for every
                 # watchlist. Other custom rules remain a Pro feature.
                 if can_use_custom_rules:
+                    from app.clients.massive_stocks import selected as massive_stocks_selected
                     custom_result = evaluate_watchlist_custom_alerts(
                         db,
                         user_id=user_id,
                         watchlist_id=watchlist_id,
                         now=observed_at,
                         daily_price_only=price_rules_only,
+                        **({"include_absolute_price_rules": True} if price_rules_only and massive_stocks_selected() else {}),
                     )
                     custom_rules_evaluated += int(custom_result.get("evaluated") or 0)
                     custom_rules_triggered += int(custom_result.get("triggered") or 0)

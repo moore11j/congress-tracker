@@ -108,3 +108,37 @@ def test_daily_close_evidence_does_not_invent_an_observation_timestamp(db):
     candidate=_signal_alert_candidate(user,alert,{'TEST'})
     assert '2026-11-06 daily close' in candidate.context['alert_intro']
     assert candidate.skip_reason is None
+
+
+def test_price_only_lane_includes_absolute_rules_only_when_requested(db):
+    user,watchlist,state=setup_rule(db)
+    verified_quote(db,120)
+    def run(include):
+        return evaluate_watchlist_custom_alerts(db,user_id=user.id,watchlist_id=watchlist.id,
+            now=NOW,daily_price_only=True,include_absolute_price_rules=include)
+    assert run(False)['evaluated']==0
+    assert run(True)['initialized']==1
+    # A price-only close sweep must not expand to unrelated technical work.
+    rule=db.get(WatchlistAlertRule,state.rule_id)
+    rule.conditions_json=json.dumps(validate_conditions([dict(metric='sma',metric_params={'period':2},
+        operator='gt',comparison_type='value',comparison_value=100)]))
+    db.flush()
+    assert run(True)['evaluated']==0
+
+
+@pytest.mark.parametrize('tier,provider,expected', [('free','massive',0),('premium','massive',0),('pro','massive',1),('pro','fmp',0)])
+def test_selected_scheduled_lane_keeps_absolute_rules_entitlement_gated(db,monkeypatch,tier,provider,expected):
+    from sqlalchemy.orm import Session
+    from app.services import confirmation_monitoring as monitoring
+    user,watchlist,state=setup_rule(db)
+    monkeypatch.setenv('STOCK_PRICE_PROVIDER',provider)
+    user.entitlement_tier=tier;db.commit()
+    verified_quote(db,120)
+    monkeypatch.setattr(monitoring,'monitored_source_ids',lambda *a,**k:{'watchlist_ids':{watchlist.id}})
+    def forbidden(*args,**kwargs):raise AssertionError('Price lane must not recalculate confirmation')
+    monkeypatch.setattr(monitoring,'refresh_watchlist_confirmation_monitoring',forbidden)
+    result=monitoring.refresh_all_monitored_watchlist_confirmation_monitoring(
+        lambda:Session(db.get_bind()),now=NOW,price_rules_only=True)
+    assert result['failures']==0
+    assert result['custom_rules_evaluated']==expected
+    assert result['custom_rules_triggered']==0

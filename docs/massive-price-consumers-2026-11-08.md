@@ -8,6 +8,8 @@ Absolute-price rules require a current-session verified Massive observation. Leg
 
 The prepared alert schedule adds 16:20 and 16:25 New York closing sweeps because a 15-minute delayed regular close arrives after the existing 16:10 cutoff. Those calls return before refresh/evaluation/delivery when FMP is selected. The Massive cutoff is 16:30. This schedule is part of the undeployed draft and has not begun running.
 
+The dedicated selected price lane also evaluates Pro absolute-price rules against numeric thresholds. It otherwise only evaluated daily percentage rules, leaving absolute thresholds without the later sweep. Free/Premium retain their existing built-in-rule restriction and the FMP lane retains its existing scope. Mixed technical/financial rules remain on their existing full monitoring path, and their final live timing remains an acceptance gate. The price lane does not recalculate confirmation scores.
+
 ## Current validation
 
 At preparation, 76 focused backend tests pass, plus all eight close-window job tests after the schedule correction. These counts overlap. Frontend typecheck passes and 16 selected frontend consumer checks pass, including executing research exports with delayed/missing metadata. The original research test expected an obsolete follow component and single-line JSX; assertions now follow the established page without changing its product layout. An unrelated broader chart test still expects an old backtest gradient color; no full frontend-suite pass is claimed. Earlier core verification had 172 passes and one Windows temporary-directory permission error; the affected test passes with an explicit workspace temporary directory.

@@ -6,6 +6,8 @@ on:
       - "backend/app/services/price*.py"
       - "backend/app/services/quote_lookup.py"
       - "backend/app/services/custom_alert_rules.py"
+      - "backend/app/services/confirmation_monitoring.py"
+      - "backend/app/services/email_intraday.py"
       - "backend/app/jobs/run_watchlist_price_alerts.py"
       - "backend/tests/test_massive*.py"
       - "frontend/tests/research-delayed-quotes.test.mjs"
@@ -41,6 +43,7 @@ jobs:
           tests/test_fmp_shutdown_transport.py tests/test_independent_fundamentals.py
           tests/test_fundamentals_provider_baseline.py tests/test_member_quote_cache.py
           tests/test_outcome_horizon_price_reads.py tests/test_institutional_price_boundaries.py
+          tests/test_confirmation_monitoring.py
           -q --disable-warnings --junitxml=massive-price-results.xml
       - if: always()
         uses: actions/upload-artifact@v4
