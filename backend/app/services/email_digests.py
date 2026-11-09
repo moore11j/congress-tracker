@@ -1728,6 +1728,11 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         or event_payload.get("direction")
     )
     why_notable = _clean_text(alert.title) or _clean_text(alert.body) or alert.alert_type.replace("_", " ")
+    if is_custom_alert:
+        from app.services.price_alert_reference import price_observation_timing
+        timing = price_observation_timing(payload.get("price_observation"))
+        if timing:
+            why_notable += " " + timing
     source_stack = _signal_source_label(
         source_type=alert.source_type,
         source_name=alert.source_name,

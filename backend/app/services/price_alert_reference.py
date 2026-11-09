@@ -18,6 +18,18 @@ logger = logging.getLogger(__name__)
 MARKET_TZ = ZoneInfo("America/New_York")
 
 
+def price_observation_timing(observation) -> str:
+    """Describe the recorded alert observation, independent of current selection."""
+    if not isinstance(observation, dict) or observation.get("price_provider") != "massive":
+        return ""
+    if (observation.get("is_delayed") is True and observation.get("delay_minutes") == 15
+            and observation.get("observed_at")):
+        return f"Price delayed 15 minutes; observed {observation['observed_at']}."
+    if observation.get("price_kind") == "daily_close" and observation.get("price_date"):
+        return f"Price is the {observation['price_date']} daily close."
+    return ""
+
+
 def _positive(value):
     try:
         number = float(value)
