@@ -7,6 +7,8 @@ on:
       - "backend/tests/test_public_ticker*.py"
       - "frontend/lib/api.ts"
       - "frontend/tests/ticker-fetch-freshness.test.mjs"
+      - "frontend/components/ticker/TickerFundamentalsSnapshot.tsx"
+      - "frontend/tests/ticker-fundamentals-source.test.mjs"
       - ".github/workflows/public-ticker-regression.yml"
   workflow_dispatch:
 permissions:
@@ -47,4 +49,4 @@ jobs:
       - working-directory: frontend
         run: npm ci --ignore-scripts --no-audit --no-fund
       - working-directory: frontend
-        run: node --test tests/ticker-fetch-freshness.test.mjs tests/ticker-context-bundle.test.mjs tests/ticker-edge-cache.test.mjs
+        run: node --test tests/ticker-fetch-freshness.test.mjs tests/ticker-context-bundle.test.mjs tests/ticker-edge-cache.test.mjs tests/ticker-fundamentals-source.test.mjs
