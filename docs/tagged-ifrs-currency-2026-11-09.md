@@ -22,6 +22,8 @@ Full-original mutation, cache, financial-panel, public-reader, score and synthet
 
 The 49-scope full acquisition output/request-list comparison and identical repeat are running. Exact Linux checks, release, installed proof and ordinary cache recovery remain pending. Production remains PR808 / `78d9c000`; core/prices/transcripts still select FMP, and institutional publication stays disabled.
 
+Local validation subsequently passed 112 broader checks and all 37 final focused cases; all 49 retained acquisition outputs/request lists and their final repeat equal the deployed baseline. Initial Linux run42563140616 passed1537 and failed two existing tests: one legacy currency-retry fixture omitted the new policy marker, and one price-alert test used wall-clock time across New York midnight while keeping the old quote timestamp. The alert failure reproduces on unchanged deployed code at04:47UTC and passes at17:00UTC. The fixture now uses a fixed same-session clock, with a separate explicit previous-New-York-date quote rejection/recovery case. Alert code and freshness rules remain unchanged. Final exact-head CI and release remain pending.
+
 ## Separate institutional validation continuation
 
 The previous terminal-attached replay stopped at 5,205/6,472 originals when its session disappeared. A finite hidden local supervisor now runs the same frozen replay and waits for its identical full repeat before launching the existing consumer checks. This is a one-time local process, not a production schedule. It has an 18-hour replay bound and a two-hour consumer bound, no external requests, production writes or sends, and uses the existing cooperative pause checkpoint.
