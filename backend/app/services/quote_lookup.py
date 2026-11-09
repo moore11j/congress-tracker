@@ -361,11 +361,15 @@ def persisted_quote_metadata(row) -> dict:
         if len(raw) > 16384:
             return {}
         meta = json.loads(raw)
-        if not isinstance(meta, dict) or meta.get('price') != row.price or meta.get('asof_ts') != row.asof_ts.isoformat():
+        if not isinstance(meta, dict) or meta.get('price') != row.price:
             return {}
         for key in ('asof_ts', 'cached_at', 'provider_timestamp'):
             if meta.get(key):
                 meta[key] = _freshness_datetime(datetime.fromisoformat(meta[key]))
+        # Production TIMESTAMPTZ returns an aware datetime; SQLite and older
+        # schemas return naive UTC. Bind the instant, not its textual offset.
+        if not isinstance(meta.get('asof_ts'), datetime) or meta['asof_ts'] != _freshness_datetime(row.asof_ts):
+            return {}
         return meta
     except (AttributeError, TypeError, ValueError):
         return {}

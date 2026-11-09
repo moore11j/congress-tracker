@@ -1,6 +1,7 @@
 """Price migration checks against real service/cache paths, with FMP network forbidden."""
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+import json
 
 import pytest
 from sqlalchemy import create_engine
@@ -40,6 +41,27 @@ def db():
 
 def response(payload, status=200):
     return SimpleNamespace(status_code=status, json=lambda: payload)
+
+
+@pytest.mark.parametrize('offset', [0, -4, 5.5])
+@pytest.mark.parametrize('stored_asof', ['2026-11-06T15:00:00.123456', '2026-11-06T15:00:00.123456Z', '2026-11-06T11:00:00.123456-04:00'])
+def test_metadata_binds_exact_instant_across_database_timestamp_offsets(offset, stored_asof):
+    instant = datetime(2026, 11, 6, 15, 0, 0, 123456, tzinfo=timezone.utc)
+    row = SimpleNamespace(price=110, asof_ts=instant.astimezone(timezone(timedelta(hours=offset))),
+        quote_metadata_json=json.dumps(dict(price=110, asof_ts=stored_asof, source='massive_minute_snapshot')))
+    assert quotes.persisted_quote_metadata(row)['asof_ts'] == instant.replace(tzinfo=None)
+    row.asof_ts += timedelta(microseconds=1)
+    assert quotes.persisted_quote_metadata(row) == {}
+    row.asof_ts -= timedelta(microseconds=1)
+    row.price = 111
+    assert quotes.persisted_quote_metadata(row) == {}
+
+
+@pytest.mark.parametrize('stored_asof', [None, '', 'invalid', 123, '2026-11-06T15:00:00.123457Z'])
+def test_metadata_rejects_missing_invalid_or_different_timestamp(stored_asof):
+    row = SimpleNamespace(price=110, asof_ts=datetime(2026, 11, 6, 15, 0, 0, 123456, tzinfo=timezone.utc),
+        quote_metadata_json=json.dumps(dict(price=110, asof_ts=stored_asof)))
+    assert quotes.persisted_quote_metadata(row) == {}
 
 
 def network(monkeypatch, handler):
