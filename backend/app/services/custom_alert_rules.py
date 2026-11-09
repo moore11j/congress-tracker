@@ -75,6 +75,8 @@ def _fundamental_basis(row: FundamentalsCache | None, metrics: set[str]) -> dict
         if metric == 'net_debt_to_ebitda' and isinstance(evidence.get('net_debt_policy'), dict):
             identity['net_debt_policy'] = {key: evidence['net_debt_policy'].get(key)
                 for key in ('version', 'formula', 'lease_policy')}
+            if evidence['net_debt_policy'].get('debt_measurement'):
+                identity['net_debt_policy']['debt_measurement'] = evidence['net_debt_policy']['debt_measurement']
         if metric in used:
             field = fields.get(metric)
             field = field if isinstance(field, dict) else {}

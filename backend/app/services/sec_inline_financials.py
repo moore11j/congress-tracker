@@ -606,8 +606,13 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
         if native_basis is not None or not include_debt_precision:
             return None
         from app.services.sec_debt_precision import acquire as debt_precision
-        return debt_precision(payload,company=company,available_by=available,end=latest_fact,
-                              forms=forms,cik=cik,client=client)
+        precision = debt_precision(payload,company=company,available_by=available,end=latest_fact,
+                                   forms=forms,cik=cik,client=client)
+        if precision is not None:
+            return precision
+        from app.services.sec_lease_debt_evidence import acquire as disjoint_leases
+        return disjoint_leases(payload,company=company,available_by=available,end=latest_fact,
+                               forms=forms,cik=cik,client=client)
     latest = max((r[0],r[1]) for r in candidates)
     candidates = {r for r in candidates if r[:2] == latest}
     if len(candidates) != 1:
@@ -701,7 +706,9 @@ def annotate(records, supplement, *, metrics=None, expected_cik=None, available_
                 or sec._day(evidence['filed']) > available_by):
             return records
         from app.services.sec_debt_precision import annotate as debt_precision
-        return debt_precision(records, supplement)
+        debt_precision(records, supplement)
+        from app.services.sec_lease_debt_evidence import annotate as disjoint_leases
+        return disjoint_leases(records, supplement)
     metrics = metrics or {name:(tags,'USD') for name,tags in sec.TAGS.items()}
     for name, series in records.items():
         # A held optional fact must not fall back to an older companyfacts value
