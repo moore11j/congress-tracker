@@ -152,13 +152,20 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
     # Additional aliases (for example a local xlink prefix) do not alter the
     # fixed root prefixes used by this reader. Rebinding any root prefix does.
     # Transforms still require an explicitly trusted root namespace.
+    # Index the few document-wide node kinds during the required namespace
+    # walk. Keep document order and the same case-insensitive matching as
+    # nodes(), without repeatedly materializing every HTML element in Python.
+    document_nodes = {tag: [] for tag in (
+        'xbrli:context', 'xbrli:unit', 'ix:nonnumeric', 'ix:nonfraction')}
     for n in tree.iter():
         if any(value != tree.get(name) for name, value in n.attrib.items()
                if name.startswith('xmlns:') and name in tree.attrib):
             raise InlineFactsError('namespace_redefinition')
+        if isinstance(n.tag, str) and n.tag.lower() in document_nodes:
+            document_nodes[n.tag.lower()].append(n)
     cik = str(cik).zfill(10)
     contexts = {}
-    for n in nodes(tree, 'context'):
+    for n in document_nodes['xbrli:context']:
         key = n.get('id')
         if not key or key in contexts:
             raise InlineFactsError('duplicate_context')
@@ -180,7 +187,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         if str(period[1]) <= report_date:
             contexts[key] = period
     identity, forms, dates = set(), set(), set()
-    for n in tree.iter():
+    for n in document_nodes['ix:nonnumeric']:
         if n.tag != 'ix:nonnumeric' or contexts.get(n.get('contextref')) is None:
             continue
         name = n.get('name')
@@ -242,7 +249,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
     if identity != {cik} or forms != {form} or dates != {report_date}:
         raise InlineFactsError('filing_identity')
     units = {}; unit_ids = set(); monetary_units = {}
-    for n in nodes(tree, 'unit'):
+    for n in document_nodes['xbrli:unit']:
         key = n.get('id')
         if not key or key in unit_ids:
             raise InlineFactsError('duplicate_unit')
@@ -288,7 +295,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         'NetCashProvidedByUsedInOperatingActivities','Revenue','RevenueFromContractsWithCustomers',
         'ProfitLoss','ProfitLossAttributableToOwnersOfParent','ProfitLossFromOperatingActivities',
         'CashFlowsFromUsedInOperatingActivities'}
-    for n in nodes(tree, 'nonfraction'):
+    for n in document_nodes['ix:nonfraction']:
         name = n.get('name', '')
         if not name.startswith(namespace+':'):
             continue
@@ -317,7 +324,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         'current_statement_currencies':sorted(k for k,v in currency_groups.items() if v)}
     records = {}; provenance = {}; precisions = {}; rounded_duplicates = []; auxiliary_holds = {}; nil_keys = set()
     core_observations = {}; core_rounded_duplicates = []; core_overlap_used = False
-    for n in nodes(tree, 'nonfraction'):
+    for n in document_nodes['ix:nonfraction']:
         name = n.get('name', '')
         if not name.startswith(namespace+':') or name.split(':', 1)[1] not in wanted:
             continue
@@ -469,6 +476,22 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
             result = {'revenue_periods_only':True, 'evidence':{'cik':str(cik).zfill(10), 'methodology':sec_revenue_periods.VERSION}}
         result['revenue_periods'] = periods
         result['evidence']['reconciled_revenue_periods'] = periods['evidence']
+    from app.services import sec_common_equity
+    equity = None
+    equity_payload = json.loads(facts_raw)
+    if (not (result or {}).get('evidence', {}).get('native_reporting')
+        and all(tag in equity_payload.get('facts', {}).get('us-gaap', {}) for tag in sec_common_equity.TAGS.values())):
+        try:
+            effective = merge(equity_payload, result, available_by=available)
+            equity = sec_common_equity.acquire(effective, json.loads(company_raw),
+                cik=str(cik).zfill(10), available_by=available, client=retained)
+        except ValueError:
+            equity = None
+    if equity is not None:
+        if result is None:
+            result = {'common_equity_only':True, 'evidence':{'cik':str(cik).zfill(10), 'methodology':sec_common_equity.VERSION}}
+        result['common_equity'] = equity
+        result['evidence']['common_equity_reconciliation'] = equity['evidence']
     return result
 
 
@@ -668,7 +691,7 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
 
 
 def merge(payload, supplement, *, available_by):
-    if supplement is None or supplement.get('debt_precision_only') or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only'):
+    if supplement is None or supplement.get('debt_precision_only') or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only') or supplement.get('common_equity_only'):
         return payload
     evidence = supplement['evidence']
     if str(payload.get('cik','')).zfill(10) != evidence['cik'] or evidence['filed'] > str(available_by):
@@ -696,7 +719,7 @@ def merge(payload, supplement, *, available_by):
 
 
 def annotate(records, supplement, *, metrics=None, expected_cik=None, available_by=None):
-    if supplement is None or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only'):
+    if supplement is None or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only') or supplement.get('common_equity_only'):
         return records
     from app.services import sec_fundamentals as sec
     if supplement.get('debt_precision_only'):

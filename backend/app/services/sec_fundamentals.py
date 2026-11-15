@@ -464,6 +464,9 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         if any((evidence["instant"].get(k) or {}).get("derivation") == sec_parent_equity.VERSION
                for k in ("equity", "beginning_equity")):
             equity_label = "parent equity (reviewed component and balance-sheet reconciliation)"
+        from app.services.sec_common_equity import VERSION as common_equity_version
+        if any((evidence['instant'].get(k) or {}).get('derivation') == common_equity_version for k in ('equity','beginning_equity')):
+            equity_label = 'common equity (complete original-statement components and assets/liabilities reconciliation)'
         save("roe", ratio(val("net_income"), (equity_then + equity_now) / 2, 100), f"TTM {income_label} / average beginning and ending {equity_label} * 100")
     cash, capex = val("operating_cash_flow"), val("capex")
     old_cash, old_capex = val("operating_cash_flow", True), val("capex", True)
