@@ -976,6 +976,16 @@ def fundamentals_summary_from_cache_row(
                 source_note = ' '.join(note for note in (source_note, 'Operating margins include a calculated subtotal: gross profit less total selling and administrative expense, reconciled to reported pretax income.') if note)
         except (TypeError, ValueError, AttributeError):
             pass
+    if row.provider in {'sec_edgar', 'free_direct'} and roe is not None:
+        try:
+            evidence = json.loads(row.source_evidence_json or '{}')
+            proof = evidence.get('inline_filing_supplement', {}).get('common_equity_reconciliation')
+            from app.services.sec_common_equity import VERSION, BASIS, cached_valid
+            if cached_valid(proof, cik=evidence.get('cik')):
+                metrics['return_on_equity']['provenance'] = {'source': 'SEC EDGAR', 'version': VERSION, 'basis': BASIS}
+                source_note = ' '.join(note for note in (source_note, BASIS) if note)
+        except (TypeError, ValueError, AttributeError):
+            pass
     if row.provider in {'sec_edgar', 'free_direct'} and net_debt_to_ebitda is not None:
         try:
             policy = json.loads(row.source_evidence_json or '{}').get('net_debt_policy', {})

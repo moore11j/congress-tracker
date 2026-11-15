@@ -1,0 +1,33 @@
+{
+  "PPLC-company.gz": {
+    "file": "PPLC-company.gz",
+    "bytes": 157695,
+    "sha256": "209eac6602cd82d802fdde5beffe24b752ce83a61174270dc34a1280199e44a2",
+    "symbol": "PPLC",
+    "kind": "company",
+    "url": "https://data.sec.gov/submissions/CIK0000922224.json"
+  },
+  "PPLC-facts.gz": {
+    "file": "PPLC-facts.gz",
+    "bytes": 4983953,
+    "sha256": "39e8ec896ba6f9d6ffae55e9c8d4449a5cd7bd7d5471cca5f57d78dc362c3dd5",
+    "symbol": "PPLC",
+    "kind": "facts",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000922224.json"
+  },
+  "PPLC-0000922224-26-000052.gz": {
+    "file": "PPLC-0000922224-26-000052.gz",
+    "bytes": 5170361,
+    "sha256": "5a0560e3726d0f2d73003af7a79290121d1b089fa931c128ed3eb51ec6fd1903",
+    "symbol": "PPLC",
+    "kind": "0000922224-26-000052",
+    "url": "https://www.sec.gov/Archives/edgar/data/922224/000092222426000052/ppl-20260930.htm"
+  },
+  "PPLC-0000922224-25-000051.gz": {
+    "url": "https://www.sec.gov/Archives/edgar/data/922224/000092222425000051/ppl-20250930.htm",
+    "file": "PPLC-0000922224-25-000051.gz",
+    "bytes": 5144731,
+    "sha256": "6a2096f93965af164d92bf4e4b5301618b3d1bc085b6ecbf658a4b81fbaf4cb5",
+    "observed_at": "2026-11-09T07:00:00.154790+00:00"
+  }
+}
