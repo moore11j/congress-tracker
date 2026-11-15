@@ -207,10 +207,17 @@ def plan(payload, company, *, cik, available_by):
     current=sec._ttm(sec._records(payload,'revenue',available_by),end)
     income=sec._ttm(sec._records(payload,'net_income',available_by),end)
     if not current or not income or current['start']!=income['start']:return None
-    targets=[date.fromisoformat(current['start'])-timedelta(days=1),end]
+    boundaries=[date.fromisoformat(current['start'])-timedelta(days=1),end]
     equity=sec._records(payload,'equity',available_by)
-    targets=[d for d in targets if (None,d) not in equity]
+    targets=[d for d in boundaries if (None,d) not in equity]
     if not targets:return None
+    # Historical presence of a concept does not establish that this issuer
+    # still reports this complete common-stock balance. Require that inventory
+    # at a needed denominator boundary before requesting further originals.
+    # The other boundary may still need recovery from its newer whole filing.
+    components=[sec._records(payload,'equity',available_by,concepts=(tag,)) for tag in TAGS.values()]
+    if not any(all(series.get((None,target)) is not None for series in components) for target in boundaries):
+        return None
     selected=[]
     for target in targets:
         matches=[r for r in filings if r[3]==str(target)]

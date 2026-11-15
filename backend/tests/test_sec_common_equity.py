@@ -35,6 +35,18 @@ def planned():
     payload,company=inputs();payload=inline.merge(payload,acquired(),available_by=NOW.date())
     return payload,company,equity.plan(payload,company,cik=CIK,available_by=NOW.date())
 
+@pytest.mark.parametrize('component',['common','paid','other'])
+def test_obsolete_component_inventory_does_not_request_more_originals(component):
+    payload,company,plan=planned()
+    boundaries={filing['report_date'] for filing in plan['filings']}
+    units=payload['facts']['us-gaap'][equity.TAGS[component]]['units']
+    units['USD']=[row for row in units['USD'] if row['end'] not in boundaries]
+    assert units['USD']  # Historical concept presence alone is insufficient.
+    client=Client()
+    assert equity.acquire(payload,company,cik=CIK,available_by=NOW.date(),client=client) is None
+    assert client.calls==[]
+
+
 def test_full_originals_restore_only_roe_and_all_readers_repeat():
     before_item=deepcopy(acquired());before_item.pop('common_equity');before_item['evidence'].pop('common_equity_reconciliation')
     before=project(before_item);after=project(acquired())
