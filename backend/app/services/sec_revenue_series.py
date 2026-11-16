@@ -194,7 +194,18 @@ def acquire(payload, company, *, cik, available_by, client, originals=None):
     for filing in plan['filings'].values():
         raw = client.get(filing['url'])
         parsed = (originals or {}).get(filing['url'])
-        for key, proof in statement_rows(raw, filing, parsed).items():
+        if parsed is None:
+            from app.services.sec_inline_financials import parse
+            parsed = parse(raw, **filing)
+        rows = statement_rows(raw, filing, parsed)
+        needed = {key for key, point in plan['needed'].items() if point['accession'] == filing['accession']}
+        if not needed <= rows.keys():
+            from app.services.sec_revenue_statement_layout import statement_rows as layout_rows
+            for key, proof in layout_rows(raw, filing, parsed).items():
+                if key in rows and any(rows[key][k] != proof[k] for k in IDENTITY):
+                    raise ValueError('revenue_series_statement_conflict')
+                rows.setdefault(key, proof)
+        for key, proof in rows.items():
             verified[key+(filing['accession'],)] = proof
     for key, point in plan['needed'].items():
         proof = verified.get(key+(point['accession'],))
@@ -211,6 +222,13 @@ def acquire(payload, company, *, cik, available_by, client, originals=None):
             'selected_concept':CONTRACT, 'superseded_concept':TOTAL,
             'overlap':plan['overlaps'], 'rows':selected,
             'basis':'One contract-revenue history independently identified as total revenue in each original consolidated income statement.'}
+
+
+def _statement_scope(original, point):
+    if 'layout_policy' in original:
+        from app.services.sec_revenue_statement_layout import valid
+        return valid(original, point=point)
+    return original.get('row_label') in LABELS and _primary_heading(original.get('statement_heading'))
 
 
 def apply(records, payload, company, *, cik, available_by, supplement, preserve_reported_history=False):
@@ -232,8 +250,7 @@ def apply(records, payload, company, *, cik, available_by, supplement, preserve_
         original = point.get('original_statement') or {}
         if (key in selected or not expected or point.get('tag') != CONTRACT
                 or any(point.get(k) != expected[k] or original.get(k) != expected[k] for k in IDENTITY)
-                or original.get('source_cik') != cik or original.get('row_label') not in LABELS
-                or not _primary_heading(original.get('statement_heading'))
+                or original.get('source_cik') != cik or not _statement_scope(original, point)
                 or any(original.get(k) != point[k] for k in ('start','end'))
                 or original.get('source_url') != plan['filings'].get(point['accession'],{}).get('url')
                 or not re.fullmatch(r'[a-f0-9]{64}',original.get('source_sha256',''))):
@@ -285,7 +302,7 @@ def cached_valid(proof, *, cik):
                     or original['source_cik'] != cik or source_identity(original['source_url']) != (cik,p['accession'])
                     or not re.fullmatch(r'[a-f0-9]{64}',original['source_sha256'])
                     or not isinstance(original['context_id'],str) or not original['context_id']
-                    or original['row_label'] not in LABELS or not _primary_heading(original['statement_heading'])):
+                    or not _statement_scope(original, p)):
                 return False
             url=original['source_url']; digest=original['source_sha256']
             if url in hashes and hashes[url] != digest:return False
