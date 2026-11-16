@@ -78,7 +78,10 @@ def test_old_filing_stays_stale_and_negated_current_original_stays_held():
     with pytest.raises(reporting.TabularReportingError,match='table_accounting_basis_unproved'):
         reporting.normalize(source,**args(item))
 
-def test_complete_second_issuer_keeps_independent_period_alignment_hold():
+def test_complete_second_issuer_basis_does_not_override_period_validation(monkeypatch):
+    from app.services import sec_tabular_financials
+    # Isolate the declaration repair from the separate month-period reader.
+    monkeypatch.setattr(sec_tabular_financials,'month_period_wording',lambda text:text)
     manifest=json.loads((ROOT/'sources.json').read_bytes())
     item=manifest['other_companies']['SB']
     company=gzip.decompress((ROOT/item['file']).read_bytes())
