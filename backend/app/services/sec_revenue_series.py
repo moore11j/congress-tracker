@@ -207,6 +207,8 @@ def acquire(payload, company, *, cik, available_by, client, originals=None):
             from app.services.sec_inline_financials import parse
             parsed = parse(raw, **filing)
         if plan['selected']==INCLUDING:
+            if any(p.get('tag') in {TOTAL,CONTRACT,INCLUDING} for p in parsed['evidence'].get('nil_facts',[])):
+                raise ValueError('revenue_series_nil_revenue')
             from app.services.sec_revenue_tax_tags import statement_rows as tax_rows
             rows=tax_rows(raw,filing,parsed)
         else:
@@ -252,7 +254,8 @@ def apply(records, payload, company, *, cik, available_by, supplement, preserve_
     proof = (supplement or {}).get('evidence', {}).get('revenue_series_selection')
     if not proof:
         return records
-    if any(p.get('tag') in {TOTAL,CONTRACT,INCLUDING} for p in supplement['evidence'].get('nil_facts', [])):
+    nil_concepts={TOTAL,CONTRACT}|({INCLUDING} if proof.get('selected_concept')==INCLUDING else set())
+    if any(p.get('tag') in nil_concepts for p in supplement['evidence'].get('nil_facts', [])):
         raise ValueError('revenue_series_nil_revenue')
     plan = _plan(payload, company, cik=cik, available_by=available_by)
     if (plan is None or proof.get('methodology') != plan['version'] or proof.get('cik') != cik
