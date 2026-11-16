@@ -92,6 +92,9 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
     from app.services.sec_rental_revenue import apply as select_rental_revenue
     current = select_rental_revenue(current, effective, company or {}, cik=str(cik).zfill(10),
         available_by=available_by, supplement=filing_supplement, preserve_reported_history=preserve_reported_revenue)
+    from app.services.sec_collaboration_revenue import apply as select_collaboration_revenue
+    current = select_collaboration_revenue(current, effective, company or {}, cik=str(cik).zfill(10),
+        available_by=available_by, supplement=filing_supplement, preserve_reported_history=preserve_reported_revenue)
     inline.annotate(current,filing_supplement,metrics=metrics,expected_cik=cik,available_by=available_by)
     if (filing_supplement or {}).get('common_equity'):
         from app.services.sec_common_equity import apply as common_equity
