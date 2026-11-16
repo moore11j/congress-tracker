@@ -90,6 +90,7 @@ jobs:
           tests/test_sec_financial_discovery_reader.py
           tests/test_sec_ifrs_declarations.py
           tests/test_sec_us_conformity.py
+          tests/test_sec_month_period_headers.py
           tests/test_sec_sap_financials.py
           tests/test_sec_nvo_financials.py
           tests/test_sec_financial_discovery_progress.py
@@ -126,6 +127,10 @@ jobs:
       - name: Verify complete common-equity path within production proof limits
         working-directory: backend
         run: python scripts/verify_common_equity_fixture.py
+      - name: Verify complete month-period path within production proof limits
+        working-directory: backend
+        run: python scripts/verify_month_period_fixture.py
+
       - name: Preserve test result
         if: always()
         uses: actions/upload-artifact@v4

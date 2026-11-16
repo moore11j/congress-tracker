@@ -24,6 +24,7 @@ MONTH_PATTERN = '|'.join(re.escape(name) for name in sorted(MONTHS, key=len, rev
 from app.services.sec_statement_currency import ALIASES
 CURRENCIES = {**ALIASES, 'USD': ALIASES['USD'] + r'|US\$', 'EUR': ALIASES['EUR'] + r'|€', 'GBP': ALIASES['GBP'] + r'|£'}
 DURATIONS = {'three':3,'six':6,'nine':9,'twelve':12,'3':3,'6':6,'9':9,'12':12}
+PERIOD_WORDING_POLICY = 'explicit_month_period_ended_v1'
 
 
 class TabularFinancialError(ValueError):
@@ -261,7 +262,19 @@ def table_kind(text, *, expanded=False):
     return None
 
 
+def month_period_wording(text):
+    """Recognize an explicit month-period caption without changing source text."""
+    pattern = r'\b(three|six|nine|twelve|3|6|9|12)(?:-|\s+)months?\s+period\s+ended\b'
+    for match in re.finditer(pattern,text,re.I):
+        prefix=text[max(0,match.start()-80):match.start()]
+        if (prefix.endswith(('-', '+')) or re.search(
+                r'\b(?:not|no|hypothetical|forecast|projected|expected|and|or|to|through)\s*$',prefix,re.I)):
+            raise TabularFinancialError('column_duration_unsupported')
+    return re.sub(pattern,r'\1 months ended',text,flags=re.I)
+
+
 def period_for(text,kind,filed):
+    text=month_period_wording(text)
     years=set(re.findall(r'\b(?:19|20)\d{2}\b',text))
     dates=re.findall(r'\b('+MONTH_PATTERN+r')\s*,?\s*(\d{1,2})\b',text,re.I)
     dates={(MONTHS[m.lower()],int(d)) for m,d in dates}
@@ -295,6 +308,7 @@ def column_period(header,texts,shared_periods,kind,filed):
         result=period_for(' '.join(texts),kind,filed)
         _,end,months=result
         for context in shared_periods:
+            context=month_period_wording(context)
             dates={(MONTHS[m.lower()],int(d)) for m,d in re.findall(
                 r'\b('+MONTH_PATTERN+r')\s*,?\s*(\d{1,2})\b',context,re.I)}
             years={int(y) for y in re.findall(r'\b(?:19|20)\d{2}\b',context)}

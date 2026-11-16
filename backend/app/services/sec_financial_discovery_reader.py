@@ -125,6 +125,9 @@ def validate_receipt(receipt,cover,*,now):
             if receipt.get('comparative_policy')!=comparative_policy:return None
             if receipt.get('comparative_layout_policy')!=comparative_layout_policy:return None
         if status=='held':
+            from app.services.sec_tabular_financials import PERIOD_WORDING_POLICY
+            if any(h['reason']=='table_current_statement_alignment' for h in holds) and receipt.get('period_wording_policy')!=PERIOD_WORDING_POLICY:
+                return None
             from app.services.sec_tagged_ifrs_currency import POLICY as tagged_currency_policy
             if any(h['reason']=='table_reporting_currency_unproved' for h in holds) and receipt.get('tagged_currency_policy')!=tagged_currency_policy:
                 return None
@@ -337,6 +340,9 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
         receipt['comparative_policy']=comparative_policy
         receipt['comparative_layout_policy']=comparative_layout_policy
     if receipt['status']=='held':
+        from app.services.sec_tabular_financials import PERIOD_WORDING_POLICY
+        if any(h['reason']=='table_current_statement_alignment' for h in receipt['holds']):
+            receipt['period_wording_policy']=PERIOD_WORDING_POLICY
         from app.services.sec_tagged_ifrs_currency import POLICY as tagged_currency_policy
         if any(h['reason']=='table_reporting_currency_unproved' for h in receipt['holds']):
             receipt['tagged_currency_policy']=tagged_currency_policy
