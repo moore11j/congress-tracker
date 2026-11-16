@@ -43,5 +43,9 @@ assert evidence['prior']['revenue']['value']==0
 summary=fundamentals_summary_from_cache_row(SimpleNamespace(**value),now=now)
 assert summary['context']['source_label']=='SEC EDGAR'
 assert value.get('revenue_growth') is None and value.get('operating_margin_expansion') is None
+assert value['operating_margin'] == -121.83333333333333
+assert value['net_margin'] == -133.9047619047619
+assert value.get('fcf_margin') is None and value.get('free_cash_flow') is None
+assert evidence['current']['capex'] is None
 assert summary['status']=='unavailable' and not summary['data_quality']['available']
-print('RESULT='+json.dumps(dict(complete_originals=5,original_bytes=sum(m['bytes'] for m in manifest.values()),current_ttm_revenue=evidence['current']['revenue']['value'],prior_ttm_revenue=evidence['prior']['revenue']['value'],recovered_metrics=['operating_margin','net_margin','fcf_margin'],classification=summary['status'],exact_repeat=True,original_request_repeat=True,cpu_seconds=time.process_time()-started,production_writes=0,provider_requests=0,emails=0)))
+print('RESULT='+json.dumps(dict(complete_originals=5,original_bytes=sum(m['bytes'] for m in manifest.values()),current_ttm_revenue=evidence['current']['revenue']['value'],prior_ttm_revenue=evidence['prior']['revenue']['value'],recovered_metrics=['operating_margin','net_margin'],fcf_margin_unavailable_missing_capex=True,classification=summary['status'],exact_repeat=True,original_request_repeat=True,cpu_seconds=time.process_time()-started,production_writes=0,provider_requests=0,emails=0)))

@@ -59,6 +59,9 @@ def test_complete_originals_recover_revenue_without_splicing_or_overclaiming_cla
     without['evidence'].pop('collaboration_revenue_selection')
     before = project(without)
     assert after.get('revenue_growth') is None
+    assert after['operating_margin'] == -121.83333333333333
+    assert after['net_margin'] == -133.9047619047619
+    assert after.get('fcf_margin') is None and after.get('free_cash_flow') is None
     for key,value in before.items():
         if key!='source_evidence_json':assert after.get(key)==value
     evidence = json.loads(after['source_evidence_json'])
