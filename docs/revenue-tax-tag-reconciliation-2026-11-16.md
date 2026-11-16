@@ -1,0 +1,11 @@
+# Original-bound revenue tax-tag reconciliation
+
+PACB's current primary statement uses the excluding-assessed-tax revenue tag; its complete annual history uses the including-assessed-tax tag. The existing reader correctly refuses to combine those histories. This candidate selects one complete history only after exact overlaps and original primary-statement totals prove every required period. It never assumes that the tags are interchangeable or infers a tax adjustment.
+
+The shared path recognizes a visible, immediately adjacent title block, including a small title-only table, without scanning past intervening content. It rejects hidden titles/rows, notes, guarantor headings, conflicting primary values and missing source proof. Every selected fact retains filing, period, currency, entity, whole-original hash and primary-row evidence. Existing total-to-contract revenue handling remains separate and retains its existing proof format.
+
+Five complete retained originals total8,604,971 bytes: company facts, company submissions and three periodic filings. Fifteen exact overlaps cover the required history. Current TTM revenue is161,394,000USD; prior TTM revenue is154,584,000USD. Six ratios become available: revenue growth, gross margin, operating margin, operating margin expansion, net margin and free-cash-flow margin. Existing numeric values remain unchanged; the overall classification remains unavailable. This is not full financial coverage or a scoring-methodology change.
+
+Validation includes original reader/projection/repeat, altered-source and cached-proof rejection, preserved historical panel values, cache/screener behavior and watchlist rebaseline/repeat. The standalone original fixture retains the existing10/12 CPU-second and22-wall-second limits. Linux CI, the complete43-symbol comparison and retained49-output regression receipts remain release gates until separately recorded.
+
+Current approved production is PR815/900f6516. This candidate is prepared for review and is not deployed. No provider selection, pricing, entitlement, schedule or customer-delivery change is included. The last full preparation audit remains737 gaps/2,622 symbols; no offline repair is subtracted from that live audit. Massive remains held. Other period/source/identity/sector, ordinary recovery, all-consumer and capacity gates remain.
