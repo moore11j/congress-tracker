@@ -941,7 +941,12 @@ def fundamentals_summary_from_cache_row(
             if used:
                 source_label = 'SEC EDGAR + Finnhub'
                 source_note = 'Finnhub metrics use provider observations; valuation timestamps and forecast horizons are not supplied.'
-                if json.loads(row.source_evidence_json or '{}').get('independent_metrics'):
+                source_evidence = json.loads(row.source_evidence_json or '{}')
+                identity_only = source_evidence.get('financial_status') == 'unavailable' and not any(
+                    _row_number(row, field) is not None and field not in used
+                    for field in FUNDAMENTAL_FIELD_NAMES
+                )
+                if source_evidence.get('independent_metrics') or identity_only:
                     source_label = 'Finnhub'
                     source_note = 'Company identity verified with SEC EDGAR; SEC financial values are unavailable. ' + source_note
             for key, metric in metrics.items():

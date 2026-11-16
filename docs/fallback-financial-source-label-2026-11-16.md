@@ -1,0 +1,15 @@
+# Financial fallback source attribution
+
+The complete 42-symbol fallback investigation found that the existing free reader can produce supported classifications for all 42 candidates from retained originals. This does not prove current public publication: core fundamentals still select FMP, and ordinary operation, wider consumer coverage and capacity remain gates.
+
+The reader and its exact request/result repeat are source-proven for every candidate. Evidence includes 83 complete SEC company/companyfacts records, RVT's explicit companyfacts 404, 163 complete requested filing documents, 42 complete Finnhub responses and the official SEC ticker directory. Each response is retained with a hash; 34 filing documents reuse complete retained originals and 129 were fetched during this investigation. An initial transient source/budget hold was preserved and cleared on one bounded retry. No financial cache or customer record was written; the Finnhub shared request limiter recorded its normal reservations.
+
+The actual reader exposed a display defect in 37 cases: the older unsupported-coverage path admits no SEC financial amounts but displays `SEC EDGAR + Finnhub` after Finnhub supplies the ratios. The existing explicit identity-only exception path already displays `Finnhub`. Both paths should identify the financial-value source consistently.
+
+The correction changes only summary source attribution. When SEC financial status is unavailable and every present financial field came from the supplement, the label becomes `Finnhub` and the note explains that SEC verified company identity. Any retained SEC financial value, including a genuine zero cash flow, preserves the combined source label. Values, financial periods, per-metric provenance, classifications, cache identities, source fingerprints, alert behavior and provider selectors stay unchanged. No scoring-version transition is needed for this display-only change.
+
+Local checks cover the whole BABA company, companyfacts and Finnhub originals (1,610,302 bytes), actual acquisition and exact repeat, and guards for positive/zero SEC cash flow. The 30 independent-fundamentals tests pass. The bounded standalone proof completes in 0.719 Windows CPU seconds; Linux CI and installed-release proof are separate gates. Its limits remain 10/12 CPU seconds and 22 wall seconds.
+
+The complete 42-scope local SQLite consumer replay passes before this change, including cache persistence/repeat, screener values, zero false alerts on source transitions and zero duplicate alerts. Controlled subsequent ROE changes produce the expected alerts in isolated test accounts only. Candidate replay must preserve every value, classification and metric provenance while correcting exactly 37 labels. These local checks do not establish full ranking/digest coverage or production alert delivery.
+
+Current implementation is a review candidate based on PR813 `5a508161`. No provider activation, scoring-method change, purchase or deployment is included in preparing this candidate. The separate sector-scoring proposal remains for review. Full financial coverage is not complete, and Massive remains held.
