@@ -666,7 +666,7 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
         from app.services import sec_revenue_series
         from app.clients.direct_sources import DirectSourceError
         try:
-            if any(p.get('tag') in {sec_revenue_series.TOTAL,sec_revenue_series.CONTRACT}
+            if any(p.get('tag') in {sec_revenue_series.TOTAL,sec_revenue_series.CONTRACT,sec_revenue_series.INCLUDING}
                    for p in result['evidence'].get('nil_facts', [])):
                 raise ValueError('revenue_series_nil_revenue')
             selection = sec_revenue_series.acquire(payload,company,cik=cik,available_by=available,

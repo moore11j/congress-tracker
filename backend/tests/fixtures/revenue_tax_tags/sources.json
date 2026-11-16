@@ -1,0 +1,42 @@
+{
+  "PACB-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0001299130.json",
+    "sha256": "c69042698c900435b3fdff4928e70f6542d3627093b158fe90df83f163740ef3",
+    "bytes": 160327
+  },
+  "PACB-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001299130.json",
+    "sha256": "f88b026c996e52c7c14b8f73a82e5c94b3218108b01b4c2277eb5da89468e51e",
+    "bytes": 2572913
+  },
+  "pacb-20260930.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1299130/000129913026000138/pacb-20260930.htm",
+    "sha256": "396a6f2227b9c868c11a882af8c3766ae105dab2bfb519322e52f06a49636556",
+    "bytes": 1706873,
+    "cik": "0001299130",
+    "accession": "0001299130-26-000138",
+    "form": "10-Q",
+    "filed": "2026-11-05",
+    "report_date": "2026-09-30"
+  },
+  "pacb-20251231.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1299130/000129913026000034/pacb-20251231.htm",
+    "sha256": "a1660c2c209a74f1dadc32a3182278d251c78e066f4aafc78005ba1b8c6faef5",
+    "bytes": 2462476,
+    "cik": "0001299130",
+    "accession": "0001299130-26-000034",
+    "form": "10-K",
+    "filed": "2026-02-25",
+    "report_date": "2025-12-31"
+  },
+  "pacb-20250930.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1299130/000129913025000168/pacb-20250930.htm",
+    "sha256": "68c9e9dc68afed0e60e2a9191aece304eed00686df5cda160f1a92a2804a257d",
+    "bytes": 1702382,
+    "cik": "0001299130",
+    "accession": "0001299130-25-000168",
+    "form": "10-Q",
+    "filed": "2025-11-06",
+    "report_date": "2025-09-30"
+  }
+}

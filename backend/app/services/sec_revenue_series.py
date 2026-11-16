@@ -13,6 +13,8 @@ from lxml import html
 VERSION = 'sec_primary_statement_revenue_series_v1'
 TOTAL = 'Revenues'
 CONTRACT = 'RevenueFromContractWithCustomerExcludingAssessedTax'
+INCLUDING = 'RevenueFromContractWithCustomerIncludingAssessedTax'
+TAX_VERSION = 'sec_original_revenue_tax_tag_series_v1'
 FORMS = {'10-K', '10-Q', '10-K/A', '10-Q/A'}
 IDENTITY = ('value', 'unit', 'filed', 'accession')
 LABELS = {'total revenues', 'total revenue', 'total net revenues', 'total net revenue',
@@ -61,10 +63,13 @@ def _plan(payload, company, *, available_by, cik):
         return None
     ordinary = sec._records(payload, 'revenue', available_by)
     if (not ordinary or max(e for _, e in ordinary) != end
-            or any(p and p['tag'] != TOTAL for p in ordinary.values())
             or sec._ttm(ordinary, end) is not None):
         return None
-    candidate = sec._records(payload, 'revenue', available_by, concepts=(CONTRACT,))
+    tags={p['tag'] for p in ordinary.values() if p}
+    if tags == {TOTAL}:superseded,selected,version=TOTAL,CONTRACT,VERSION
+    elif tags == {CONTRACT}:superseded,selected,version=CONTRACT,INCLUDING,TAX_VERSION
+    else:return None
+    candidate = sec._records(payload, 'revenue', available_by, concepts=(selected,))
     current = sec._ttm(candidate, end)
     if not current or not any(p['end'] == str(end) and p['accession'] == closing[0]['accession']
                               and p['filed'] == closing[0]['filed'] for p in current['inputs']):
@@ -93,10 +98,11 @@ def _plan(payload, company, *, available_by, cik):
     if len(required) > 6 or not required <= filings.keys():
         raise ValueError('revenue_series_originals_unavailable')
     return dict(candidate=candidate, needed=needed, floor=floor, end=str(end),
-                filings={key:filings[key] for key in sorted(required)}, overlaps=overlaps)
+                filings={key:filings[key] for key in sorted(required)}, overlaps=overlaps,
+                superseded=superseded,selected=selected,version=version)
 
 
-def statement_rows(raw, filing, parsed=None):
+def statement_rows(raw, filing, parsed=None, *, concept=CONTRACT, heading_resolver=None):
     from app.services import sec_inline_financials as inline
     from app.services.sec_tabular_financials import preceding_text, clean
     parsed = parsed or inline.parse(raw, **filing)
@@ -145,17 +151,17 @@ def statement_rows(raw, filing, parsed=None):
                 'start':period[0],'end':period[1]}
 
     accepted = {}
-    facts = {(p.get('start'),p['end']):p for p in parsed['facts'].get(CONTRACT, {}).get('units', {}).get('USD', [])}
+    facts = {(p.get('start'),p['end']):p for p in parsed['facts'].get(concept, {}).get('units', {}).get('USD', [])}
     tables = {}
     for node in inline.nodes(tree, 'nonfraction'):
-        if (node.get('name') == 'us-gaap:'+CONTRACT and node.get('contextref') in contexts
+        if (node.get('name') == 'us-gaap:'+concept and node.get('contextref') in contexts
                 and node.get('unitref') in units):
             parents = node.xpath('ancestor::table')
             if parents and not parents[-1].xpath('.//table'):
                 tables[id(parents[-1])] = parents[-1]
     for table in tables.values():
-        headings = preceding_text(table)[-4:]
-        if not _primary_heading(headings):
+        headings = preceding_text(table)[-4:] if heading_resolver is None else heading_resolver(table)
+        if not (_primary_heading(headings) if heading_resolver is None else bool(headings)):
             continue
         for row in table.xpath('./tr|./tbody/tr|./thead/tr'):
             cells = row.xpath('./td|./th')
@@ -164,7 +170,10 @@ def statement_rows(raw, filing, parsed=None):
             if label not in LABELS:
                 continue
             for n in inline.nodes(row, 'nonfraction'):
-                if n.get('name') != 'us-gaap:'+CONTRACT or n.get('unitref') not in units:
+                if heading_resolver is not None:
+                    from app.services.sec_revenue_statement_layout import _visible
+                    if not _visible(n):continue
+                if n.get('name') != 'us-gaap:'+concept or n.get('unitref') not in units:
                     continue
                 period = contexts.get(n.get('contextref'))
                 point = facts.get(period)
@@ -197,9 +206,13 @@ def acquire(payload, company, *, cik, available_by, client, originals=None):
         if parsed is None:
             from app.services.sec_inline_financials import parse
             parsed = parse(raw, **filing)
-        rows = statement_rows(raw, filing, parsed)
+        if plan['selected']==INCLUDING:
+            from app.services.sec_revenue_tax_tags import statement_rows as tax_rows
+            rows=tax_rows(raw,filing,parsed)
+        else:
+            rows = statement_rows(raw, filing, parsed)
         needed = {key for key, point in plan['needed'].items() if point['accession'] == filing['accession']}
-        if not needed <= rows.keys():
+        if plan['selected']==CONTRACT and not needed <= rows.keys():
             from app.services.sec_revenue_statement_layout import statement_rows as layout_rows
             for key, proof in layout_rows(raw, filing, parsed).items():
                 if key in rows and any(rows[key][k] != proof[k] for k in IDENTITY):
@@ -218,13 +231,17 @@ def acquire(payload, company, *, cik, available_by, client, originals=None):
         proof = verified.get((str(start),str(end),point['accession']))
         if proof and all(proof[k] == point[k] for k in IDENTITY):
             selected.append({**point, 'original_statement':proof})
-    return {'methodology':VERSION, 'cik':cik, 'period_end':plan['end'], 'basis_spliced':False,
-            'selected_concept':CONTRACT, 'superseded_concept':TOTAL,
+    return {'methodology':plan['version'], 'cik':cik, 'period_end':plan['end'], 'basis_spliced':False,
+            'selected_concept':plan['selected'], 'superseded_concept':plan['superseded'],
             'overlap':plan['overlaps'], 'rows':selected,
-            'basis':'One contract-revenue history independently identified as total revenue in each original consolidated income statement.'}
+            'basis':('One contract-revenue history independently identified as total revenue in each original consolidated income statement.'
+                     if plan['selected']==CONTRACT else 'One complete revenue concept matched to each original primary-statement total; no inferred tax adjustment or period splicing.')}
 
 
 def _statement_scope(original, point):
+    if point.get('tag')==INCLUDING:
+        from app.services.sec_revenue_tax_tags import valid
+        return valid(original,point=point)
     if 'layout_policy' in original:
         from app.services.sec_revenue_statement_layout import valid
         return valid(original, point=point)
@@ -235,20 +252,20 @@ def apply(records, payload, company, *, cik, available_by, supplement, preserve_
     proof = (supplement or {}).get('evidence', {}).get('revenue_series_selection')
     if not proof:
         return records
-    if any(p.get('tag') in {TOTAL,CONTRACT} for p in supplement['evidence'].get('nil_facts', [])):
+    if any(p.get('tag') in {TOTAL,CONTRACT,INCLUDING} for p in supplement['evidence'].get('nil_facts', [])):
         raise ValueError('revenue_series_nil_revenue')
     plan = _plan(payload, company, cik=cik, available_by=available_by)
-    if (plan is None or proof.get('methodology') != VERSION or proof.get('cik') != cik
+    if (plan is None or proof.get('methodology') != plan['version'] or proof.get('cik') != cik
             or proof.get('period_end') != plan['end'] or proof.get('basis_spliced') is not False
-            or proof.get('overlap') != plan['overlaps'] or proof.get('selected_concept') != CONTRACT
-            or proof.get('superseded_concept') != TOTAL):
+            or proof.get('overlap') != plan['overlaps'] or proof.get('selected_concept') != plan['selected']
+            or proof.get('superseded_concept') != plan['superseded']):
         raise ValueError('revenue_series_proof_mismatch')
     selected = {}
     for point in proof.get('rows', []):
         key = (date.fromisoformat(point['start']),date.fromisoformat(point['end']))
         expected = plan['candidate'].get(key)
         original = point.get('original_statement') or {}
-        if (key in selected or not expected or point.get('tag') != CONTRACT
+        if (key in selected or not expected or point.get('tag') != plan['selected']
                 or any(point.get(k) != expected[k] or original.get(k) != expected[k] for k in IDENTITY)
                 or original.get('source_cik') != cik or not _statement_scope(original, point)
                 or any(original.get(k) != point[k] for k in ('start','end'))
@@ -281,9 +298,9 @@ def cached_valid(proof, *, cik):
     from app.services.sec_statement_currency import source_identity
     from app.services import sec_fundamentals as sec
     try:
-        if (proof['methodology'] != VERSION or proof['cik'] != cik
-                or proof['basis_spliced'] is not False or proof['selected_concept'] != CONTRACT
-                or proof['superseded_concept'] != TOTAL or len(proof['overlap']) < 2):
+        selected=proof['selected_concept']
+        if ((proof['methodology'],proof['superseded_concept'],selected) not in {(VERSION,TOTAL,CONTRACT),(TAX_VERSION,CONTRACT,INCLUDING)}
+                or proof['cik'] != cik or proof['basis_spliced'] is not False or len(proof['overlap']) < 2):
             return False
         end = date.fromisoformat(proof['period_end']); records = {}; hashes = {}; overlap = set()
         for p in proof['overlap']:
@@ -297,7 +314,7 @@ def cached_valid(proof, *, cik):
         for p in proof['rows']:
             original = p['original_statement']; key = (date.fromisoformat(p['start']),date.fromisoformat(p['end']))
             if (key in records or not key[0] <= key[1] <= end or key[1] > date.fromisoformat(p['filed'])
-                    or p['tag'] != CONTRACT or p['unit'] != 'USD' or type(p['value']) not in (int,float)
+                    or p['tag'] != selected or p['unit'] != 'USD' or type(p['value']) not in (int,float)
                     or not math.isfinite(p['value']) or any(original[k] != p[k] for k in IDENTITY+('start','end'))
                     or original['source_cik'] != cik or source_identity(original['source_url']) != (cik,p['accession'])
                     or not re.fullmatch(r'[a-f0-9]{64}',original['source_sha256'])
