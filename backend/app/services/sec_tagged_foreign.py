@@ -127,6 +127,10 @@ def cached_currency_valid(evidence):
         from app.services.sec_revenue_series import cached_valid as revenue_valid
         if not revenue_valid(proof['revenue_series_selection'], cik=proof.get('cik')):
             return False
+    if 'collaboration_revenue_selection' in proof:
+        from app.services.sec_collaboration_revenue import cached_valid as collaboration_valid
+        if not collaboration_valid(proof['collaboration_revenue_selection'], cik=proof.get('cik')):
+            return False
     if 'rental_revenue_selection' in proof:
         from app.services.sec_rental_revenue import cached_valid as rental_valid
         if not rental_valid(proof['rental_revenue_selection'], cik=proof.get('cik')):

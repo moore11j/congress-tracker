@@ -1,0 +1,47 @@
+{
+  "HOWL-company.json": {
+    "file": "HOWL-company.json.gz",
+    "url": "https://data.sec.gov/submissions/CIK0001785530.json",
+    "sha256": "f0cc05102e9c8934ae535380f317201e18d7a40af08de4f84854cfca386d172f",
+    "bytes": 73333
+  },
+  "HOWL-facts.json": {
+    "file": "HOWL-facts.json.gz",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001785530.json",
+    "sha256": "a979abe3e8981b1e0d9f9e7edec046ab7403c63d94dce8984fcd0a2a09fddaaf",
+    "bytes": 1026042
+  },
+  "howl-20260930.htm": {
+    "file": "howl-20260930.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1785530/000178553026000022/howl-20260930.htm",
+    "bytes": 1539041,
+    "sha256": "ab693fa5f2c6b435f7e34d216ec86f82ca6082cd24986283b7ce5565a5e55950",
+    "cik": "0001785530",
+    "accession": "0001785530-26-000022",
+    "filed": "2026-11-13",
+    "report_date": "2026-09-30",
+    "form": "10-Q"
+  },
+  "howl-20251231.htm": {
+    "file": "howl-20251231.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1785530/000178553026000006/howl-20251231.htm",
+    "bytes": 2098112,
+    "sha256": "33cad63bf24e3fc83871e56d79a41c493c612f43e9442ae4ce01964b4a6602d4",
+    "cik": "0001785530",
+    "accession": "0001785530-26-000006",
+    "filed": "2026-03-27",
+    "report_date": "2025-12-31",
+    "form": "10-K"
+  },
+  "howl-20250930.htm": {
+    "file": "howl-20250930.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1785530/000178553025000031/howl-20250930.htm",
+    "bytes": 1528068,
+    "sha256": "5928a10ebd41eaa7cfa8672cbe3a8d4c72601c15ec84ec57cc27380d76a2c2ba",
+    "cik": "0001785530",
+    "accession": "0001785530-25-000031",
+    "filed": "2025-11-04",
+    "report_date": "2025-09-30",
+    "form": "10-Q"
+  }
+}

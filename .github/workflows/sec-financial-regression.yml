@@ -61,6 +61,7 @@ jobs:
           tests/test_sec_rental_revenue.py
           tests/test_sec_rental_revenue_consumers.py
           tests/test_sec_revenue_series.py
+          tests/test_sec_collaboration_revenue.py
           tests/test_sec_revenue_tax_tags.py
           tests/test_sec_revenue_statement_layout.py
           tests/test_sec_revenue_series_consumers.py
@@ -142,6 +143,10 @@ jobs:
       - name: Verify complete revenue tax tag proof within production limits
         working-directory: backend
         run: python scripts/verify_revenue_tax_tag_fixture.py
+
+      - name: Verify complete collaboration revenue proof within production limits
+        working-directory: backend
+        run: python scripts/verify_collaboration_revenue_fixture.py
 
       - name: Preserve test result
         if: always()

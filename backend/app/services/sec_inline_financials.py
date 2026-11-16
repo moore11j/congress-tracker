@@ -687,6 +687,16 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
                 result['evidence']['rental_revenue_selection'] = selection
         except (ValueError, DirectSourceError) as exc:
             result['evidence']['rental_revenue_hold'] = type(exc).__name__+':'+str(exc)
+    if native_basis is None and form in FORMS:
+        from app.services import sec_collaboration_revenue
+        from app.clients.direct_sources import DirectSourceError
+        try:
+            selection = sec_collaboration_revenue.acquire(payload, company, cik=cik, available_by=available,
+                client=retained, originals={url: result})
+            if selection is not None:
+                result['evidence']['collaboration_revenue_selection'] = selection
+        except (ValueError, DirectSourceError) as exc:
+            result['evidence']['collaboration_revenue_hold'] = type(exc).__name__+':'+str(exc)
     return result
 
 
