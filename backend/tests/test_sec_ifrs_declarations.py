@@ -138,6 +138,7 @@ def test_accounting_hold_retries_once_without_invalidating_qualified_receipts():
         holds=[{'accession':receipt['candidate']['accession'],'reason':'table_accounting_basis_unproved'}])
     assert reader.validate_receipt(held,cover,now=stamp) is None
     held['accounting_policy']=declarations.POLICY
+    held['us_conformity_policy']=declarations.US_CONFORMITY_POLICY
     assert reader.validate_receipt(held,cover,now=stamp) is None
     from app.services.sec_comparative_basis import POLICY as comparative_policy
     held['comparative_policy']=comparative_policy
@@ -154,6 +155,9 @@ def test_accounting_hold_retries_once_without_invalidating_qualified_receipts():
     from app.services.sec_statement_font_context import POLICY as font_policy
     held['statement_font_policy']=font_policy
     assert reader.validate_receipt(held,cover,now=stamp)==held
+    held.pop('us_conformity_policy')
+    assert reader.validate_receipt(held,cover,now=stamp) is None
+    held['us_conformity_policy']=declarations.US_CONFORMITY_POLICY
     held['holds'][0]['reason']='table_current_statement_stale'
     held.pop('accounting_policy')
     assert reader.validate_receipt(held,cover,now=stamp)==held

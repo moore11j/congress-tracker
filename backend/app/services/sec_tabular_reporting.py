@@ -51,7 +51,9 @@ def declaration(raw, observations):
         matches = [m.group(0) for m in re.finditer(reported,text,re.I)
                    if not re.search(r'\b(?:not|never|unlike|hypothetical|if)\s+(?:\w+\s+){0,6}$',
                                     text[max(0,m.start()-70):m.start()],re.I)]
-    from app.services.sec_statement_declarations import declarations, POLICY
+    from app.services.sec_statement_declarations import declarations, POLICY, us_conformity_declarations
+    if not matches:
+        matches = us_conformity_declarations(text, standard)
     ifrs_matches = declarations(text)
     accounting_basis = 'US GAAP'
     if not matches:
