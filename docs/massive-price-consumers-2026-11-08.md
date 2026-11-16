@@ -23,3 +23,8 @@ Draft revision932e8b51 passes428 Linux price/consumer checks,16 frontend checks/
 ## Before any deployment or activation
 
 Recheck the nullable `quotes_cache.quote_metadata_json` column and apply/verify its additive schema migration before updated ORM readers are deployed. Keep the old code rollback compatible. Complete broad consumer and installed-release checks, then live entitlement, history/actions/benchmark coverage, cache warming, delayed closing sweeps, alert/digest/ranking observation and zero-FMP transport acceptance. Massive subscription and live selection remain the final migration step. This draft does not authorize publishing incomplete financials or institutional evidence.
+
+
+## November15 current-release reconciliation
+
+Merged current production55c17443 into the existing draft after verifying its worktree was clean. The automatic overlaps preserve native cash-flow currency display, common-equity/operating/debt method rebaselines and delayed-price behavior. Focused local36custom-alert, Massive absolute-alert, digest observation and price-freshness checks pass in31.63seconds against isolated SQLite. The complete custom-rule suite is now included in the price workflow so future merges exercise both financial method and price transition baselines. Full combined-head Linux/PostgreSQL/frontend/SEC checks are pending. No deployment, schema migration, source selection, subscription or delivery-schedule activation.

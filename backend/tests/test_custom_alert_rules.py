@@ -91,7 +91,9 @@ def test_score_methodology_rollout_rebaselines_custom_rule_without_alert(monkeyp
 def test_worker_triggers_once_then_rearms_after_the_condition_resets() -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    now = datetime.now(timezone.utc)
+    # This scenario stays in one trading date. A wall-clock start near New
+    # York midnight would correctly expire the unchanged quote before rearming.
+    now = datetime(2026, 11, 6, 17, 0, tzinfo=timezone.utc)
     with Session(engine) as db:
         user = UserAccount(email="custom-rules@example.test")
         watchlist = Watchlist(name="Custom rule test watchlist", owner_user_id=1)

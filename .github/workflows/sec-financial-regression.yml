@@ -63,7 +63,12 @@ jobs:
           tests/test_sec_revenue_series.py
           tests/test_sec_revenue_series_consumers.py
           tests/test_sec_financial_continuity.py
+          tests/test_sec_operating_history.py
+          tests/test_sec_operating_bridge.py
+          tests/test_sec_common_equity.py
           tests/test_sec_tagged_foreign.py
+          tests/test_sec_tagged_ifrs_currency.py
+          tests/test_sec_tagged_ifrs_consumers.py
           tests/test_sec_bank_revenue.py
           tests/test_sec_bank_revenue_continuity.py
           tests/test_sec_statement_shareholder.py
@@ -101,6 +106,8 @@ jobs:
           tests/test_sec_primary_layout.py
           tests/test_sec_inline_fiscal_periods.py
           tests/test_sec_debt_precision.py
+          tests/test_sec_lease_debt_evidence.py
+          tests/test_sec_lease_debt_integration.py
           tests/test_sec_depreciation_components.py
           tests/test_sec_nonrevenue_financials.py
           tests/test_sec_domestic_document_sets.py
@@ -115,6 +122,9 @@ jobs:
           tests/test_price_alert_reference.py
           tests/test_watchlist_price_alert_job.py
           -q --disable-warnings --maxfail=3 --junitxml=sec-financial-results.xml
+      - name: Verify complete common-equity path within production proof limits
+        working-directory: backend
+        run: python scripts/verify_common_equity_fixture.py
       - name: Preserve test result
         if: always()
         uses: actions/upload-artifact@v4

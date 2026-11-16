@@ -265,6 +265,13 @@ def _debt_addition_checks(instant):
                 # maturity reference. Preserve both observations for review.
                 proof['aggregate_reconciliation'] = previous
                 results[names[0]] = proof
+    # An explicit finance-inclusive total always takes precedence, including a
+    # conflict. Original separation evidence cannot erase that disagreement.
+    if 'leverage_borrowings' not in results:
+        from app.services.sec_lease_debt_evidence import reconciliation
+        proof = reconciliation(instant)
+        if proof is not None:
+            results['leverage_borrowings'] = proof
     return results
 
 

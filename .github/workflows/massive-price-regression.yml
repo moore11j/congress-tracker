@@ -35,7 +35,7 @@ jobs:
         run: >-
           python -m pytest
           tests/test_massive_price_core.py tests/test_massive_price_alert_replay.py
-          tests/test_massive_public_callers.py tests/test_massive_absolute_alerts.py
+          tests/test_massive_public_callers.py tests/test_massive_absolute_alerts.py tests/test_custom_alert_rules.py
           tests/test_massive_financials_contract.py tests/test_price_alert_reference.py
           tests/test_price_threshold_freshness.py tests/test_watchlist_price_alert_job.py
           tests/test_price_lookup_date_clamping.py tests/test_quote_lookup_timezone.py

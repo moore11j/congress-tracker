@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - "backend/app/main.py"
+      - "backend/app/services/fundamentals_cache.py"
+      - "backend/tests/test_native_cash_flow_display.py"
       - "backend/app/services/public_ticker_snapshot.py"
       - "backend/tests/test_public_ticker*.py"
       - "frontend/lib/api.ts"
@@ -29,7 +31,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: python -m pip install -r backend/requirements.txt pytest
       - working-directory: backend
-        run: python -m pytest tests/test_public_ticker_snapshot.py tests/test_public_ticker_render_cache.py tests/test_ticker_context_canonical_projection.py -q --disable-warnings --junitxml=public-ticker-results.xml
+        run: python -m pytest tests/test_public_ticker_snapshot.py tests/test_public_ticker_render_cache.py tests/test_ticker_context_canonical_projection.py tests/test_native_cash_flow_display.py -q --disable-warnings --junitxml=public-ticker-results.xml
       - if: always()
         uses: actions/upload-artifact@v4
         with:

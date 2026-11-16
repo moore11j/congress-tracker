@@ -139,6 +139,10 @@ def cached_currency_valid(evidence):
         from app.services.sec_primary_income import cached_valid as income_valid
         if not income_valid(proof.get('primary_consolidated_income'), cik=proof.get('cik')):
             return False
+    if 'common_equity_reconciliation' in proof or proof.get('methodology') == 'sec_complete_common_equity_v1':
+        from app.services.sec_common_equity import cached_valid as common_equity_valid
+        if not common_equity_valid(proof.get('common_equity_reconciliation'), cik=proof.get('cik')):
+            return False
     if ('domestic_linked_statement' in proof or (proof.get('form') in {'10-K','10-K/A','10-Q','10-Q/A'}
             and proof.get('cover_evidence',{}).get('methodology')=='sec_inline_document_set_v1')):
         from app.services.sec_document_sets import domestic_cached_valid

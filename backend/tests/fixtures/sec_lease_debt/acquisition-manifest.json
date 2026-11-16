@@ -1,0 +1,16 @@
+{
+  "company": {
+    "file": "AZO-company.json.gz",
+    "bytes": 147281,
+    "sha256": "7fb8b35c47897741d9743ba4cd191b3da5c2a4e03ee8b4cfff71a92edc427dc1",
+    "observed_at": "2026-11-07T00:06:33.268610+00:00",
+    "url": "https://data.sec.gov/submissions/CIK0000866787.json"
+  },
+  "facts": {
+    "file": "AZO-facts.json.gz",
+    "bytes": 3479045,
+    "sha256": "c6061b68ff1a580126db4831d3d7de364eccd57e9f8dc6b019b763b4bf441758",
+    "observed_at": "2026-11-07T00:06:34.030355+00:00",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000866787.json"
+  }
+}
