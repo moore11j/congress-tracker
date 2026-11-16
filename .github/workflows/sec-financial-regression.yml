@@ -130,6 +130,9 @@ jobs:
       - name: Verify complete month-period path within production proof limits
         working-directory: backend
         run: python scripts/verify_month_period_fixture.py
+      - name: Verify complete fallback source attribution within production proof limits
+        working-directory: backend
+        run: python scripts/verify_fallback_source_fixture.py
 
       - name: Preserve test result
         if: always()

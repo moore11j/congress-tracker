@@ -249,3 +249,60 @@ def test_actual_independent_result_rebaselines_watchlist_without_false_or_duplic
         assert run(25)['triggered'] == 0
         assert len(db.scalars(select(MonitoringAlert)).all()) == 1
     engine.dispose()
+
+
+def test_complete_coverage_failure_attributes_finnhub_financial_values(monkeypatch):
+    from types import SimpleNamespace
+    root = Path(__file__).parent / 'fixtures/fallback_source_label'
+    manifest = json.loads((root / 'sources.json').read_text())
+    originals = {}
+    for item in manifest['sources']:
+        raw = gzip.decompress((root / item['file']).read_bytes())
+        assert len(raw) == item['bytes'] and hashlib.sha256(raw).hexdigest() == item['sha256']
+        originals[item.get('url', item.get('endpoint'))] = raw
+    now = datetime.fromisoformat(manifest['observed_at'])
+    metrics = json.loads(originals['stock/metric'])
+    normalized = finnhub_metrics.normalize(metrics['payload'], symbol='BABA', observed_at=now)
+    monkeypatch.setattr(socket.socket, 'connect', lambda *a, **k: pytest.fail('Network'))
+    monkeypatch.setenv('SEC_FINANCIAL_DISCOVERY_READ_ENABLED', '0')
+    monkeypatch.setenv('STOCK_PRICE_PROVIDER', 'fmp')
+    monkeypatch.setattr(sec, 'company_directory', lambda _: {'BABA': {'cik': manifest['cik']}})
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None): return now
+    monkeypatch.setattr(sec, 'datetime', Clock)
+    calls = []
+    class Client:
+        def get(self, url):
+            calls.append(url)
+            assert url in originals
+            return originals[url]
+    monkeypatch.setattr('app.clients.direct_sources.DirectSourceClient', Client)
+    monkeypatch.setattr(finnhub_metrics, 'prepare', lambda _: deepcopy(normalized))
+    values = free.fetch_fundamentals('BABA')
+    proof = json.loads(values['source_evidence_json'])
+    assert proof['financial_status'] == 'unavailable' and not proof.get('independent_metrics')
+    assert proof['current'] == proof['prior'] == proof['instant'] == proof['calculations'] == {}
+    assert all(values[field] == value for field, value in normalized['values'].items())
+    assert free.fetch_fundamentals('BABA') == values and len(calls) == 4
+    summary = cache.fundamentals_summary_from_cache_row(SimpleNamespace(**values), now=now)
+    assert summary['data_quality']['available'] and summary['context']['source_label'] == 'Finnhub'
+    assert 'Company identity verified with SEC EDGAR' in summary['context']['source_note']
+    assert summary['metrics']['return_on_equity']['provenance']['source'] == 'finnhub'
+    # Existing explicit identity-only receipts and this older coverage-failure
+    # path must describe the same values, periods and source evidence to readers.
+    marked = {**values, 'source_evidence_json': json.dumps({**proof, 'independent_metrics': True})}
+    assert cache.fundamentals_summary_from_cache_row(SimpleNamespace(**marked), now=now) == summary
+
+
+@pytest.mark.parametrize('cash_flow', [0, 123.0])
+def test_unavailable_primary_statements_do_not_hide_a_verified_sec_cash_flow(source, cash_flow):
+    from types import SimpleNamespace
+    values = free.fetch_fundamentals('ABC')
+    evidence = json.loads(values['source_evidence_json'])
+    evidence.pop('independent_metrics')
+    evidence['issuer_cash_flow'] = {'status': 'available'}
+    values.update(free_cash_flow=cash_flow, source_evidence_json=json.dumps(evidence))
+    summary = cache.fundamentals_summary_from_cache_row(SimpleNamespace(**values), now=NOW)
+    assert summary['context']['source_label'] == 'SEC EDGAR + Finnhub'
+    assert summary['context']['free_cash_flow'] == cash_flow
