@@ -7,6 +7,7 @@ from datetime import date
 
 VERSION = 'sec_reporting_scope_v1'
 CIK = '0001749723'
+SYMBOLS = frozenset({'NFE', 'NFEGP'})
 FILED = '2026-11-16'
 ACCESSION = '0001749723-26-000185'
 TAGS = frozenset({'Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax',

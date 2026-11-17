@@ -36,6 +36,7 @@ def project(raw):
 def test_complete_originals_bind_the_scope_change_without_pro_forma_substitution():
     from lxml import html
     manifest, raw = originals()
+    assert set(json.loads(raw['company'])['tickers']) == scope.SYMBOLS
     for name, (url, digest) in scope.SOURCES.items():
         assert manifest[name]['url'] == url
         assert hashlib.sha256(raw[name]).hexdigest() == digest
@@ -133,27 +134,28 @@ def test_complete_reader_requests_and_values_repeat_without_network(monkeypatch)
     assert first['free_cash_flow'] == -589920000 and 'fcf_margin' not in first
 
 
-def test_historical_panel_keeps_reported_values_rejects_legacy_cache_and_repeats():
+@pytest.mark.parametrize('symbol', ['NFE', 'NFEGP'])
+def test_historical_panel_keeps_reported_values_rejects_legacy_cache_and_repeats(symbol):
     _, raw = originals()
-    args = dict(symbol='NFE', cik=scope.CIK, observed_at=NOW)
+    args = dict(symbol=symbol, cik=scope.CIK, observed_at=NOW)
     panel = statements.project(raw['facts'], raw['company'], **args)
     assert statements.project(raw['facts'], raw['company'], **args) == panel
     assert any(r['date'] == '2025-12-31' and r['revenue'] == 1504037000 for r in panel['annual'])
     assert not any(r['date'] == '2025-12-31' for r in panel['quarterly'])
     assert any(r['date'] == '2026-09-30' and r['revenue'] == 335818000 for r in panel['quarterly'])
     row = SimpleNamespace(source='sec_edgar', fetched_at=NOW, payload_json=json.dumps(panel))
-    assert statements.cached_row_payload(row, 'NFE', now=NOW) == panel
+    assert statements.cached_row_payload(row, symbol, now=NOW) == panel
     for field in ('preparationVersion', 'reportingScope'):
         old = deepcopy(panel)
         (old if field == 'preparationVersion' else old['sourceEvidence']).pop(field)
         row.payload_json = json.dumps(old)
-        assert statements.cached_row_payload(row, 'NFE', now=NOW) is None
+        assert statements.cached_row_payload(row, symbol, now=NOW) is None
 
 
 def test_new_preparation_version_is_scoped_to_nfe():
     from app.services import sec_fundamentals_preparation as prep
     assert scope.VERSION in prep.version_for_symbol('NFE')
-    assert scope.VERSION not in prep.version_for_symbol('NFEGP')
+    assert scope.VERSION in prep.version_for_symbol('NFEGP')
     assert scope.VERSION not in prep.version_for_symbol('VMRK')
 
 
