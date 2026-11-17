@@ -106,6 +106,7 @@ jobs:
           tests/test_sec_financial_discovery_scheduling.py
           tests/test_sec_core_precision.py
           tests/test_sec_duplicate_overlap.py
+          tests/test_sec_reverse_acquisition.py
           tests/test_sec_inline_financials.py
           tests/test_sec_primary_income.py
           tests/test_sec_primary_layout.py
@@ -147,6 +148,10 @@ jobs:
       - name: Verify complete collaboration revenue proof within production limits
         working-directory: backend
         run: python scripts/verify_collaboration_revenue_fixture.py
+
+      - name: Verify complete accounting predecessor proof within production limits
+        working-directory: backend
+        run: python scripts/verify_reverse_acquisition_fixture.py
 
       - name: Preserve test result
         if: always()

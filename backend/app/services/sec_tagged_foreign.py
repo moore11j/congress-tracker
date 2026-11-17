@@ -110,6 +110,9 @@ def cached_currency_valid(evidence):
     """Reject old generic admissions without invalidating unrelated readers."""
     if not isinstance(evidence, dict):
         return False
+    from app.services import sec_reverse_acquisition as reverse
+    if reverse.cache_requires_review(evidence.get('cik'), evidence.get('available_by')):
+        return reverse.cached_valid(evidence)
     if evidence.get('methodology') == 'sec_tabular_reporting_v1' and 'table_reporting' not in evidence:
         return False
     if 'table_reporting' in evidence:

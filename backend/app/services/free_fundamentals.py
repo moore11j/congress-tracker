@@ -25,6 +25,13 @@ def combine(values, metrics):
     evidence['methodology'] = VERSION
     evidence['supplement'] = deepcopy(metrics)
     evidence['supplement']['used_fields'] = []
+    from app.services.sec_reverse_acquisition import cache_requires_review
+    if cache_requires_review(evidence.get('cik'), evidence.get('available_by')):
+        # Vendor identity alone cannot prove whether its trailing metrics use
+        # Equity Residential or the accounting predecessor, AvalonBay.
+        evidence['supplement']['hold_reason'] = 'unverified_reverse_acquisition_accounting_basis'
+        result['source_evidence_json'] = json.dumps(evidence, sort_keys=True)
+        return result
     for field, value in metrics['values'].items():
         if field not in {*finnhub_metrics.SCALARS, *finnhub_metrics.SERIES, *finnhub_metrics.DERIVED}:
             raise ValueError('Unreviewed supplemental field')

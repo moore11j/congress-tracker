@@ -162,6 +162,11 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
         payload['message'] = 'Bank revenue equals net interest income before credit-loss provisions plus non-interest income. Other financial coverage is partial.'
     if continuity is not None:
         payload['sourceEvidence']['financialContinuity']=continuity
+        from app.services.sec_reverse_acquisition import VERSION as reverse_version
+        if continuity.get('methodology') == reverse_version:
+            payload['reportingBasis'] = ('Reported USD financial history follows AvalonBay as accounting predecessor. '
+                'Pre-merger Equity Residential history is excluded. Per-share values and capital expenditure remain unavailable.')
+            payload['message'] = payload['reportingBasis']
     if filing_supplement is not None:
         payload['sourceEvidence']['inlineFilingSupplement']=filing_supplement['evidence']
     if annual_rows or quarterly_rows or semiannual_rows:
@@ -242,6 +247,12 @@ def cached_row_payload(row, symbol, *, now=None):
             return None
     if not cached_currency_valid({'inline_filing_supplement': proof}):
         return None
+    from app.services.sec_reverse_acquisition import CIK as reverse_cik, cache_requires_review, cached_valid as reverse_valid
+    if (symbol == 'VMRK' and cache_requires_review(reverse_cik, evidence.get('availableBy'))
+            and payload.get('reason') != 'unverified_financial_history'):
+        if not reverse_valid({'financial_continuity': evidence.get('financialContinuity'),
+                              'inline_filing_supplement': proof}):
+            return None
     if 'nativeReporting' in evidence:
         from app.services.sec_statement_currency import REPORTING_POLICY
         if (evidence['nativeReporting'] != proof.get('native_reporting')

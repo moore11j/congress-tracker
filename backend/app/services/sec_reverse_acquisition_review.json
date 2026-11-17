@@ -1,0 +1,100 @@
+{
+  "reviewed_at": "2026-11-17T03:45:00+00:00",
+  "sources": {
+    "current": {
+      "url": "https://www.sec.gov/Archives/edgar/data/906107/000119312526453735/vmrk-20260930.htm",
+      "bytes": 7914367,
+      "sha256": "137a0750fcbccba282a9e20e7874ee7866dbeda5eefcdbf19e6ce1925dd9231e",
+      "cik": "0000906107",
+      "accession": "0001193125-26-453735",
+      "filed": "2026-11-09",
+      "report_date": "2026-09-30",
+      "form": "10-Q",
+      "filename": "vmrk-20260930.htm"
+    },
+    "annual": {
+      "url": "https://www.sec.gov/Archives/edgar/data/915912/000091591226000004/avb-20251231.htm",
+      "bytes": 6169176,
+      "sha256": "80a53e06ec0a9e685a67e229567f16c896ff7e0e70fb3c24cc524f8e3bca0feb",
+      "cik": "0000915912",
+      "accession": "0000915912-26-000004",
+      "filed": "2026-02-27",
+      "report_date": "2025-12-31",
+      "form": "10-K",
+      "filename": "avb-20251231.htm"
+    },
+    "comparative": {
+      "url": "https://www.sec.gov/Archives/edgar/data/915912/000091591225000025/avb-20250930.htm",
+      "bytes": 2185737,
+      "sha256": "33a8fe6349fd7bf3818e93ddf42a2da2eff58488e02ef9d5ba29db88a0697c91",
+      "cik": "0000915912",
+      "accession": "0000915912-25-000025",
+      "filed": "2025-11-06",
+      "report_date": "2025-09-30",
+      "form": "10-Q",
+      "filename": "avb-20250930.htm"
+    }
+  },
+  "required_overlaps": [
+    [
+      "current",
+      "comparative",
+      "revenue",
+      "2025-01-01",
+      "2025-09-30"
+    ],
+    [
+      "current",
+      "comparative",
+      "revenue",
+      "2025-07-01",
+      "2025-09-30"
+    ],
+    [
+      "current",
+      "comparative",
+      "net_income",
+      "2025-01-01",
+      "2025-09-30"
+    ],
+    [
+      "current",
+      "comparative",
+      "net_income",
+      "2025-07-01",
+      "2025-09-30"
+    ],
+    [
+      "current",
+      "comparative",
+      "operating_cash_flow",
+      "2025-01-01",
+      "2025-09-30"
+    ],
+    [
+      "current",
+      "annual",
+      "equity",
+      null,
+      "2025-12-31"
+    ],
+    [
+      "annual",
+      "comparative",
+      "equity",
+      null,
+      "2024-12-31"
+    ]
+  ],
+  "overlap_values": [
+    2272869000,
+    766796000,
+    886568000,
+    381306000,
+    1270674000,
+    11611340000,
+    11941092000
+  ],
+  "accounting_basis": "Current original explanatory note and Note 1: Equity Residential is legal acquirer; AvalonBay is accounting acquirer in the August 17, 2026 reverse acquisition.",
+  "share_exchange_ratio": 2.793
+}

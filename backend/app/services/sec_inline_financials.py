@@ -418,6 +418,16 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
 
 
 def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include_debt_precision=False):
+    from app.services import sec_reverse_acquisition as reverse
+    available = observed_at.astimezone(ZoneInfo('America/New_York')).date()-timedelta(days=1)
+    if reverse.applies(cik, available):
+        try:
+            return reverse.acquire(facts_raw, company_raw, symbol=symbol, cik=cik,
+                                   observed_at=observed_at, client=client)
+        except ValueError as exc:
+            # A failed accounting bridge must never fall back to legal-CIK facts.
+            return {'reverse_acquisition_error': str(exc),
+                    'evidence': {'methodology': reverse.VERSION, 'cik': str(cik).zfill(10)}}
     # Share originals with optional historical recovery; the entire acquisition
     # retains the existing six-document bound and never refetches an original.
     originals = {}
