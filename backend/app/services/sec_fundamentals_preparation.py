@@ -38,6 +38,8 @@ def version_for_symbol(symbol):
 
 
 def _base_version_for_symbol(symbol):
+    if symbol == 'VMRK':
+        return VERSION+'_reviewed_accounting_delivery_v2'
     if symbol == 'SHEL':
         from app.services.sec_shell_financials import VERSION as shell_version
         return VERSION+'_'+shell_version

@@ -29,16 +29,24 @@ ALIASES = {
     'MXN': r'(?:Mexican pesos?|MXN)',
     'INR': r'(?:Indian rupees?|INR)',
     'KRW': r'(?:South Korean won|KRW)',
-    'SGD': r'(?:Singapore dollars?|SGD)',
+    'SGD': r'(?:Singapore(?:an)? dollars?|SGD)',
     'ZAR': r'(?:South African rand|ZAR)',
 }
 SUBJECT = r"(?:our|the (?:company|group)(?:['\u2019\uFFFD]s)?)"
 PREFIXES = (
     SUBJECT + r'\s+(?:reporting|presentation)\s+currency\s+is\s+(?:the\s+)?',
     r'we\s+use\s+(?:the\s+)?',
-    r'(?:the|these|our)\s+(?:(?:condensed|consolidated|interim|unaudited)\s+){0,4}'
-    r'financial\s+statements\s+are\s+presented\s+in\s+(?:(?:millions|thousands)\s+of\s+)?',
+    r'(?:the|these|our)\s+(?:accompanying\s+)?(?:(?:condensed|consolidated|interim|unaudited)\s+){0,4}'
+    r'financial\s+statements\s+are\s+presented\s+in\s+(?:the\s+)?(?:(?:millions|thousands)\s+of\s+)?',
 )
+
+# This complete original contains both a USD narrative declaration and an SGD
+# statement declaration; its USD statement column is a convenience translation.
+# Earlier parsers missed the latter wording. Reject that immutable legacy proof
+# without invalidating other originals or inferring a replacement currency.
+CONFLICTING_ORIGINALS = frozenset({
+    '262cb3d904958dc4160afe5f8313391056ac5e654f14ccbd7d79fdda0481f8ef',
+})
 
 
 class StatementCurrencyError(ValueError):
@@ -97,6 +105,8 @@ def bind(parsed, proof):
     """Require declaration, parsed facts and immutable original to agree."""
     if not isinstance(parsed, dict) or not isinstance(proof, dict):
         raise StatementCurrencyError('statement_currency_basis_mismatch')
+    if str(proof.get('source_sha256')) in CONFLICTING_ORIGINALS:
+        raise StatementCurrencyError('statement_currency_ambiguous')
     from app.services import sec_tagged_ifrs_currency as tagged
     if proof.get('methodology') == tagged.POLICY:
         return tagged.bind(parsed,proof)
