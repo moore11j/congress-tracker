@@ -105,7 +105,7 @@ def bind(parsed, proof):
     """Require declaration, parsed facts and immutable original to agree."""
     if not isinstance(parsed, dict) or not isinstance(proof, dict):
         raise StatementCurrencyError('statement_currency_basis_mismatch')
-    if proof.get('source_sha256') in CONFLICTING_ORIGINALS:
+    if str(proof.get('source_sha256')) in CONFLICTING_ORIGINALS:
         raise StatementCurrencyError('statement_currency_ambiguous')
     from app.services import sec_tagged_ifrs_currency as tagged
     if proof.get('methodology') == tagged.POLICY:
