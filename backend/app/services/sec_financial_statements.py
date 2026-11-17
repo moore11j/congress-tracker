@@ -37,7 +37,8 @@ def period_value(records, start, end):
         if not total or ytd_end != end or not year_start or year_start >= start:
             continue
         prior = records.get((year_start, start-timedelta(days=1)))
-        if prior and prior['tag'] == total['tag'] and (end-year_start).days < 380:
+        from app.services.sec_reporting_scope import compatible
+        if prior and prior['tag'] == total['tag'] and (end-year_start).days < 380 and compatible([total, prior]):
             candidates.append({'value': total['value']-prior['value'], 'method': 'aligned_ytd_difference', 'inputs': [total, prior]})
     return candidates[0] if len(candidates) == 1 else None
 
@@ -94,7 +95,8 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
         for (ytd_start, ytd_end), value in records['revenue'].items():
             # A derived period must use one concept. Otherwise an unusable
             # candidate consumes a chart slot before the row is discarded.
-            same_basis = value and value['tag'] == records['revenue'][start,end]['tag']
+            from app.services.sec_reporting_scope import compatible
+            same_basis = value and value['tag'] == records['revenue'][start,end]['tag'] and compatible([value, records['revenue'][start,end]])
             if same_basis and ytd_start == start and 70 <= (end-ytd_end).days <= 110:
                 quarters.add((ytd_end+timedelta(days=1), end))
             if native_selection and same_basis and ytd_start == start and 160 <= (end-ytd_end).days <= 200:
@@ -134,6 +136,12 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             'factsSha256': hashlib.sha256(facts_raw).hexdigest(), 'companySha256': hashlib.sha256(company_raw).hexdigest(),
             'factsUrl': f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',
             'availabilityBasis': 'Current view uses latest filed facts available after completed New York filing day; not a historical tradable snapshot.'})
+    from app.services import sec_reporting_scope as scope
+    if symbol == 'NFE':
+        payload['preparationVersion'] = scope.VERSION
+        reporting_scope = scope.policy(cik, available)
+        if reporting_scope is not None:
+            payload['sourceEvidence']['reportingScope'] = reporting_scope
     if reporting_policy:
         payload['preparationVersion'] = reporting_policy['version']
         payload['sourceEvidence']['reviewedReportingPolicy'] = reporting_policy
@@ -226,6 +234,16 @@ def cached_row_payload(row, symbol, *, now=None):
     evidence = payload.get('sourceEvidence') or {}
     if not isinstance(evidence, dict):
         return None
+    if symbol == 'NFE' and payload.get('status') != 'unavailable':
+        from app.services import sec_reporting_scope as scope
+        if payload.get('preparationVersion') != scope.VERSION:
+            return None
+        try:
+            expected = scope.policy(scope.CIK, date.fromisoformat(evidence['availableBy']))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if evidence.get('reportingScope') != expected:
+            return None
     if payload.get('reason') == 'unverified_financial_history':
         hold = evidence.get('coverageHold')
         if (payload.get('status') != 'unavailable' or not isinstance(hold, dict)

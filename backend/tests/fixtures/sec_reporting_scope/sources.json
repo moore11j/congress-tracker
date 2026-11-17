@@ -1,0 +1,55 @@
+{
+  "company": {
+    "url": "https://data.sec.gov/submissions/CIK0001749723.json",
+    "file": "company.gz",
+    "bytes": 73663,
+    "sha256": "a9ce9926b877c92e3035704b26d8b663072a7b1ad76d44523f83fca7dad9af7b"
+  },
+  "facts": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001749723.json",
+    "file": "facts.gz",
+    "bytes": 2342712,
+    "sha256": "d8ec33b14e1bd6af718a87be979ef857bd4d3c9b0934b1156b269473f1039606"
+  },
+  "current": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1749723/000174972326000185/nfe-20260930.htm",
+    "file": "current.gz",
+    "bytes": 2853078,
+    "sha256": "2d7dbe195a9f816a05ce05f091dde73d2a345033ab05f576bfd173d3eb7cb3b2",
+    "cik": "0001749723",
+    "accession": "0001749723-26-000185",
+    "filed": "2026-11-16",
+    "report_date": "2026-09-30",
+    "form": "10-Q"
+  },
+  "annual": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1749723/000174972326000032/nfe-20251231.htm",
+    "file": "annual.gz",
+    "bytes": 6803419,
+    "sha256": "9aeecfe78dc4cd7b7cb552bd1d18b04b04fc7337ecc7160cb427313d48fcd72b",
+    "cik": "0001749723",
+    "accession": "0001749723-26-000032",
+    "filed": "2026-04-13",
+    "report_date": "2025-12-31",
+    "form": "10-K"
+  },
+  "comparative": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1749723/000174972325000149/nfe-20250930.htm",
+    "file": "comparative.gz",
+    "bytes": 2700212,
+    "sha256": "8d34cb38046c14d700cdf2439a7e3cf290de452ff2dfc650d7af828a4b7b6787",
+    "cik": "0001749723",
+    "accession": "0001749723-25-000149",
+    "filed": "2025-11-21",
+    "report_date": "2025-09-30",
+    "form": "10-Q"
+  },
+  "separation": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1749723/000174972326000124/nfe-20260911.htm",
+    "file": "separation.gz",
+    "bytes": 508429,
+    "sha256": "3230795fd83943b3dfb0293a3453132efa021bcdd6840818279196caa515f6f6",
+    "form": "8-K/A",
+    "filed": "2026-09-15"
+  }
+}
