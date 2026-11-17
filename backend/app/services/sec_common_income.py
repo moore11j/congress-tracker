@@ -39,8 +39,10 @@ def resolve(facts_raw, company_raw, evidence, *, symbol, cik, observed_at,
         raise ValueError('common_income_availability_mismatch')
     if evidence['facts']['sha256'] != hashlib.sha256(facts_raw).hexdigest():
         raise ValueError('common_income_facts_mismatch')
+    from app.services import sec_reverse_acquisition as reverse
     rows, continuity = record_sets(payload, symbol=symbol, cik=cik, available_by=available,
         observed_at=observed_at, history_raw=history_raw, filing_supplement=filing_supplement,
+        company=company if reverse.applies(cik, available) else None,
         # These are income-only records; do not run the unrelated bank-revenue projection.
         metrics={m:(tags,'USD') for m,tags in TAGS.items()})
     common = dict(rows['common_income'])

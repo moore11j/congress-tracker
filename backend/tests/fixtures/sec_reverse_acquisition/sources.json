@@ -1,0 +1,47 @@
+{
+  "vmrk-20260930.htm": {
+    "file": "vmrk-20260930.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/906107/000119312526453735/vmrk-20260930.htm",
+    "bytes": 7914367,
+    "sha256": "137a0750fcbccba282a9e20e7874ee7866dbeda5eefcdbf19e6ce1925dd9231e",
+    "cik": "0000906107",
+    "accession": "0001193125-26-453735",
+    "filed": "2026-11-09",
+    "report_date": "2026-09-30",
+    "form": "10-Q"
+  },
+  "avb-20251231.htm": {
+    "file": "avb-20251231.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/915912/000091591226000004/avb-20251231.htm",
+    "bytes": 6169176,
+    "sha256": "80a53e06ec0a9e685a67e229567f16c896ff7e0e70fb3c24cc524f8e3bca0feb",
+    "cik": "0000915912",
+    "accession": "0000915912-26-000004",
+    "filed": "2026-02-27",
+    "report_date": "2025-12-31",
+    "form": "10-K"
+  },
+  "avb-20250930.htm": {
+    "file": "avb-20250930.htm.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/915912/000091591225000025/avb-20250930.htm",
+    "bytes": 2185737,
+    "sha256": "33a8fe6349fd7bf3818e93ddf42a2da2eff58488e02ef9d5ba29db88a0697c91",
+    "cik": "0000915912",
+    "accession": "0000915912-25-000025",
+    "filed": "2025-11-06",
+    "report_date": "2025-09-30",
+    "form": "10-Q"
+  },
+  "VMRK-company.json": {
+    "file": "VMRK-company.json.gz",
+    "url": "https://data.sec.gov/submissions/CIK0000906107.json",
+    "sha256": "b46169f3adf5bade2208768a37505b21be94526840b19ea915580f06b6a1b12b",
+    "bytes": 157807
+  },
+  "VMRK-facts.json": {
+    "file": "VMRK-facts.json.gz",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000906107.json",
+    "sha256": "37c83ad0c835de423704177ce4071e2c62fcc9349f98adb1e86b17762b97c600",
+    "bytes": 4752175
+  }
+}
