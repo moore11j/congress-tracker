@@ -109,6 +109,7 @@ jobs:
           tests/test_sec_core_precision.py
           tests/test_sec_duplicate_overlap.py
           tests/test_sec_reverse_acquisition.py
+          tests/test_sec_reverse_acquisition_delivery.py
           tests/test_sec_inline_financials.py
           tests/test_sec_primary_income.py
           tests/test_sec_primary_layout.py
@@ -158,6 +159,9 @@ jobs:
       - name: Verify complete currency conflict within proof limits
         working-directory: backend
         run: python scripts/verify_currency_conflict_fixture.py
+      - name: Verify accounting predecessor delivery variants within proof limits
+        working-directory: backend
+        run: python scripts/verify_reverse_acquisition_fixture.py --delivery
       - name: Preserve test result
         if: always()
         uses: actions/upload-artifact@v4

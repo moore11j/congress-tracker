@@ -10,7 +10,9 @@
       "filed": "2026-11-09",
       "report_date": "2026-09-30",
       "form": "10-Q",
-      "filename": "vmrk-20260930.htm"
+      "filename": "vmrk-20260930.htm",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1",
+      "document_sha256": "1a980592f7a69b8a7b890ad31dbc1cc16f838161df9cbd7744401967ced01968"
     },
     "annual": {
       "url": "https://www.sec.gov/Archives/edgar/data/915912/000091591226000004/avb-20251231.htm",
@@ -21,7 +23,9 @@
       "filed": "2026-02-27",
       "report_date": "2025-12-31",
       "form": "10-K",
-      "filename": "avb-20251231.htm"
+      "filename": "avb-20251231.htm",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1",
+      "document_sha256": "888e459e8f57613971428472fc22fe31d906e05c9646f4759836d47257875643"
     },
     "comparative": {
       "url": "https://www.sec.gov/Archives/edgar/data/915912/000091591225000025/avb-20250930.htm",
@@ -32,7 +36,9 @@
       "filed": "2025-11-06",
       "report_date": "2025-09-30",
       "form": "10-Q",
-      "filename": "avb-20250930.htm"
+      "filename": "avb-20250930.htm",
+      "document_integrity_policy": "sec_terminal_delivery_script_path_v1",
+      "document_sha256": "3c9565e225db86be3da8d736efcf4cf6479361be45bbc59d4d2467fb5901e386"
     }
   },
   "required_overlaps": [

@@ -28,7 +28,7 @@ from app.services import sec_financial_statements as statements
 from app.services.fundamentals_cache import fundamentals_summary_from_cache_row
 
 started = time.process_time()
-fixture = ROOT/'tests/fixtures/sec_reverse_acquisition'
+fixture = ROOT/'tests/fixtures'/('sec_reverse_acquisition_delivery' if '--delivery' in sys.argv else 'sec_reverse_acquisition')
 manifest = json.loads((fixture/'sources.json').read_bytes())
 originals = {}
 for name, source in manifest.items():

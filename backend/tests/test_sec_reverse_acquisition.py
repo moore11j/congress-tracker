@@ -198,7 +198,8 @@ def test_vendor_fallback_cannot_restore_unverified_accounting_basis():
     assert evidence['supplement']['hold_reason'] == 'unverified_reverse_acquisition_accounting_basis'
 
 
-def test_ordinary_preparation_rejects_legacy_cache_and_repeats_without_requests(monkeypatch):
+@pytest.mark.parametrize('delivery', [False, True])
+def test_ordinary_preparation_rejects_legacy_cache_and_repeats_without_requests(monkeypatch, delivery):
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from app.db import Base
@@ -211,7 +212,11 @@ def test_ordinary_preparation_rejects_legacy_cache_and_repeats_without_requests(
     monkeypatch.setattr(sec_directory, 'directory', lambda: {'VMRK': {'cik': reverse.CIK}})
     monkeypatch.setenv('SEC_FUNDAMENTALS_WARMING_ENABLED', '1')
     monkeypatch.setenv('SEC_FINANCIAL_DISCOVERY_ENABLED', '0')
-    client = Client()
+    if delivery:
+        from test_sec_reverse_acquisition_delivery import DeliveryClient
+        client = DeliveryClient()
+    else:
+        client = Client()
     monkeypatch.setattr(prep, 'DirectSourceClient', lambda: client)
     class Clock(datetime):
         @classmethod
@@ -221,6 +226,9 @@ def test_ordinary_preparation_rejects_legacy_cache_and_repeats_without_requests(
     legacy = {'version': prep.version_for_symbol('VMRK'), 'symbol': 'VMRK', 'source': 'sec_edgar',
         'observed_at': NOW.isoformat(), 'status': 'partial', 'values': {'roe': -0.08596955221592613},
         'calculation_evidence': {'cik': reverse.CIK, 'methodology': 'sec_independent_financials_v3'}}
+    if delivery:
+        legacy.update(version=prep.VERSION, status='unavailable', values={},
+                      reason='unsupported_current_financial_coverage', detail='reverse_acquisition_originals_required')
     with factory() as db:
         db.add(InsightsSnapshot(kind='sec-current-fundamentals:VMRK:v1', source='sec_edgar',
             fetched_at=NOW, payload_json=json.dumps(legacy)))

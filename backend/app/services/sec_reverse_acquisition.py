@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from app.services.sec_original_integrity import verified_original
 
 from app.services.sec_fundamentals import SecFundamentalsCoverageError
 
@@ -89,13 +90,18 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client):
     return {'reverse_acquisition': documents, 'evidence': {
         'methodology': VERSION, 'cik': CIK, 'report_date': profile['sources']['current']['report_date'],
         'accounting_predecessor_cik': PREDECESSOR_CIK,
-        'sources': deepcopy(profile['sources'])}}
+        'sources': deepcopy(profile['sources']),
+        'received_sources': {name: _validate_original(raw, profile['sources'][name])
+                             for name, raw in documents.items()}}}
 
 
 def _validate_original(raw, source):
-    if (not isinstance(raw, bytes) or len(raw) != source['bytes']
-            or hashlib.sha256(raw).hexdigest() != source['sha256']):
+    if not isinstance(raw, bytes) or abs(len(raw)-source['bytes']) > 256:
         raise SecFundamentalsCoverageError('reverse_acquisition_original_changed')
+    try:
+        return verified_original(raw, source)
+    except ValueError as exc:
+        raise SecFundamentalsCoverageError('reverse_acquisition_original_changed') from exc
 
 
 @lru_cache(maxsize=3)
@@ -121,6 +127,8 @@ def record_sets(payload, company, *, symbol, cik, available_by, observed_at, sup
             observed_at.astimezone(ZoneInfo('America/New_York')).date() - timedelta(days=1)):
         raise SecFundamentalsCoverageError('reverse_acquisition_availability')
     profile = review()
+    if (supplement or {}).get('reverse_acquisition_error'):
+        raise SecFundamentalsCoverageError(supplement['reverse_acquisition_error'])
     documents = (supplement or {}).get('reverse_acquisition', {})
     if set(documents) != set(profile['sources']):
         raise SecFundamentalsCoverageError('reverse_acquisition_originals_required')
@@ -188,6 +196,8 @@ def record_sets(payload, company, *, symbol, cik, available_by, observed_at, sup
     proof = {'methodology': VERSION, 'current_cik': CIK, 'predecessor_cik': PREDECESSOR_CIK,
         'effective_date': '2026-08-17', 'reviewed_at': profile['reviewed_at'],
         'sources': deepcopy(profile['sources']), 'overlaps': comparisons,
+        'received_sources': {name: _validate_original(raw, profile['sources'][name])
+                             for name, raw in documents.items()},
         'excluded_history': 'Pre-merger Equity Residential facts under the surviving legal CIK',
         'limitations': ['Only three reviewed complete originals; future filings require review.',
             'No inferred capex, per-share conversion, or REIT scoring methodology.']}
@@ -214,6 +224,19 @@ def cached_valid(evidence):
             or proof.get('reviewed_at') != profile['reviewed_at']
             or inline.get('report_date') != profile['sources']['current']['report_date']):
         return False
+    received = proof.get('received_sources')
+    if not isinstance(received, dict) or set(received) != set(profile['sources']) or inline.get('received_sources') != received:
+        return False
+    for name, source in profile['sources'].items():
+        receipt = received[name]
+        if (not isinstance(receipt, dict)
+                or receipt.get('reviewed_source_sha256') != source['sha256']
+                or receipt.get('document_sha256') != source['document_sha256']
+                or receipt.get('document_integrity_policy') != source['document_integrity_policy']
+                or not isinstance(receipt.get('source_sha256'), str)
+                or len(receipt['source_sha256']) != 64
+                or any(c not in '0123456789abcdef' for c in receipt['source_sha256'])):
+            return False
     expected = profile['required_overlaps']
     overlaps = proof.get('overlaps')
     if not isinstance(overlaps, list) or len(overlaps) != len(expected):
