@@ -25,8 +25,8 @@ def combine(values, metrics):
     evidence['methodology'] = VERSION
     evidence['supplement'] = deepcopy(metrics)
     evidence['supplement']['used_fields'] = []
-    from app.services.sec_reverse_acquisition import CIK as reverse_cik
-    if str(evidence.get('cik', '')).zfill(10) == reverse_cik:
+    from app.services.sec_reverse_acquisition import cache_requires_review
+    if cache_requires_review(evidence.get('cik'), evidence.get('available_by')):
         # Vendor identity alone cannot prove whether its trailing metrics use
         # Equity Residential or the accounting predecessor, AvalonBay.
         evidence['supplement']['hold_reason'] = 'unverified_reverse_acquisition_accounting_basis'

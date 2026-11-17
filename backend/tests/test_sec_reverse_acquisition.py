@@ -119,12 +119,14 @@ def test_missing_or_changed_original_never_falls_back_to_legal_companyfacts(name
         project(source)
 
 
-@pytest.mark.parametrize('defect', ['future', 'amendment', 'ambiguous', 'wrong_cik', 'wrong_symbol', 'missing_directory'])
+@pytest.mark.parametrize('defect', ['future', 'amendment', 'transition', 'foreign_annual', 'ambiguous', 'wrong_cik', 'wrong_symbol', 'missing_directory'])
 def test_unreviewed_identity_or_latest_filing_is_held_before_source_requests(defect):
     company = json.loads(raw('VMRK-company.json')); recent = company['filings']['recent']
     index = recent['accessionNumber'].index('0001193125-26-453735')
     if defect == 'future': recent['reportDate'][index] = '2026-10-31'; recent['filingDate'][index] = '2026-11-12'
     elif defect == 'amendment': recent['form'][index] = '10-Q/A'
+    elif defect == 'transition': recent['form'][index] = '10-QT'
+    elif defect == 'foreign_annual': recent['form'][index] = '20-F'
     elif defect == 'ambiguous':
         for column in ('accessionNumber', 'form', 'filingDate', 'reportDate', 'primaryDocument'):
             recent[column].append(recent[column][index])
@@ -176,6 +178,8 @@ def test_other_issuers_and_historical_dates_are_outside_review():
     assert reverse.applies(reverse.CIK, date(2026, 11, 9))
     assert sec_tagged_foreign.cached_currency_valid({'cik': '0000000001'})
     assert not sec_tagged_foreign.cached_currency_valid({'cik': reverse.CIK})
+    assert sec_tagged_foreign.cached_currency_valid({'cik': reverse.CIK, 'available_by': '2026-11-08'})
+    assert not sec_tagged_foreign.cached_currency_valid({'cik': reverse.CIK, 'available_by': '2026-11-09'})
 
 
 def test_vendor_fallback_cannot_restore_unverified_accounting_basis():

@@ -247,8 +247,9 @@ def cached_row_payload(row, symbol, *, now=None):
             return None
     if not cached_currency_valid({'inline_filing_supplement': proof}):
         return None
-    if symbol == 'VMRK' and payload.get('reason') != 'unverified_financial_history':
-        from app.services.sec_reverse_acquisition import cached_valid as reverse_valid
+    from app.services.sec_reverse_acquisition import CIK as reverse_cik, cache_requires_review, cached_valid as reverse_valid
+    if (symbol == 'VMRK' and cache_requires_review(reverse_cik, evidence.get('availableBy'))
+            and payload.get('reason') != 'unverified_financial_history'):
         if not reverse_valid({'financial_continuity': evidence.get('financialContinuity'),
                               'inline_filing_supplement': proof}):
             return None

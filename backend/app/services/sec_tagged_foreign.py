@@ -111,7 +111,7 @@ def cached_currency_valid(evidence):
     if not isinstance(evidence, dict):
         return False
     from app.services import sec_reverse_acquisition as reverse
-    if str(evidence.get('cik', '')).zfill(10) == reverse.CIK:
+    if reverse.cache_requires_review(evidence.get('cik'), evidence.get('available_by')):
         return reverse.cached_valid(evidence)
     if evidence.get('methodology') == 'sec_tabular_reporting_v1' and 'table_reporting' not in evidence:
         return False

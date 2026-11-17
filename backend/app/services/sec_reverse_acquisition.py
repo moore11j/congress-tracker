@@ -42,6 +42,15 @@ def applies(cik, available_by):
     return str(cik).zfill(10) == CIK and available_by >= FIRST_FILED
 
 
+def cache_requires_review(cik, available_by):
+    if str(cik).zfill(10) != CIK:
+        return False
+    try:
+        return date.fromisoformat(available_by) >= FIRST_FILED
+    except (ValueError, TypeError):
+        return True
+
+
 def _validate_identity(payload, company, *, symbol, cik, available_by):
     if (str(cik).zfill(10) != CIK or symbol != 'VMRK'
             or any(str(obj.get('cik', '')).zfill(10) != CIK for obj in (payload, company))
@@ -53,7 +62,8 @@ def _validate_identity(payload, company, *, symbol, cik, available_by):
         raise SecFundamentalsCoverageError('reverse_acquisition_directory')
     eligible = []
     for accn, form, filed, end, filename in zip(*columns):
-        if form not in {'10-K', '10-Q', '10-K/A', '10-Q/A'}:
+        if form not in {'10-K', '10-Q', '10-K/A', '10-Q/A', '10-KT', '10-QT',
+                        '10-KT/A', '10-QT/A', '20-F', '20-F/A', '40-F', '40-F/A'}:
             continue
         try:
             if date.fromisoformat(end) <= date.fromisoformat(filed) <= available_by:
