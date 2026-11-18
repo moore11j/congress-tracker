@@ -1,0 +1,122 @@
+{
+  "BFRG:current": {
+    "symbol": "BFRG",
+    "cik": "0001829247",
+    "role": "current",
+    "url": "https://www.sec.gov/Archives/edgar/data/1829247/000162828026073811/bfrg-20260930.htm",
+    "identity_sha256": "65fdda7598b674962084a96f5e7c31031bdbcdce89e8e217087aa4cafb165c74",
+    "accessionNumber": "0001628280-26-073811",
+    "form": "10-Q",
+    "reportDate": "2026-09-30",
+    "filingDate": "2026-11-13",
+    "primaryDocument": "bfrg-20260930.htm",
+    "file": "BFRG-current.html.gz",
+    "bytes": 656862,
+    "sha256": "9e65aa3a391cb5413fcf66ce084f0021f75e833aa9a7e45831a023215f21bd2c",
+    "observed_at": "2026-11-18T16:26:53.891761+00:00"
+  },
+  "BFRG:annual": {
+    "symbol": "BFRG",
+    "cik": "0001829247",
+    "role": "annual",
+    "url": "https://www.sec.gov/Archives/edgar/data/1829247/000149315226011644/form10-k.htm",
+    "identity_sha256": "65fdda7598b674962084a96f5e7c31031bdbcdce89e8e217087aa4cafb165c74",
+    "accessionNumber": "0001493152-26-011644",
+    "form": "10-K",
+    "reportDate": "2025-12-31",
+    "filingDate": "2026-03-19",
+    "primaryDocument": "form10-k.htm",
+    "file": "BFRG-annual.html.gz",
+    "bytes": 1828079,
+    "sha256": "bf7d4d132c271b3dff848876228979d0bd17f75690674b56747e27ec2014a47a",
+    "observed_at": "2026-11-18T16:26:55.044101+00:00"
+  },
+  "BFRG:prior": {
+    "symbol": "BFRG",
+    "cik": "0001829247",
+    "role": "prior",
+    "url": "https://www.sec.gov/Archives/edgar/data/1829247/000149315225023496/form10-q.htm",
+    "identity_sha256": "65fdda7598b674962084a96f5e7c31031bdbcdce89e8e217087aa4cafb165c74",
+    "accessionNumber": "0001493152-25-023496",
+    "form": "10-Q",
+    "reportDate": "2025-09-30",
+    "filingDate": "2025-11-14",
+    "primaryDocument": "form10-q.htm",
+    "file": "BFRG-prior.html.gz",
+    "bytes": 842798,
+    "sha256": "5641178405bd82a088872d7b31415386dff085c180cd5d22673912eddd9bd51e",
+    "observed_at": "2026-11-18T16:26:55.838260+00:00"
+  },
+  "BFRG:company": {
+    "file": "BFRG-company.json.gz",
+    "bytes": 32380,
+    "sha256": "65fdda7598b674962084a96f5e7c31031bdbcdce89e8e217087aa4cafb165c74",
+    "url": "https://data.sec.gov/submissions/CIK0001829247.json"
+  },
+  "BFRG:facts": {
+    "file": "BFRG-facts.json.gz",
+    "bytes": 491243,
+    "sha256": "e8bf54215d16219a67407f685699abdaa22ba821d35e7f8b4560a4958611dfb8",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001829247.json"
+  },
+  "MNOV:current": {
+    "symbol": "MNOV",
+    "cik": "0001226616",
+    "role": "current",
+    "url": "https://www.sec.gov/Archives/edgar/data/1226616/000119312526458562/mnov-20260930.htm",
+    "identity_sha256": "8c90b18d2ce14a54ddc7e231e979bbc29a290392f34e578925e5c3fa1ad7a3e7",
+    "accessionNumber": "0001193125-26-458562",
+    "form": "10-Q",
+    "reportDate": "2026-09-30",
+    "filingDate": "2026-11-12",
+    "primaryDocument": "mnov-20260930.htm",
+    "file": "MNOV-current.html.gz",
+    "bytes": 1494424,
+    "sha256": "9f7da3d40bd60e922687da10a3362a6de3e6209bc189254c995f06578bdcd163",
+    "observed_at": "2026-11-18T16:27:21.264506+00:00"
+  },
+  "MNOV:annual": {
+    "symbol": "MNOV",
+    "cik": "0001226616",
+    "role": "annual",
+    "url": "https://www.sec.gov/Archives/edgar/data/1226616/000119312526100432/mnov-20251231.htm",
+    "identity_sha256": "8c90b18d2ce14a54ddc7e231e979bbc29a290392f34e578925e5c3fa1ad7a3e7",
+    "accessionNumber": "0001193125-26-100432",
+    "form": "10-K",
+    "reportDate": "2025-12-31",
+    "filingDate": "2026-03-10",
+    "primaryDocument": "mnov-20251231.htm",
+    "file": "MNOV-annual.html.gz",
+    "bytes": 2309837,
+    "sha256": "d2ada82745904c5898980d766e6dddd4001776a97ef978d7396189e8069ebb97",
+    "observed_at": "2026-11-18T16:27:22.358692+00:00"
+  },
+  "MNOV:prior": {
+    "symbol": "MNOV",
+    "cik": "0001226616",
+    "role": "prior",
+    "url": "https://www.sec.gov/Archives/edgar/data/1226616/000119312525277779/mnov-20250930.htm",
+    "identity_sha256": "8c90b18d2ce14a54ddc7e231e979bbc29a290392f34e578925e5c3fa1ad7a3e7",
+    "accessionNumber": "0001193125-25-277779",
+    "form": "10-Q",
+    "reportDate": "2025-09-30",
+    "filingDate": "2025-11-12",
+    "primaryDocument": "mnov-20250930.htm",
+    "file": "MNOV-prior.html.gz",
+    "bytes": 1378408,
+    "sha256": "ec09897c58ddf6eb5681a8c5c66c2bc398be59d4193cffd0b0cb0b99c0d5f706",
+    "observed_at": "2026-11-18T16:27:23.179089+00:00"
+  },
+  "MNOV:company": {
+    "file": "MNOV-company.json.gz",
+    "bytes": 142735,
+    "sha256": "8c90b18d2ce14a54ddc7e231e979bbc29a290392f34e578925e5c3fa1ad7a3e7",
+    "url": "https://data.sec.gov/submissions/CIK0001226616.json"
+  },
+  "MNOV:facts": {
+    "file": "MNOV-facts.json.gz",
+    "bytes": 1888975,
+    "sha256": "582e5fe0b0026a30da9cbc11430f1f37040da6ceb241d5f7d2c3e76f25605347",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001226616.json"
+  }
+}

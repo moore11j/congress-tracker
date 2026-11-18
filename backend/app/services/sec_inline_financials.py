@@ -506,6 +506,17 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
         result['revenue_periods'] = periods
         result['evidence']['reconciled_revenue_periods'] = periods['evidence']
     from app.services import sec_common_equity
+    from app.services import sec_domestic_revenue_zeros
+    try:
+        zeros = sec_domestic_revenue_zeros.acquire(json.loads(facts_raw), json.loads(company_raw),
+            cik=str(cik).zfill(10), available_by=available, client=retained)
+    except ValueError:
+        zeros = None
+    if zeros is not None:
+        if result is None:
+            result = {'domestic_revenue_zeros_only':True, 'evidence':{'cik':str(cik).zfill(10), 'methodology':sec_domestic_revenue_zeros.VERSION}}
+        result['domestic_revenue_zeros'] = zeros
+        result['evidence']['domestic_revenue_zeros'] = zeros['evidence']
     equity = None
     equity_payload = json.loads(facts_raw)
     if (not (result or {}).get('evidence', {}).get('native_reporting')
@@ -730,7 +741,7 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
 
 
 def merge(payload, supplement, *, available_by):
-    if supplement is None or supplement.get('debt_precision_only') or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only') or supplement.get('common_equity_only'):
+    if supplement is None or supplement.get('debt_precision_only') or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only') or supplement.get('common_equity_only') or supplement.get('domestic_revenue_zeros_only'):
         return payload
     from app.services.sec_primary_revenue_zero import validate as validate_zeros
     try:
@@ -763,7 +774,7 @@ def merge(payload, supplement, *, available_by):
 
 
 def annotate(records, supplement, *, metrics=None, expected_cik=None, available_by=None):
-    if supplement is None or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only') or supplement.get('common_equity_only'):
+    if supplement is None or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only') or supplement.get('common_equity_only') or supplement.get('domestic_revenue_zeros_only'):
         return records
     from app.services import sec_fundamentals as sec
     if supplement.get('debt_precision_only'):
