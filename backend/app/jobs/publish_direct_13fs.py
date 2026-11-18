@@ -2,6 +2,7 @@
 import argparse
 import os
 import json
+from contextlib import nullcontext
 
 
 def main():
@@ -33,12 +34,20 @@ def main():
         print(dumps(guard.to_dict()))
         return
     try:
-        with SessionLocal() as db:
-            identifiers = (load_staged_identifiers(db, args.identifier_manifest) if args.staged_identifiers
-                           else load_identifier_manifest(args.identifier_manifest))
-            result = publish_13f_batch(db, identifier_documents=identifiers,
-                limit=args.limit, retry_waiting=args.retry_waiting, use_staged_references=args.staged_references,
-                include_waiting=args.include_waiting)
+        prepared_peers = os.getenv('DIRECT_13F_PREPARED_PEERS_ENABLED', 'false').strip().lower() == 'true'
+        if prepared_peers:
+            from app.jobs.collect_direct_feeds import collector_lock
+        with (collector_lock(recover_orphaned=False) if prepared_peers else nullcontext(True)) as acquired:
+            if not acquired:
+                print(dumps({'status': 'skipped', 'reason': 'source_collection_active'}))
+                return
+            with SessionLocal() as db:
+                identifiers = (load_staged_identifiers(db, args.identifier_manifest) if args.staged_identifiers
+                               else load_identifier_manifest(args.identifier_manifest))
+                result = publish_13f_batch(db, identifier_documents=identifiers,
+                    limit=args.limit, retry_waiting=args.retry_waiting, use_staged_references=args.staged_references,
+                    include_waiting=args.include_waiting,
+                    **({'use_prepared_peers': True} if prepared_peers else {}))
     except (FeedSourceMismatch, FeedWriterBusy) as exc:
         print(dumps({'status': 'skipped', 'reason': type(exc).__name__}))
         return
