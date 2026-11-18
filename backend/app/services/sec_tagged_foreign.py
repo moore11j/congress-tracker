@@ -113,6 +113,9 @@ def cached_currency_valid(evidence):
     from app.services.sec_primary_revenue_zero import cached_valid as zeros_valid
     if not zeros_valid(evidence):
         return False
+    from app.services.sec_domestic_revenue_zeros import cached_valid as domestic_zeros_valid
+    if not domestic_zeros_valid(evidence):
+        return False
     from app.services import sec_reverse_acquisition as reverse
     if reverse.cache_requires_review(evidence.get('cik'), evidence.get('available_by')):
         return reverse.cached_valid(evidence)

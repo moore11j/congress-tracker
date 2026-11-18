@@ -1,5 +1,7 @@
 # Walnut Markets project memory
 
+2026-11-18: Owner requested continued active-case work. Shared domestic printed-zero candidate recovers MNOV prior revenue, growth and margin expansion while preserving existing values. BFRG remains held because complete originals contain hidden nil facts, correcting the earlier two-candidate diagnostic. Full local source/preparation/cache/alert checks and all49retained-output/request parity pass; Linux CI/release and production propagation remain gates. Institutional preparation independently holds at6117/16587 after job50failed; currentAPI memory leaves less than750MiB headroom, no guard relaxed. See [current implementation](docs/domestic-comparative-revenue-zeros-2026-11-18.md).
+
 Last reconciled: **2026-10-04**. Product/code baseline: `80aaa7f7` on `main` (also GitHub main when checked). This is the project's durable context, not a claim about today's deployed revision.
 
 ## Required routine for every prompt
