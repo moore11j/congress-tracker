@@ -9,7 +9,8 @@ from app.services import sec_fundamentals as sec, sec_tagged_foreign as tagged
 ROOT = Path(__file__).parent/'fixtures/sec_qualified_foreign_partial'
 NOW = datetime(2026, 10, 31, 22, 46, tzinfo=timezone.utc)
 CIK = '0001818838'
-EXPECTED = {'current_ratio': 132408623/26361197, 'roe': -20511005/((37911789+89453418)/2)*100}
+EXPECTED = {'current_ratio': 132408623/26361197, 'roe': -20511005/((37911789+89453418)/2)*100,
+            'net_margin': -20511005/9290815*100, 'operating_margin': -22336577/9290815*100}
 
 
 def originals():
@@ -63,13 +64,12 @@ def test_complete_source_partial_values_and_exact_repeat(acquired):
     value = project(acquired); proof = json.loads(value['source_evidence_json'])
     assert {k: value[k] for k in proof['calculations']} == EXPECTED
     assert project(acquired) == value
-    assert proof['standard_partial_policy'] == 'qualified_us_gaap_partial_financials_v1'
-    assert proof['current']['revenue'] is None and proof['current']['capex'] is None
+    assert proof['current']['revenue']['value'] == 9290815 and proof['current']['capex'] is None
     assert 'free_cash_flow' not in value and 'revenue_growth' not in value
-    assert proof['financial_status'] == 'partial'
-    assert proof['standard_foreign_reporting'] == proof['inline_filing_supplement']['standard_foreign_reporting']
+    assert proof['inline_filing_supplement']['primary_comparative_revenue_zeros'][0]['value'] == 0
+    assert proof['inline_filing_supplement']['standard_foreign_reporting']['current']['report_date'] == '2026-06-30'
     assert tagged.cached_currency_valid(proof)
-    assert proof['partial_financial_basis']['accession'] == '0001104659-26-094468'
+    assert proof['inline_filing_supplement']['accession'] == '0001104659-26-094468'
     assert proof['current']['net_income']['method'] == 'annual_plus_ytd_minus_prior_ytd'
     assert proof['current']['net_income']['value'] == -17609413-16378832+13477240
 
@@ -88,7 +88,8 @@ def test_original_binding_cannot_be_bypassed_when_revenue_is_missing(acquired, d
     elif defect == 'period': proof['report_date'] = '2026-03-31'
     elif defect == 'cover': proof['cover_evidence']['source_url'] = 'https://example.test/not-sec'
     else: proof['standard_foreign_reporting']['current']['report_date'] = '2026-03-31'
-    with pytest.raises((sec.SecFundamentalsError, tagged.TaggedForeignError)): project((facts, company, supplement))
+    from app.services.sec_inline_financials import InlineFactsError
+    with pytest.raises((sec.SecFundamentalsError, tagged.TaggedForeignError, InlineFactsError)): project((facts, company, supplement))
 
 
 def test_unqualified_foreign_facts_do_not_enable_partial_fallback():
