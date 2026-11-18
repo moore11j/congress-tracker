@@ -18,6 +18,31 @@ def require_preparation_queue(queue, token, process_group):
         raise RuntimeError('not_exclusive_data_lane_owner')
 
 
+def prepare_chunks(session_factory, *, checkpoint, max_chunks=5):
+    """Amortize process startup while committing each bounded chunk separately."""
+    if not 1 <= max_chunks <= 5:
+        raise ValueError('Invalid preparation run limit')
+    from sqlalchemy import text
+    from app.services.direct_13f_preparation import advance_preparation
+    chunks = []
+    for _ in range(max_chunks):
+        checkpoint()
+        with session_factory() as db:
+            if db.bind.dialect.name != 'postgresql':
+                raise RuntimeError('Preparation job requires PostgreSQL')
+            db.execute(text("SET LOCAL statement_timeout='3s'"))
+            db.execute(text("SET LOCAL lock_timeout='500ms'"))
+            db.execute(text("SET LOCAL idle_in_transaction_session_timeout='75s'"))
+            result = advance_preparation(db, checkpoint=checkpoint)
+            db.commit()
+        chunks.append(result)
+        if result['status'] in {'sweep_complete', 'busy'}:
+            break
+    return dict(status=chunks[-1]['status'], cursor=chunks[-1].get('cursor'), chunks=len(chunks),
+                processed=sum(c['processed'] for c in chunks), parsed=sum(c.get('parsed', 0) for c in chunks),
+                source_bytes=sum(c.get('source_bytes', 0) for c in chunks), publication_writes=0)
+
+
 def main():
     if os.getenv('DIRECT_13F_PEER_PREPARATION_ENABLED', 'false').strip().lower() != 'true':
         print(json.dumps({'status': 'disabled'}))
@@ -32,11 +57,9 @@ def main():
             if attempt == 9:
                 raise
             time.sleep(.05)
-    from sqlalchemy import text
     from app.background_job_guard import check_background_job_guard
     from app.db import SessionLocal
     from app.jobs.collect_direct_feeds import collector_lock
-    from app.services.direct_13f_preparation import advance_preparation
 
     guard = check_background_job_guard('direct-13f-peer-preparation')
     if not guard.proceed:
@@ -63,14 +86,7 @@ def main():
             if not acquired:
                 print(json.dumps({'status': 'busy'}))
                 return
-            with SessionLocal() as db:
-                if db.bind.dialect.name != 'postgresql':
-                    raise RuntimeError('Preparation job requires PostgreSQL')
-                db.execute(text("SET LOCAL statement_timeout='3s'"))
-                db.execute(text("SET LOCAL lock_timeout='500ms'"))
-                db.execute(text("SET LOCAL idle_in_transaction_session_timeout='75s'"))
-                result = advance_preparation(db, checkpoint=checkpoint)
-                db.commit()
+            result = prepare_chunks(SessionLocal, checkpoint=checkpoint)
         print(json.dumps(dict(result, cpu_seconds=time.process_time()-cpu,
                               wall_seconds=time.monotonic()-started, emails=0)))
     finally:

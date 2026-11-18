@@ -122,6 +122,28 @@ def test_actual_postgres_prepared_publication_and_repeat(pg):
         assert batch.publish_13f_batch(db, identifier_documents=[], use_prepared_peers=True)['processed'] == 0
 
 
+def test_bounded_job_preserves_committed_chunks_on_interruption(pg):
+    from sqlalchemy.orm import sessionmaker
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks
+    factory = sessionmaker(bind=pg)
+    with factory() as db:
+        for serial in range(1, 31):
+            stage(db, document(serial=serial))
+    def interrupt_after_first_commit():
+        with factory() as observer:
+            from sqlalchemy import func
+            if observer.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) >= 25:
+                raise RuntimeError('Simulated stop between transactions')
+    with pytest.raises(RuntimeError, match='Simulated stop'):
+        prepare_chunks(factory, checkpoint=interrupt_after_first_commit)
+    with factory() as db:
+        assert db.get(preparation.Prepared13FProgress, 'peers').cursor == 25
+    result = prepare_chunks(factory, checkpoint=lambda: None)
+    assert result['processed'] == 5 and result['status'] == 'sweep_complete'
+    with factory() as db:
+        assert preparation.preparation_fingerprint(db)['documents'] == 30
+
+
 def test_complete_10001_originals_in_bounded_chunks(pg):
     total = 10001
     with Session(pg) as db:
