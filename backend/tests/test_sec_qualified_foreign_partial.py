@@ -101,7 +101,7 @@ def test_unqualified_foreign_facts_do_not_enable_partial_fallback():
                                 symbol='GENERIC', cik='1', observed_at=NOW)
 
 
-@pytest.mark.parametrize('metric', ['current_ratio', 'roe'])
+@pytest.mark.parametrize('metric', ['current_ratio', 'roe', 'operating_margin'])
 def test_complete_source_score_alert_recovery_repeat_crossing_and_rollback(acquired, metric, monkeypatch):
     import test_sec_tagged_foreign_consumers as consumers
     from app.services import sec_inline_financials as inline

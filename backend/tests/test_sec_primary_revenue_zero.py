@@ -58,6 +58,12 @@ def test_complete_originals_prove_comparative_zero_and_both_operating_equations(
     assert value['current_ratio']==pytest.approx(132408623/26361197)
     assert value['roe']==pytest.approx(-20511005/((37911789+89453418)/2)*100)
     assert not {'free_cash_flow','fcf_margin','revenue_growth','net_debt_to_ebitda'} & value.keys()
+    from types import SimpleNamespace
+    from app.services.fundamentals_cache import fundamentals_summary_from_cache_row
+    before={k:v for k,v in value.items() if k not in {'net_margin','operating_margin'}}
+    summary=fundamentals_summary_from_cache_row(SimpleNamespace(**value),now=NOW)
+    assert summary==fundamentals_summary_from_cache_row(SimpleNamespace(**before),now=NOW)
+    assert summary['status']=='unavailable'
     assert acquire(raw,manifest)==(supplement,calls)
     assert set(calls)=={manifest['cover']['url'],manifest['current']['url']}
     annual=html.fromstring(raw['annual'])
@@ -114,6 +120,12 @@ def test_cache_version_rotates_known_affected_symbol_only():
     from app.services import sec_fundamentals_preparation as prep
     assert zero.VERSION in prep.version_for_symbol('ADAG')
     assert zero.VERSION not in prep.version_for_symbol('ADSE')
+
+
+def test_net_margin_remains_outside_the_existing_alert_metric_contract():
+    from app.services.custom_alert_rules import validate_conditions
+    with pytest.raises(ValueError,match='Choose a supported metric'):
+        validate_conditions([dict(metric='net_margin',operator='gt',comparison_type='value',comparison_value=-222)])
 
 
 @pytest.mark.parametrize('defect',['proof_value','arithmetic','period','fact','source_hash','missing_proof'])
