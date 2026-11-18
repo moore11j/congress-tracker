@@ -23,6 +23,12 @@ def originals(symbol):
         facts=gzip.decompress((ROOT/(name+'.gz')).read_bytes())
         assert hashlib.sha256(facts).hexdigest()==manifest[name]['sha256']
     cik=args['cik'];urls=dict(urls)
+    if symbol=='ADSE':
+        annual_root=ROOT.parent/'sec_native_annual_history'
+        meta=json.loads((annual_root/'sources.json').read_bytes())['annual']
+        raw=gzip.decompress((annual_root/meta['file']).read_bytes())
+        assert len(raw)==meta['bytes'] and hashlib.sha256(raw).hexdigest()==meta['sha256']
+        urls[meta['url']]=raw
     urls[f'https://data.sec.gov/submissions/CIK{cik}.json']=company
     urls[f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json']=facts
     return facts,company,cik,urls
@@ -39,7 +45,7 @@ def test_existing_acquisition_calculation_and_panel_contracts(symbol,currency,mo
     monkeypatch.setattr(socket.socket,'connect',lambda *a,**k:pytest.fail('Unexpected network'))
     facts,company,cik,urls=originals(symbol);client=Client(urls)
     supplement=inline.acquire(facts,company,symbol=symbol,cik=cik,observed_at=NOW,client=client)
-    assert len(client.calls)==len(set(client.calls))==2
+    assert len(client.calls)==len(set(client.calls))==(3 if symbol=='ADSE' else 2)
     assert supplement['evidence']['native_reporting']['currency']==currency
     values=sec.project_fundamentals(facts,company,symbol=symbol,cik=cik,observed_at=NOW,filing_supplement=supplement)
     assert values==sec.project_fundamentals(facts,company,symbol=symbol,cik=cik,observed_at=NOW,filing_supplement=supplement)

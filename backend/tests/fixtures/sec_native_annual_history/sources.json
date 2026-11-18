@@ -1,0 +1,32 @@
+{
+  "company": {
+    "url": "https://data.sec.gov/submissions/CIK0001879248.json",
+    "file": "company.gz",
+    "bytes": 33522,
+    "sha256": "9b53d910c5b052ccfcee8befce9fc16c90b8acf716931198b38828ccd7534de8"
+  },
+  "facts": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001879248.json",
+    "file": "facts.gz",
+    "bytes": 333136,
+    "sha256": "4ffe713c154b1cdf4c9891e15775a0a180986cae484088d466794d9b63d25e2e"
+  },
+  "cover": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1879248/000121390026105353/ea0307089-6k_adstec.htm",
+    "file": "cover.gz",
+    "bytes": 162355,
+    "sha256": "7132e69db7d46f2b6279aff4520b7773ba2037afed29cb3bcf903d27a2de44a3"
+  },
+  "current": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1879248/000121390026105353/ea030708901ex99-1.htm",
+    "file": "current.gz",
+    "bytes": 541657,
+    "sha256": "cb2da5a92d8a76138980bafa43c1039b3a0858df4948e18693bfc2f1db9c53c3"
+  },
+  "annual": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1879248/000121390026057891/ea0290629-20f_adstec.htm",
+    "file": "annual.gz",
+    "bytes": 4964955,
+    "sha256": "c888bee152167efa2870b977293f3991fa823000d6922659505acdc3d5e2c33c"
+  }
+}

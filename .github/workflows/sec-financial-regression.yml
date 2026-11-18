@@ -87,6 +87,8 @@ jobs:
           tests/test_sec_statement_navigation.py
           tests/test_sec_statement_currency_scope.py
           tests/test_sec_statement_currency.py
+          tests/test_sec_native_annual_history.py
+          tests/test_sec_native_financials.py
           tests/test_sec_currency_conflicts.py
           tests/test_sec_comparative_basis.py
           tests/test_sec_statement_dates.py
@@ -172,6 +174,9 @@ jobs:
       - name: Bounded primary comparative revenue zero proof
         working-directory: backend
         run: python scripts/verify_primary_revenue_zero_fixture.py
+      - name: Bounded native annual original proof
+        working-directory: backend
+        run: python scripts/verify_native_annual_fixture.py
       - name: Preserve test result
         if: always()
         uses: actions/upload-artifact@v4
