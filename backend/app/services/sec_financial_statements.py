@@ -137,6 +137,9 @@ def project(facts_raw, company_raw, *, symbol, cik, observed_at, history_raw=Non
             'factsUrl': f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',
             'availabilityBasis': 'Current view uses latest filed facts available after completed New York filing day; not a historical tradable snapshot.'})
     from app.services import sec_reporting_scope as scope
+    if symbol == 'ADSE':
+        from app.services.sec_native_annual_history import VERSION as annual_version
+        payload['sourceEvidence']['nativeAnnualHistoryVersion'] = annual_version
     if cik == scope.CIK:
         payload['preparationVersion'] = scope.VERSION
         reporting_scope = scope.policy(cik, available)
@@ -234,6 +237,10 @@ def cached_row_payload(row, symbol, *, now=None):
     evidence = payload.get('sourceEvidence') or {}
     if not isinstance(evidence, dict):
         return None
+    if symbol == 'ADSE' and payload.get('status') != 'unavailable':
+        from app.services.sec_native_annual_history import VERSION as annual_version
+        if evidence.get('nativeAnnualHistoryVersion') != annual_version:
+            return None
     from app.services import sec_reporting_scope as scope
     if (symbol in scope.SYMBOLS or evidence.get('factsUrl') == f'https://data.sec.gov/api/xbrl/companyfacts/CIK{scope.CIK}.json') and payload.get('status') != 'unavailable':
         if payload.get('preparationVersion') != scope.VERSION:

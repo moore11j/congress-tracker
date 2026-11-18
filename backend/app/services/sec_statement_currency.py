@@ -329,6 +329,14 @@ def reporting_basis(supplement):
             'cash_flow_basis':'Free cash flow subtracts reported property and equipment purchases; other investing and financing flows are excluded.'}}
 
 
+def _effective(payload, company, supplement, *, available_by):
+    from app.services import sec_native_annual_history as annual, sec_inline_financials as inline
+    history=annual.validate(payload,company,supplement,available_by=available_by)
+    if history is not None:
+        payload=inline.merge(payload,history,available_by=available_by)
+    return inline.merge(payload,supplement,available_by=available_by)
+
+
 def authorized(payload, company, *, symbol, cik, available_by, supplement):
     """Recompute qualifying financial accessions; do not trust saved selection."""
     from app.services import sec_tagged_foreign as foreign, sec_inline_financials as inline
@@ -336,7 +344,7 @@ def authorized(payload, company, *, symbol, cik, available_by, supplement):
     if basis is None:
         return None
     proof = supplement['evidence']
-    effective = inline.merge(payload, supplement, available_by=available_by)
+    effective = _effective(payload, company, supplement, available_by=available_by)
     selection = foreign.plan(effective, company, symbol=symbol, cik=cik,
         available_by=available_by, statement_basis=basis)
     if selection is None or selection != proof.get('native_reporting'):
@@ -408,6 +416,21 @@ def acquire(payload, company_raw, *, symbol, cik, available_by, client, candidat
         parsed['evidence']['native_discovery'] = {'candidate_bound':3,'total_candidates':len(candidates),
             'preceding_holds':attempts,'complete_universe_coverage':False}
         authorized(payload,company,symbol=symbol,cik=cik,available_by=available_by,supplement=parsed)
+        from app.services import sec_native_annual_history as annual
+        from app.clients.direct_sources import DirectSourceError
+        try:
+            history=annual.acquire(payload,company,parsed,available_by=available_by,client=client)
+        except (ValueError, DirectSourceError):
+            history=None
+        if history is not None:
+            parsed['annual_history']=history['parsed']
+            parsed['evidence']['native_annual_history']=history['proof']
+            effective=_effective(payload,company,parsed,available_by=available_by)
+            expanded=foreign.plan(effective,company,symbol=symbol,cik=cik,available_by=available_by,statement_basis=basis)
+            if expanded is None or expanded['current']!=selection['current']:
+                raise StatementCurrencyError('native_annual_current_selection_changed')
+            parsed['evidence']['native_reporting']=expanded
+            authorized(payload,company,symbol=symbol,cik=cik,available_by=available_by,supplement=parsed)
         return parsed
     return None
 
@@ -420,7 +443,7 @@ def record_sets(payload, company, *, symbol, cik, available_by, supplement, metr
     if selection is None:
         raise StatementCurrencyError('native_reporting_required')
     basis = reporting_basis(supplement)
-    effective = foreign.filtered(inline.merge(payload,supplement,available_by=available_by),selection)
+    effective = foreign.filtered(_effective(payload,company,supplement,available_by=available_by),selection)
     metrics = metrics or {k:(ts,basis['currency']) for k,ts in basis['tags'].items()}
     if any(unit != basis['currency'] and not (name == 'eps' and unit == basis['currency']+'/shares')
            for name,(_,unit) in metrics.items()):
@@ -429,6 +452,8 @@ def record_sets(payload, company, *, symbol, cik, available_by, supplement, metr
         available_by,concepts=tags,unit=unit,namespace=basis['namespace'],forms=foreign.FORMS))
         for name,(tags,unit) in metrics.items()}
     inline.annotate(records,supplement,metrics=metrics,expected_cik=cik,available_by=available_by)
+    if supplement.get('annual_history') is not None:
+        inline.annotate(records,supplement['annual_history'],metrics=metrics,expected_cik=cik,available_by=available_by)
     return records
 
 
@@ -436,6 +461,8 @@ def record_sets(payload, company, *, symbol, cik, available_by, supplement, metr
 def cached_currency_valid(evidence):
     """Validate the native-currency proof in an already prepared cache."""
     proof = evidence.get('inline_filing_supplement') or {}
+    from app.services.sec_native_annual_history import cached_valid as annual_valid
+    if not annual_valid(evidence):return False
     if 'native_reporting' not in proof:
         return True
     try:

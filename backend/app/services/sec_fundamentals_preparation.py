@@ -38,6 +38,9 @@ def version_for_symbol(symbol):
 
 
 def _base_version_for_symbol(symbol):
+    if symbol == 'ADSE':
+        from app.services.sec_native_annual_history import VERSION as annual_version
+        return VERSION+'_'+annual_version
     if symbol == 'ADAG':
         from app.services.sec_primary_revenue_zero import VERSION as zero_version
         return VERSION+'_'+zero_version
