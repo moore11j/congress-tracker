@@ -1,4 +1,4 @@
-"""One opt-in bounded chunk of institutional parse preparation; no publication."""
+"""Opt-in bounded institutional preparation; at most five committed chunks, no publication."""
 import json
 import os
 import time

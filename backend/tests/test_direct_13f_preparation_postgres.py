@@ -144,6 +144,27 @@ def test_bounded_job_preserves_committed_chunks_on_interruption(pg):
         assert preparation.preparation_fingerprint(db)['documents'] == 30
 
 
+def test_prepared_capacity_is_readonly_with_legacy_source_selected(pg, monkeypatch):
+    from app.jobs.check_direct_13f_capacity import prepare_readonly
+    from app.services.feed_source_control import FeedSourceControl
+    monkeypatch.setattr('app.services.direct_13f_identifiers.load_staged_identifiers', lambda *args: [])
+    with Session(pg) as db:
+        select_feed_source(db, feed='sec_13f', provider='sec_edgar', publish_since=SINCE,
+                           expected_generation=0, reason='Owned fixture')
+        db.commit()
+        db.get(FeedSourceControl, 'sec_13f').provider = 'fmp'
+        db.commit()
+        for doc in pair():
+            stage(db, doc)
+        warm(db)
+        db.execute(text('SET TRANSACTION READ ONLY'))
+        result = prepare_readonly(db, checkpoint=lambda phase: None, identifier_manifest='unused', use_prepared_peers=True)
+        assert result['status'] == 'prepared' and result['source_provider'] == 'fmp'
+        assert result['peer_fingerprint']['documents'] == 2
+        assert db.scalar(text('SHOW transaction_read_only')) == 'on'
+        db.rollback()
+
+
 def test_complete_10001_originals_in_bounded_chunks(pg):
     total = 10001
     with Session(pg) as db:

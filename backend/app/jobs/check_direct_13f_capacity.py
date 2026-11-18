@@ -7,6 +7,7 @@ import time
 
 
 JOB_NAME = 'maintenance-institutional-capacity-v1'
+PREPARED_JOB_NAME = 'maintenance-institutional-prepared-capacity-v1'
 QUEUE = '/data/scheduled-jobs.sqlite3'
 
 
@@ -16,11 +17,12 @@ def require_queue_ownership(queue, token, process_group):
         raise RuntimeError('missing_scheduler_token')
     with sqlite3.connect(Path(queue).resolve().as_uri() + '?mode=ro', uri=True, timeout=.2) as db:
         rows = db.execute("SELECT key, token, pid FROM jobs WHERE lane='data' AND started_at IS NOT NULL").fetchall()
-    if rows != [(JOB_NAME, token, process_group)]:
+    job_name = PREPARED_JOB_NAME if os.getenv('DIRECT_13F_CAPACITY_PREPARED', 'false').lower() == 'true' else JOB_NAME
+    if rows != [(job_name, token, process_group)]:
         raise RuntimeError('not_exclusive_data_lane_owner')
 
 
-def prepare_readonly(db, *, checkpoint, identifier_manifest):
+def prepare_readonly(db, *, checkpoint, identifier_manifest, use_prepared_peers=False):
     from sqlalchemy import text
     from app.services.direct_13f_batch import select_13f_batch, prepare_13f_batch
     from app.services.direct_13f_identifiers import load_staged_identifiers
@@ -36,10 +38,16 @@ def prepare_readonly(db, *, checkpoint, identifier_manifest):
     checkpoint('identifiers')
     identifiers = load_staged_identifiers(db, identifier_manifest)
     prepared = prepare_13f_batch(db, ids=ids, identifier_documents=identifiers,
-                                use_staged_references=True, checkpoint=checkpoint)
-    return dict(status='prepared', targets=ids, retry_targets=retries,
-                identifier_documents=len(identifiers), source_provider=control.provider if control else 'fmp',
-                source_generation=generation, **prepared['summary'])
+                                use_staged_references=True, checkpoint=checkpoint,
+                                **({'use_prepared_peers': True} if use_prepared_peers else {}))
+    try:
+        return dict(status='prepared', targets=ids, retry_targets=retries,
+                    prepared_peers=use_prepared_peers, peer_fingerprint=prepared.get('peer_fingerprint'),
+                    identifier_documents=len(identifiers), source_provider=control.provider if control else 'fmp',
+                    source_generation=generation, **prepared['summary'])
+    finally:
+        for cohort in prepared['groups'].values():
+            cohort.close()
 
 
 def main():
@@ -107,7 +115,8 @@ def main():
                     connection.execute(text("SET LOCAL idle_in_transaction_session_timeout='155s'"))
                     with Session(bind=connection) as db:
                         result.update(prepare_readonly(db, checkpoint=checkpoint,
-                            identifier_manifest='/app/config/sec_13f_identifiers.json'))
+                            identifier_manifest='/app/config/sec_13f_identifiers.json',
+                            use_prepared_peers=os.getenv('DIRECT_13F_CAPACITY_PREPARED', 'false').lower() == 'true'))
                         result['readonly'] = connection.scalar(text('SHOW transaction_read_only'))
     except Exception as exc:
         result.update(status='held', reason=str(exc)[:300], error_type=type(exc).__name__)
