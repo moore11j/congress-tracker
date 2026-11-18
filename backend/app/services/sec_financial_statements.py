@@ -266,6 +266,9 @@ def cached_row_payload(row, symbol, *, now=None):
             return None
     generic = evidence.get('standardForeignReporting')
     proof = evidence.get('inlineFilingSupplement') or {}
+    from app.services.sec_native_annual_history import cached_valid as annual_valid
+    if not annual_valid({'inline_filing_supplement': proof, 'current': evidence.get('periods', {})}):
+        return None
     if 'standardForeignReporting' in evidence:
         if (not isinstance(generic, dict) or generic.get('currency_policy') != CURRENCY_POLICY
                 or not isinstance(proof, dict) or proof.get('standard_foreign_reporting') != generic):

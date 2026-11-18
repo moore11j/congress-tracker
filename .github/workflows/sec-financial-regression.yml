@@ -88,6 +88,7 @@ jobs:
           tests/test_sec_statement_currency_scope.py
           tests/test_sec_statement_currency.py
           tests/test_sec_native_annual_history.py
+          tests/test_sec_native_financials.py
           tests/test_sec_currency_conflicts.py
           tests/test_sec_comparative_basis.py
           tests/test_sec_statement_dates.py

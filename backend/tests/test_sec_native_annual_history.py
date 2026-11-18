@@ -194,3 +194,24 @@ def test_annual_plan_does_not_replace_present_or_incomparable_evidence(acquired,
         recent['filingDate'][i]='2026-10-01'
     else:current['evidence']['report_date']='2026-12-31'
     assert annual.plan(facts,company,current,available_by=date(2026,11,15)) is None
+
+
+@pytest.mark.parametrize('defect',['missing_proof','period_value','period_hash'])
+def test_historical_cache_revalidates_selected_annual_inputs(acquired,defect):
+    from app.services import sec_financial_statements as statements
+    _,raw,supplement,_=acquired
+    panel=deepcopy(statements.project(raw['facts'],raw['company'],symbol='ADSE',cik=CIK,observed_at=NOW,filing_supplement=supplement))
+    evidence=panel['sourceEvidence']
+    def marked(value):
+        if isinstance(value,dict):
+            if 'native_annual_anchor' in value:yield value
+            for child in value.values():yield from marked(child)
+        elif isinstance(value,list):
+            for child in value:yield from marked(child)
+    if defect=='missing_proof':evidence['inlineFilingSupplement'].pop('native_annual_history')
+    else:
+        point=next(marked(evidence['periods']))
+        if defect=='period_value':point['value']+=1
+        else:point['source_sha256']='0'*64
+    row=SimpleNamespace(source='sec_edgar',fetched_at=NOW,payload_json=json.dumps(panel))
+    assert statements.cached_row_payload(row,'ADSE',now=NOW) is None
