@@ -1,3 +1,5 @@
+2026-11-18: Owner approved PR824; deployed75a55176 and ordinaryMNOV recovery verified. Continued authorized LGIH primary-equity implementation, local44distinct source/cache/alert cases pass; final retained parity/LinuxCI and separate release approval remain. No provider or scoring formula changes. See [source repair](primary-statement-equity-2026-11-18.md).
+
 ## October 31, 2026: Approved homepage positioning release
 
 Owner approved commit and deployment of the proposed stock research hero. Isolated branch from current origin/main contains frontend/lib/homepageContent.ts and existing expectations in homepage-seo, homepage-portfolio and landing-polish tests. Copy: Stock Research & Analysis; Know What You’re Buying; stop jumping between financial statements, charts and trading disclosures; research stocks together to see source agreement/conflict. Search and social metadata follow the new positioning. All four discovery actions, source-backed product proof, layout, pricing and access remain unchanged. No backend or prior local crawl/measurement fixes are included.
