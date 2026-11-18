@@ -63,6 +63,7 @@ jobs:
           tests/test_sec_revenue_series.py
           tests/test_sec_reporting_scope.py
           tests/test_sec_primary_revenue_zero.py
+          tests/test_sec_primary_equity.py
           tests/test_sec_domestic_revenue_zeros.py
           tests/test_sec_qualified_foreign_partial.py
           tests/test_sec_collaboration_revenue.py
@@ -176,6 +177,9 @@ jobs:
       - name: Bounded domestic comparative zero and consumer proof
         working-directory: backend
         run: python scripts/verify_domestic_revenue_zero_fixture.py
+      - name: Bounded primary equity proof
+        working-directory: backend
+        run: python scripts/verify_primary_equity_fixture.py
       - name: Preserve test result
         if: always()
         uses: actions/upload-artifact@v4

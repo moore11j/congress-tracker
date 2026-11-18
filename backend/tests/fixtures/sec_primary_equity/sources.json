@@ -1,0 +1,56 @@
+{
+  "current": {
+    "file": "current.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1580670/000158067026000088/lgih-20260930.htm",
+    "sha256": "98e2e578cc14251e8dda1b7a67b5cb92c602e760801c1337eb2a944b246a85fe",
+    "bytes": 1424757,
+    "filing": {
+      "cik": "0001580670",
+      "accession": "0001580670-26-000088",
+      "filed": "2026-11-03",
+      "report_date": "2026-09-30",
+      "form": "10-Q",
+      "url": "https://www.sec.gov/Archives/edgar/data/1580670/000158067026000088/lgih-20260930.htm"
+    }
+  },
+  "prior": {
+    "file": "prior.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1580670/000158067025000076/lgih-20250930.htm",
+    "sha256": "9239185f512414d5e2550e7a56859a6f1abf4a6e2c6d819cf3d23ee93b9f88c0",
+    "bytes": 1253597,
+    "filing": {
+      "cik": "0001580670",
+      "accession": "0001580670-25-000076",
+      "filed": "2025-11-04",
+      "report_date": "2025-09-30",
+      "form": "10-Q",
+      "url": "https://www.sec.gov/Archives/edgar/data/1580670/000158067025000076/lgih-20250930.htm"
+    }
+  },
+  "company": {
+    "file": "company.gz",
+    "url": "https://data.sec.gov/submissions/CIK0001580670.json",
+    "sha256": "4ee5ac71fc9979458ee7554d8052cfa4a9072df756d8e01553546f4a4e86281b",
+    "bytes": 116702
+  },
+  "facts": {
+    "file": "facts.gz",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001580670.json",
+    "sha256": "6b1d607946067cb60ffb9af0ad037a73876807f3449ffe34848dfc1a410d0363",
+    "bytes": 2211617
+  },
+  "annual": {
+    "file": "annual.gz",
+    "url": "https://www.sec.gov/Archives/edgar/data/1580670/000158067026000019/lgih-20251231.htm",
+    "sha256": "36c823981348d6a0d0b60f2b70574c59e83a83c551e3ccf8c75b555c625e37bc",
+    "bytes": 1773126,
+    "filing": {
+      "cik": "0001580670",
+      "accession": "0001580670-26-000019",
+      "filed": "2026-02-20",
+      "report_date": "2025-12-31",
+      "form": "10-K",
+      "url": "https://www.sec.gov/Archives/edgar/data/1580670/000158067026000019/lgih-20251231.htm"
+    }
+  }
+}
