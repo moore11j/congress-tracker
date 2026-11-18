@@ -1,0 +1,32 @@
+{
+  "company": {
+    "url": "https://data.sec.gov/submissions/CIK0001818838.json",
+    "file": "company.gz",
+    "bytes": 32251,
+    "sha256": "e4139aea5b991deb3a415586171b8d0295a6892b986a88891b3204f7e7c1d456"
+  },
+  "facts": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001818838.json",
+    "file": "facts.gz",
+    "bytes": 504921,
+    "sha256": "0938e3ee5d10088d0bf8d94c414905c4b4794f0df3a8dde6a7112f8c0df7e115"
+  },
+  "cover": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1818838/000110465926094468/adag-20260812x6k.htm",
+    "file": "cover.gz",
+    "bytes": 153559,
+    "sha256": "d740f4ebc1bd60655df0ae808d93aa1a41f4e76a34d28056d83b45e041888f9e"
+  },
+  "current": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1818838/000110465926094468/adag-20260812xex99d2.htm",
+    "file": "current.gz",
+    "bytes": 1204650,
+    "sha256": "7ce2d5a50a334dcba2bfed8aaf1baf4e08d1d1fc522dd16c031fc4c605249273"
+  },
+  "annual": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1818838/000110465926038612/adag-20251231x20f.htm",
+    "file": "annual.gz",
+    "bytes": 3994757,
+    "sha256": "da30b9021e7bbe24163ef54dc296b81243dcccc19d31f47455160706f1b405bb"
+  }
+}

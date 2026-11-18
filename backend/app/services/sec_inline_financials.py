@@ -393,6 +393,24 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
             'context_id':n.get('contextref'), 'fact_id':n.get('id')}
         if tag in {'DebtAndCapitalLeaseObligations','DebtCurrent','LongTermDebtAndCapitalLeaseObligations'}:
             provenance[key]['reported_precision'] = {'decimals':n.get('decimals'), 'value':value}
+    comparative_zeros = []
+    if namespace == 'us-gaap' and currency == 'USD' and form in {'6-K', '6-K/A'} and report_date.endswith('-06-30'):
+        from app.services import sec_primary_revenue_zero as zero
+        year = int(report_date[:4])
+        prior_key = (zero.REVENUE, 'USD', f'{year-1}-01-01', f'{year-1}-06-30')
+        current_key = (zero.REVENUE, 'USD', f'{year}-01-01', report_date)
+        if current_key in records and prior_key not in records and prior_key not in nil_keys:
+            comparative_zeros = zero.qualify(tree, contexts=contexts, units=units, report_date=report_date)
+            if len(comparative_zeros) > 1:
+                raise InlineFactsError('ambiguous_primary_revenue_zero')
+            for proof in comparative_zeros:
+                key = (proof['tag'], proof['unit'], proof['start'], proof['end'])
+                if key in records or key in nil_keys:
+                    raise InlineFactsError('conflicting_primary_revenue_zero')
+                records[key] = {'start':proof['start'], 'end':proof['end'], 'val':0,
+                                'filed':filed, 'form':form, 'accn':accession}
+                provenance[key] = {'source_kind':'sec_primary_statement_zero', 'source_url':url,
+                    'source_sha256':source_sha256, 'source_cik':cik, 'zero_reconciliation':proof}
     revenue_available = any(k[0] in tags['revenue'] and k[2] is not None and k[3] == report_date for k in records)
     if not revenue_available:
         from app.services.sec_nonrevenue_financials import VERSION as partial_version
@@ -407,6 +425,7 @@ def parse(raw, *, cik, accession, filed, report_date, form, url, basis=None, cov
         'cik':cik, 'accession':accession, 'filed':filed, 'report_date':report_date, 'form':form,
         'url':url, 'sha256':source_sha256, 'reported_facts':len(records),
         'namespace':namespace, 'currency':currency, 'currency_observation':currency_observation,
+        **({'primary_comparative_revenue_zeros':comparative_zeros} if comparative_zeros else {}),
         **({'nil_facts':[{'tag':k[0], 'unit':k[1], 'start':k[2], 'end':k[3]}
             for k in sorted(nil_keys, key=repr)]} if nil_keys else {}),
         **({'revenue_status':'unavailable', 'partial_financial_policy':partial_version} if not revenue_available else {}),
@@ -713,6 +732,11 @@ def _acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, includ
 def merge(payload, supplement, *, available_by):
     if supplement is None or supplement.get('debt_precision_only') or supplement.get('operating_history_only') or supplement.get('primary_income_only') or supplement.get('revenue_periods_only') or supplement.get('common_equity_only'):
         return payload
+    from app.services.sec_primary_revenue_zero import validate as validate_zeros
+    try:
+        validate_zeros(supplement)
+    except ValueError as exc:
+        raise InlineFactsError(str(exc)) from exc
     evidence = supplement['evidence']
     if str(payload.get('cik','')).zfill(10) != evidence['cik'] or evidence['filed'] > str(available_by):
         raise InlineFactsError('supplement_identity_or_availability')

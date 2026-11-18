@@ -110,6 +110,9 @@ def cached_currency_valid(evidence):
     """Reject old generic admissions without invalidating unrelated readers."""
     if not isinstance(evidence, dict):
         return False
+    from app.services.sec_primary_revenue_zero import cached_valid as zeros_valid
+    if not zeros_valid(evidence):
+        return False
     from app.services import sec_reverse_acquisition as reverse
     if reverse.cache_requires_review(evidence.get('cik'), evidence.get('available_by')):
         return reverse.cached_valid(evidence)
