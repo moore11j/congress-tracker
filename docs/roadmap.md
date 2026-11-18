@@ -1,3 +1,5 @@
+2026-11-18: Owner approved PR824; deployed75a55176 and ordinaryMNOV recovery verified. Continued authorized LGIH primary-equity implementation, local44distinct source/cache/alert cases pass; final retained parity/LinuxCI and separate release approval remain. No provider or scoring formula changes. See [source repair](primary-statement-equity-2026-11-18.md).
+
 2026-10-31: Approved research-focused homepage copy is release-ready, with ten focused checks passing. Know What You’re Buying broadens the hero beyond insiders; actions, layout, pricing and entitlements remain. Production verification pending; conversion effect unproven. [Release checkpoint](context-log.md#october-31-2026-approved-homepage-positioning-release).
 
 2026-10-26 UTC: Migration resumed. [Operating-history review](operating-history-recovery-2026-10-25.md) is locally implemented:335 Linux regression checks,44 final Windows source checks and corrected49/49 baseline parity. Final Linux/exact-source/release/ordinary checks pending. No provider switch; broad financial/consumer/capacity and final Massive/FMP gates remain.
