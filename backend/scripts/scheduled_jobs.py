@@ -37,6 +37,10 @@ DELIVERY_COMMANDS = (
 # Manual maintenance has no calendar trigger. An operator explicitly enqueues
 # this fixed command, and the existing data lane prevents overlap with imports.
 MANUAL_JOBS = {
+    'maintenance-institutional-preparation-v1': {
+        'command': 'cd /app && python -m app.jobs.prepare_direct_13f_peers',
+        'environment': {'DIRECT_13F_PEER_PREPARATION_ENABLED': 'true'}, 'lane': 'data',
+    },
     'maintenance-insider-lookup-index-v1': {
         'command': 'cd /app && python -m app.jobs.migrate_insider_lookup_index --apply',
         'environment': {}, 'lane': 'data',

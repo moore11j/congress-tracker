@@ -4,7 +4,7 @@ import hashlib
 import json
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.models import Event, InstitutionalFiling, InstitutionalPositionChange, InstitutionalActivityEvent, InstitutionalPosition
 from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, dumps
@@ -37,7 +37,8 @@ def _state_hash(db, filing, holder_event_ids=()):
     return hashlib.sha256(dumps(state).encode()).hexdigest()
 
 
-def publish_13f_document(db, document_id, *, identifier_documents, comparison_documents, prepared_evidence=None, reference_documents=()):
+def publish_13f_document(db, document_id, *, identifier_documents, comparison_documents, prepared_evidence=None, reference_documents=(),
+                         verify_prepared=None):
     """Atomic projection and receipt; evidence must be explicit and bounded.
 
     Whole-filing parser/identity/peer-value holds remain. Complete originals may
@@ -63,6 +64,13 @@ def publish_13f_document(db, document_id, *, identifier_documents, comparison_do
                 raise ValueError('Wrong comparison evidence feed')
             _source_url(peer['metadata'])
     with writer_transaction(db, 'sec_13f', 'sec_edgar') as control:
+        if verify_prepared is not None:
+            if db.bind.dialect.name == 'postgresql':
+                # Pin source membership and revision versions through this
+                # filing's atomic write. Default legacy preparation is unchanged.
+                db.execute(text("SET LOCAL lock_timeout='500ms'"))
+                db.execute(text('LOCK TABLE direct_feed_documents, direct_feed_revisions, prepared_13f_parses IN SHARE MODE'))
+            verify_prepared()
         staged = db.scalar(select(DirectFeedDocument).where(DirectFeedDocument.id == document_id).with_for_update())
         if staged is None or staged.feed != 'sec_13f':
             raise ValueError('No staged institutional document')
