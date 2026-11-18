@@ -230,10 +230,12 @@ def _records(payload, metric, available_by, *, concepts=None, unit='USD', namesp
             results[key] = None
             continue
         results[key] = min(rows, key=lambda row: row["priority"])
-    return results
+    from app.services.sec_reporting_scope import annotate
+    return annotate(results, cik=payload.get('cik'), available_by=available_by, namespace=namespace)
 
 
 def _ttm(records, end):
+    from app.services.sec_reporting_scope import compatible
     annual = [(s, e, f) for (s, e), f in records.items() if f and s and 350 <= (e - s).days + 1 <= 380]
     direct = [(s, e, f) for s, e, f in annual if e == end]
     if len(direct) == 1:
@@ -250,6 +252,8 @@ def _ttm(records, end):
         for (pstart, pend), previous in records.items():
             if (previous is None or pstart != astart or not 350 <= (end - pend).days <= 378
                     or abs((end - aend).days - ((pend - pstart).days + 1)) > 7):
+                continue
+            if not compatible([afact, current, previous]):
                 continue
             candidates.append({"value": afact["value"] + current["value"] - previous["value"],
                 "start": str(pend + timedelta(days=1)), "end": str(end), "method": "annual_plus_ytd_minus_prior_ytd",
@@ -345,6 +349,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
     all_records, parent_equity_evidence = sec_parent_equity.apply(all_records, symbol=symbol, cik=cik, payload=payload)
     depreciation_evidence = sec_depreciation_components.reconcile(all_records, symbol=symbol, cik=cik)
     records = {name: all_records[name] for name in TAGS}
+    from app.services.sec_reporting_scope import policy as scope_policy, comparable as scope_comparable
+    reporting_scope = scope_policy(cik, available_by)
     ends = sorted({end for _, end in records["revenue"]}, reverse=True)
     end = next((e for e in ends if _ttm(records["revenue"], e) is not None), None)
     if end is None or (available_by - end).days > 180 or (ends and end != ends[0]):
@@ -355,6 +361,7 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
             namespace=native_basis['namespace'] if native_basis else 'us-gaap',
             native_selection=native_selection,
             source_context={
+                'reporting_scope': reporting_scope,
                 'financial_continuity': continuity,
                 'parent_income_reconciliation': parent_income_evidence,
                 'parent_statement_review': parent_statement_evidence,
@@ -415,6 +422,8 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         if continuity.get('methodology') == 'sec_spcx_registration_v2':
             evidence['limitations'].extend(continuity['limitations'])
             evidence['limitations'].append('Historical amounts mapped from reviewed USD GAAP statement labels, with the original registration form retained; cash flow uses CFO minus reported PPE cash purchases, not issuer-adjusted FCF.')
+    if reporting_scope is not None:
+        evidence['reporting_scope'] = reporting_scope
     if filing_supplement is not None:
         evidence['inline_filing_supplement'] = filing_supplement['evidence']
     exchanges = company.get("exchanges", [])
@@ -440,11 +449,13 @@ def project_fundamentals(facts_raw: bytes, company_raw: bytes, *, symbol: str, c
         if numerator == "net_income" and sec_parent_statement_income.is_reviewed(current.get("net_income")):
             label = "parent net income (reviewed original-statement reconciliation)"
         save(name, ratio(val(numerator), val("revenue"), 100), f"TTM {label} / TTM revenue * 100")
-    growth = ratio(val("revenue"), val("revenue", True), 100)
+    same_revenue_scope = scope_comparable(current.get('revenue'), prior.get('revenue'))
+    growth = ratio(val("revenue"), val("revenue", True), 100) if same_revenue_scope else None
     save("revenue_growth", growth - 100 if growth is not None else None, "(TTM revenue / prior TTM revenue - 1) * 100")
     old_margin = ratio(val("operating_income", True), val("revenue", True), 100)
     margin = values.get("operating_margin")
-    save("operating_margin_expansion", margin - old_margin if margin is not None and old_margin is not None else None,
+    same_operating_scope = scope_comparable(current.get('operating_income'), prior.get('operating_income'))
+    save("operating_margin_expansion", margin - old_margin if margin is not None and old_margin is not None and same_revenue_scope and same_operating_scope else None,
          "TTM operating margin minus prior TTM operating margin, percentage points")
     for metric in INSTANT:
         evidence["instant"][metric] = records[metric].get((None, end))

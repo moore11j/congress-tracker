@@ -61,6 +61,7 @@ jobs:
           tests/test_sec_rental_revenue.py
           tests/test_sec_rental_revenue_consumers.py
           tests/test_sec_revenue_series.py
+          tests/test_sec_reporting_scope.py
           tests/test_sec_collaboration_revenue.py
           tests/test_sec_revenue_tax_tags.py
           tests/test_sec_revenue_statement_layout.py
@@ -162,6 +163,9 @@ jobs:
       - name: Verify accounting predecessor delivery variants within proof limits
         working-directory: backend
         run: python scripts/verify_reverse_acquisition_fixture.py --delivery
+      - name: Verify bounded reporting-scope fixture
+        working-directory: backend
+        run: python scripts/verify_reporting_scope_fixture.py
       - name: Preserve test result
         if: always()
         uses: actions/upload-artifact@v4
