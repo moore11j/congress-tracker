@@ -9,6 +9,10 @@ JOB_NAME = 'maintenance-institutional-preparation-v1'
 QUEUE = '/data/scheduled-jobs.sqlite3'
 
 
+class PreparationMemoryHold(RuntimeError):
+    """The existing headroom guard stopped further work."""
+
+
 def require_preparation_queue(queue, token, process_group):
     if not token:
         raise RuntimeError('missing_scheduler_token')
@@ -25,8 +29,17 @@ def prepare_chunks(session_factory, *, checkpoint, max_chunks=5):
     from sqlalchemy import text
     from app.services.direct_13f_preparation import advance_preparation
     chunks = []
+    deferred = False
     for _ in range(max_chunks):
-        checkpoint()
+        try:
+            checkpoint()
+        except PreparationMemoryHold:
+            if not chunks:
+                raise
+            # Completed transactions are durable. End this worker so its
+            # memory is released before any separately guarded next request.
+            deferred = True
+            break
         with session_factory() as db:
             if db.bind.dialect.name != 'postgresql':
                 raise RuntimeError('Preparation job requires PostgreSQL')
@@ -38,7 +51,7 @@ def prepare_chunks(session_factory, *, checkpoint, max_chunks=5):
         chunks.append(result)
         if result['status'] in {'sweep_complete', 'busy'}:
             break
-    return dict(status=chunks[-1]['status'], cursor=chunks[-1].get('cursor'), chunks=len(chunks),
+    return dict(status='memory_deferred' if deferred else chunks[-1]['status'], cursor=chunks[-1].get('cursor'), chunks=len(chunks),
                 processed=sum(c['processed'] for c in chunks), parsed=sum(c.get('parsed', 0) for c in chunks),
                 source_bytes=sum(c.get('source_bytes', 0) for c in chunks), publication_writes=0)
 
@@ -75,7 +88,7 @@ def main():
         available = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
                          if line.startswith('MemAvailable:'))
         if available < 750*1024:
-            raise RuntimeError('memory_headroom')
+            raise PreparationMemoryHold('memory_headroom')
     signal.signal(signal.SIGALRM, stop)
     signal.signal(signal.SIGXCPU, stop)
     signal.alarm(70)

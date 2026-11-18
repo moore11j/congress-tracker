@@ -144,6 +144,57 @@ def test_bounded_job_preserves_committed_chunks_on_interruption(pg):
         assert preparation.preparation_fingerprint(db)['documents'] == 30
 
 
+def test_memory_boundary_returns_only_committed_progress_and_resumes(pg):
+    from sqlalchemy import func
+    from sqlalchemy.orm import sessionmaker
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks, PreparationMemoryHold
+    factory = sessionmaker(bind=pg)
+    with factory() as db:
+        for serial in range(1, 31):
+            stage(db, document(serial=serial))
+    def memory_after_commit():
+        with factory() as observer:
+            if observer.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) == 25:
+                raise PreparationMemoryHold('memory_headroom')
+    result = prepare_chunks(factory, checkpoint=memory_after_commit)
+    assert result['status'] == 'memory_deferred'
+    assert result['processed'] == result['parsed'] == 25
+    assert result['chunks'] == 1 and result['cursor'] == 25
+    assert result['publication_writes'] == 0
+    with factory() as db:
+        assert db.get(preparation.Prepared13FProgress, 'peers').cursor == 25
+        assert db.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) == 25
+        with pytest.raises(ValueError, match='pending'):
+            preparation.preparation_fingerprint(db)
+    result = prepare_chunks(factory, checkpoint=lambda: None)
+    assert result['processed'] == 5 and result['status'] == 'sweep_complete'
+    with factory() as db:
+        assert preparation.preparation_fingerprint(db)['documents'] == 30
+        assert db.scalar(select(func.count()).select_from(DirectFeedPublication)) == 0
+
+
+def test_memory_inside_chunk_still_raises_and_rolls_back(pg, monkeypatch):
+    from sqlalchemy import func
+    from sqlalchemy.orm import sessionmaker
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks, PreparationMemoryHold
+    factory = sessionmaker(bind=pg)
+    with factory() as db:
+        for doc in pair():
+            stage(db, doc)
+    original = preparation.advance_preparation
+    def stop_after_uncommitted_write(db, **kwargs):
+        def checkpoint():
+            if db.scalar(select(func.count()).select_from(preparation.Prepared13FParse)):
+                raise PreparationMemoryHold('memory_headroom')
+        return original(db, checkpoint=checkpoint)
+    monkeypatch.setattr(preparation, 'advance_preparation', stop_after_uncommitted_write)
+    with pytest.raises(PreparationMemoryHold, match='memory_headroom'):
+        prepare_chunks(factory, checkpoint=lambda: None)
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) == 0
+        assert db.get(preparation.Prepared13FProgress, 'peers') is None
+
+
 def test_prepared_capacity_is_readonly_with_legacy_source_selected(pg, monkeypatch):
     from app.jobs.check_direct_13f_capacity import prepare_readonly
     from app.services.feed_source_control import FeedSourceControl

@@ -118,6 +118,16 @@ def test_disabled_job_does_not_touch_database(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == {'status': 'disabled'}
 
 
+def test_memory_before_first_chunk_still_fails_without_opening_database():
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks, PreparationMemoryHold
+    def unavailable():
+        raise PreparationMemoryHold('memory_headroom')
+    def forbidden_database():
+        pytest.fail('Database opened while memory guard held')
+    with pytest.raises(PreparationMemoryHold, match='memory_headroom'):
+        prepare_chunks(forbidden_database, checkpoint=unavailable)
+
+
 def test_preparation_requires_exclusive_queue_claim(tmp_path):
     import sqlite3
     from app.jobs.prepare_direct_13f_peers import require_preparation_queue, JOB_NAME
