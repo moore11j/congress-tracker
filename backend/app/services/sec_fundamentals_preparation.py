@@ -38,6 +38,14 @@ def version_for_symbol(symbol):
 
 
 def _base_version_for_symbol(symbol):
+    if symbol == 'ADAG':
+        from app.services.sec_primary_revenue_zero import VERSION as zero_version
+        return VERSION+'_'+zero_version
+    from app.services.sec_reporting_scope import VERSION as scope_version, SYMBOLS as scope_symbols
+    if symbol in scope_symbols:
+        return VERSION+'_'+scope_version
+    if symbol == 'VMRK':
+        return VERSION+'_reviewed_accounting_delivery_v2'
     if symbol == 'SHEL':
         from app.services.sec_shell_financials import VERSION as shell_version
         return VERSION+'_'+shell_version

@@ -1,0 +1,30 @@
+{
+  "JCSE": {
+    "url": "https://www.sec.gov/Archives/edgar/data/1905511/000149315226047701/form6-k.htm",
+    "file": "262cb3d904958dc4160afe5f8313391056ac5e654f14ccbd7d79fdda0481f8ef.gz",
+    "bytes": 1273893,
+    "sha256": "262cb3d904958dc4160afe5f8313391056ac5e654f14ccbd7d79fdda0481f8ef"
+  },
+  "company": {
+    "symbol": "JCSE",
+    "cik": "0001905511",
+    "kind": "company",
+    "url": "https://data.sec.gov/submissions/CIK0001905511.json",
+    "file": "JCSE-company.json.gz",
+    "sha256": "2b4bf5f36acaa70d73c9e4f71966192d8b5eea6217efe00c6857c8168b9cfdbd",
+    "bytes": 13589,
+    "retrieval": "fresh_complete_original",
+    "observed_at": "2026-11-16T03:13:48.991058+00:00"
+  },
+  "facts": {
+    "symbol": "JCSE",
+    "cik": "0001905511",
+    "kind": "facts",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001905511.json",
+    "file": "JCSE-facts.json.gz",
+    "sha256": "dc11dc85e5d9cb97a54424334eac4766354ca4788959ba4cc98208b99c1cfc06",
+    "bytes": 489679,
+    "retrieval": "fresh_complete_original",
+    "observed_at": "2026-11-16T03:13:50.400333+00:00"
+  }
+}

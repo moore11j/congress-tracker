@@ -110,6 +110,12 @@ def cached_currency_valid(evidence):
     """Reject old generic admissions without invalidating unrelated readers."""
     if not isinstance(evidence, dict):
         return False
+    from app.services.sec_primary_revenue_zero import cached_valid as zeros_valid
+    if not zeros_valid(evidence):
+        return False
+    from app.services import sec_reverse_acquisition as reverse
+    if reverse.cache_requires_review(evidence.get('cik'), evidence.get('available_by')):
+        return reverse.cached_valid(evidence)
     if evidence.get('methodology') == 'sec_tabular_reporting_v1' and 'table_reporting' not in evidence:
         return False
     if 'table_reporting' in evidence:
@@ -126,6 +132,10 @@ def cached_currency_valid(evidence):
     if 'revenue_series_selection' in proof:
         from app.services.sec_revenue_series import cached_valid as revenue_valid
         if not revenue_valid(proof['revenue_series_selection'], cik=proof.get('cik')):
+            return False
+    if 'collaboration_revenue_selection' in proof:
+        from app.services.sec_collaboration_revenue import cached_valid as collaboration_valid
+        if not collaboration_valid(proof['collaboration_revenue_selection'], cik=proof.get('cik')):
             return False
     if 'rental_revenue_selection' in proof:
         from app.services.sec_rental_revenue import cached_valid as rental_valid

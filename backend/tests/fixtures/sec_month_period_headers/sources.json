@@ -1,0 +1,13 @@
+{
+  "observed_at": "2026-11-16T01:59:53.141243+00:00",
+  "facts": {
+    "symbol": "SB",
+    "kind": "facts",
+    "cik": "0001434754",
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001434754.json",
+    "file": "SB-facts.json.gz",
+    "bytes": 1056127,
+    "sha256": "278a2421a6bb30a6c3484ab0a9f496fa03dc20c32757b75360e1a96fd491994c"
+  },
+  "statement_sources": "../sec_us_conformity/sources.json"
+}

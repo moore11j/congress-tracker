@@ -1,0 +1,38 @@
+{
+  "symbol": "BABA",
+  "cik": "0001577552",
+  "observed_at": "2026-11-16T02:50:42.452600+00:00",
+  "sources": [
+    {
+      "symbol": "BABA",
+      "kind": "company",
+      "cik": "0001577552",
+      "url": "https://data.sec.gov/submissions/CIK0001577552.json",
+      "observed_at": "2026-11-16T02:50:18.300356+00:00",
+      "matches_preparation_hash": true,
+      "file": "BABA-company.json.gz",
+      "bytes": 109377,
+      "sha256": "da6ba2118ff4901f60b4222ecbbbfd110ae1e1eeb46adb4b52b8f62786df9ebc"
+    },
+    {
+      "symbol": "BABA",
+      "kind": "facts",
+      "cik": "0001577552",
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001577552.json",
+      "observed_at": "2026-11-16T02:50:19.577552+00:00",
+      "matches_preparation_hash": true,
+      "file": "BABA-facts.json.gz",
+      "bytes": 1398174,
+      "sha256": "f279f7ebed84764698a3a232290c428d2f5afa094dcaee5c9537b7e0affe26fd"
+    },
+    {
+      "symbol": "BABA",
+      "kind": "finnhub_original",
+      "observed_at": "2026-11-16T02:50:42.452600+00:00",
+      "endpoint": "stock/metric",
+      "file": "BABA.json.gz",
+      "bytes": 102751,
+      "sha256": "04825cef29bb90a4e56eb301a8f067ab1be774314e05a6084cae43a4f9e29407"
+    }
+  ]
+}

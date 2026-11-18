@@ -1,0 +1,47 @@
+{
+  "HRB-company.json": {
+    "url": "https://data.sec.gov/submissions/CIK0000012659.json",
+    "file": "HRB-company.json.gz",
+    "sha256": "f38c6cc3a4a8528bac5f2ba213a3a449375759b690f58e7fafd589d102e98c3b",
+    "bytes": 153444
+  },
+  "HRB-facts.json": {
+    "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000012659.json",
+    "file": "HRB-facts.json.gz",
+    "sha256": "4542b7afdd0fc9b3e31ff7e429e73010fd8ba15e4fe542444155aebdb49601af",
+    "bytes": 4663111
+  },
+  "hrb-20260930.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/12659/000001265926000036/hrb-20260930.htm",
+    "file": "hrb-20260930.htm.gz",
+    "sha256": "7d98f0238d9d82d754194e32136586ee97a89575cd1efb5f995fd422a850dd8a",
+    "bytes": 1168906,
+    "cik": "0000012659",
+    "accession": "0000012659-26-000036",
+    "form": "10-Q",
+    "filed": "2026-11-09",
+    "report_date": "2026-09-30"
+  },
+  "hrb-20260630.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/12659/000001265926000026/hrb-20260630.htm",
+    "file": "hrb-20260630.htm.gz",
+    "sha256": "589a3bb3868f2e67d57c8ede8a51ee7a634807afd9b34b5174354296a680d7f0",
+    "bytes": 1787271,
+    "cik": "0000012659",
+    "accession": "0000012659-26-000026",
+    "form": "10-K",
+    "filed": "2026-08-14",
+    "report_date": "2026-06-30"
+  },
+  "hrb-20250930.htm": {
+    "url": "https://www.sec.gov/Archives/edgar/data/12659/000001265925000016/hrb-20250930.htm",
+    "file": "hrb-20250930.htm.gz",
+    "sha256": "13da6be74f8057a553e1c084d2efeb8135c49d39d9d05bd67ae53c212f52f2f0",
+    "bytes": 1113900,
+    "cik": "0000012659",
+    "accession": "0000012659-25-000016",
+    "form": "10-Q",
+    "filed": "2025-11-06",
+    "report_date": "2025-09-30"
+  }
+}

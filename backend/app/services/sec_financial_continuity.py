@@ -40,6 +40,13 @@ def fetch_history(symbol, cik, *, client, observed_at):
 def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=None, metrics=None, filing_supplement=None, company=None, instant_metrics=(), preserve_reported_revenue=False):
     from app.services import sec_fundamentals as sec
     metrics = metrics or {name:(tags,'USD') for name,tags in sec.TAGS.items()}
+    from app.services import sec_reverse_acquisition as reverse
+    if reverse.applies(cik, available_by):
+        if history_raw is not None:
+            raise sec.SecFundamentalsCoverageError('reverse_acquisition_unreviewed_history')
+        return reverse.record_sets(payload, company or {}, symbol=symbol, cik=cik,
+            available_by=available_by, observed_at=observed_at,
+            supplement=filing_supplement, metrics=metrics)
     instant_names = sec.INSTANT | set(instant_metrics)
     from app.services import sec_inline_financials as inline
     if filing_supplement and 'registration_error' in filing_supplement:
@@ -91,6 +98,9 @@ def record_sets(payload, *, symbol, cik, available_by, observed_at, history_raw=
         available_by=available_by,supplement=filing_supplement,preserve_reported_history=preserve_reported_revenue)
     from app.services.sec_rental_revenue import apply as select_rental_revenue
     current = select_rental_revenue(current, effective, company or {}, cik=str(cik).zfill(10),
+        available_by=available_by, supplement=filing_supplement, preserve_reported_history=preserve_reported_revenue)
+    from app.services.sec_collaboration_revenue import apply as select_collaboration_revenue
+    current = select_collaboration_revenue(current, effective, company or {}, cik=str(cik).zfill(10),
         available_by=available_by, supplement=filing_supplement, preserve_reported_history=preserve_reported_revenue)
     inline.annotate(current,filing_supplement,metrics=metrics,expected_cik=cik,available_by=available_by)
     if (filing_supplement or {}).get('common_equity'):

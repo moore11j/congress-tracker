@@ -117,12 +117,17 @@ def validate_receipt(receipt,cover,*,now):
         # Retry only legacy accounting-basis holds. Existing successful receipts
         # retain exact comparison semantics and do not cause a full source reset.
         if status=='held' and any(h['reason']=='table_accounting_basis_unproved' for h in holds):
+            from app.services.sec_statement_declarations import US_CONFORMITY_POLICY
+            if receipt.get('us_conformity_policy')!=US_CONFORMITY_POLICY:return None
             from app.services.sec_statement_declarations import POLICY
             if receipt.get('accounting_policy')!=POLICY:return None
             from app.services.sec_comparative_basis import POLICY as comparative_policy, LAYOUT_POLICY as comparative_layout_policy
             if receipt.get('comparative_policy')!=comparative_policy:return None
             if receipt.get('comparative_layout_policy')!=comparative_layout_policy:return None
         if status=='held':
+            from app.services.sec_tabular_financials import PERIOD_WORDING_POLICY
+            if any(h['reason']=='table_current_statement_alignment' for h in holds) and receipt.get('period_wording_policy')!=PERIOD_WORDING_POLICY:
+                return None
             from app.services.sec_tagged_ifrs_currency import POLICY as tagged_currency_policy
             if any(h['reason']=='table_reporting_currency_unproved' for h in holds) and receipt.get('tagged_currency_policy')!=tagged_currency_policy:
                 return None
@@ -327,12 +332,17 @@ def inspect_candidate(company_raw,facts_raw,*,symbol,cik,available_by,observed_a
     receipt['originals']=[{'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw),**discovery.document_proof(raw)}
                            for url,raw in sorted(originals.items())]
     if receipt['status']=='held' and any(h['reason']=='table_accounting_basis_unproved' for h in receipt['holds']):
+        from app.services.sec_statement_declarations import US_CONFORMITY_POLICY
+        receipt['us_conformity_policy']=US_CONFORMITY_POLICY
         from app.services.sec_statement_declarations import POLICY
         receipt['accounting_policy']=POLICY
         from app.services.sec_comparative_basis import POLICY as comparative_policy, LAYOUT_POLICY as comparative_layout_policy
         receipt['comparative_policy']=comparative_policy
         receipt['comparative_layout_policy']=comparative_layout_policy
     if receipt['status']=='held':
+        from app.services.sec_tabular_financials import PERIOD_WORDING_POLICY
+        if any(h['reason']=='table_current_statement_alignment' for h in receipt['holds']):
+            receipt['period_wording_policy']=PERIOD_WORDING_POLICY
         from app.services.sec_tagged_ifrs_currency import POLICY as tagged_currency_policy
         if any(h['reason']=='table_reporting_currency_unproved' for h in receipt['holds']):
             receipt['tagged_currency_policy']=tagged_currency_policy

@@ -2,9 +2,25 @@
 import re
 
 POLICY = 'explicit_ifrs_statement_declarations_v1'
+US_CONFORMITY_POLICY = 'explicit_us_gaap_conformity_v1'
 IFRS = r'''(?:IAS\s+34(?:\s+Interim Financial Reporting)?|International Accounting Standard(?:\s+\((?:"IAS"|'IAS'|“IAS”|‘IAS’|IAS)\))?\s+34|IFRS(?:\s+Accounting Standards)?(?!\s*\d)|International Financial Reporting Standards)'''
 SUBJECT = r'(?:financial statements|financial information|financial performance|results)'
 VERB = r'(?:prepared(?: and presented)?|presented) in accordance with'
+
+
+def us_conformity_declarations(text, standard):
+    """Recognize an explicit preparation declaration, never a bare GAAP label."""
+    subject = (SUBJECT + r'(?:, and other financial information included in this report,)?')
+    pattern = (subject + r'\s+(?:(?:is|are|was|were|has been|have been)\s+)?'
+               r'prepared(?: and presented)? in conformity with\s+' + standard + r'\b')
+    found = []
+    for match in re.finditer(pattern, text, re.I):
+        prefix = text[max(0, match.start()-100):match.start()]
+        if re.search(r'\b(?:not|never|unlike|if|hypothetical|forecast|projected|expected|'
+                     r'non[- ]GAAP|adjusted|pro[- ]forma)\s+(?:\w+\s+){0,5}$', prefix, re.I):
+            continue
+        found.append(match.group(0))
+    return list(dict.fromkeys(found))
 
 
 def declarations(text):

@@ -61,6 +61,12 @@ jobs:
           tests/test_sec_rental_revenue.py
           tests/test_sec_rental_revenue_consumers.py
           tests/test_sec_revenue_series.py
+          tests/test_sec_reporting_scope.py
+          tests/test_sec_primary_revenue_zero.py
+          tests/test_sec_qualified_foreign_partial.py
+          tests/test_sec_collaboration_revenue.py
+          tests/test_sec_revenue_tax_tags.py
+          tests/test_sec_revenue_statement_layout.py
           tests/test_sec_revenue_series_consumers.py
           tests/test_sec_financial_continuity.py
           tests/test_sec_operating_history.py
@@ -80,6 +86,8 @@ jobs:
           tests/test_sec_tabular_financials.py
           tests/test_sec_statement_navigation.py
           tests/test_sec_statement_currency_scope.py
+          tests/test_sec_statement_currency.py
+          tests/test_sec_currency_conflicts.py
           tests/test_sec_comparative_basis.py
           tests/test_sec_statement_dates.py
           tests/test_sec_refresh_capacity.py
@@ -89,6 +97,8 @@ jobs:
           tests/test_sec_tabular_reporting.py
           tests/test_sec_financial_discovery_reader.py
           tests/test_sec_ifrs_declarations.py
+          tests/test_sec_us_conformity.py
+          tests/test_sec_month_period_headers.py
           tests/test_sec_sap_financials.py
           tests/test_sec_nvo_financials.py
           tests/test_sec_financial_discovery_progress.py
@@ -101,6 +111,8 @@ jobs:
           tests/test_sec_financial_discovery_scheduling.py
           tests/test_sec_core_precision.py
           tests/test_sec_duplicate_overlap.py
+          tests/test_sec_reverse_acquisition.py
+          tests/test_sec_reverse_acquisition_delivery.py
           tests/test_sec_inline_financials.py
           tests/test_sec_primary_income.py
           tests/test_sec_primary_layout.py
@@ -125,6 +137,41 @@ jobs:
       - name: Verify complete common-equity path within production proof limits
         working-directory: backend
         run: python scripts/verify_common_equity_fixture.py
+      - name: Verify complete month-period path within production proof limits
+        working-directory: backend
+        run: python scripts/verify_month_period_fixture.py
+      - name: Verify complete fallback source attribution within production proof limits
+        working-directory: backend
+        run: python scripts/verify_fallback_source_fixture.py
+      - name: Verify complete revenue statement layout within production proof limits
+        working-directory: backend
+        run: python scripts/verify_revenue_layout_fixture.py
+
+      - name: Verify complete revenue tax tag proof within production limits
+        working-directory: backend
+        run: python scripts/verify_revenue_tax_tag_fixture.py
+
+      - name: Verify complete collaboration revenue proof within production limits
+        working-directory: backend
+        run: python scripts/verify_collaboration_revenue_fixture.py
+
+      - name: Verify complete accounting predecessor proof within production limits
+        working-directory: backend
+        run: python scripts/verify_reverse_acquisition_fixture.py
+
+      - name: Verify complete currency conflict within proof limits
+        working-directory: backend
+        run: python scripts/verify_currency_conflict_fixture.py
+      - name: Verify accounting predecessor delivery variants within proof limits
+        working-directory: backend
+        run: python scripts/verify_reverse_acquisition_fixture.py --delivery
+      - name: Verify bounded reporting-scope fixture
+        working-directory: backend
+        run: python scripts/verify_reporting_scope_fixture.py
+
+      - name: Bounded primary comparative revenue zero proof
+        working-directory: backend
+        run: python scripts/verify_primary_revenue_zero_fixture.py
       - name: Preserve test result
         if: always()
         uses: actions/upload-artifact@v4
