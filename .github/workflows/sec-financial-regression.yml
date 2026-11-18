@@ -63,6 +63,7 @@ jobs:
           tests/test_sec_revenue_series.py
           tests/test_sec_reporting_scope.py
           tests/test_sec_primary_revenue_zero.py
+          tests/test_sec_qualified_foreign_partial.py
           tests/test_sec_collaboration_revenue.py
           tests/test_sec_revenue_tax_tags.py
           tests/test_sec_revenue_statement_layout.py
