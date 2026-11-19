@@ -166,6 +166,32 @@ def test_memory_before_first_chunk_still_fails_without_opening_database():
         prepare_chunks(forbidden_database, checkpoint=unavailable)
 
 
+def test_budget_before_first_chunk_still_fails_without_opening_database():
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks, PreparationWorkBudgetHold
+    def expired():
+        raise PreparationWorkBudgetHold('work budget')
+    def forbidden_database():
+        pytest.fail('Database opened after budget expired')
+    with pytest.raises(PreparationWorkBudgetHold):
+        prepare_chunks(forbidden_database, checkpoint=expired)
+
+
+def test_cooperative_budget_has_distinct_exception():
+    from app.jobs.prepare_direct_13f_peers import _stop_for_work_budget, PreparationWorkBudgetHold
+    with pytest.raises(PreparationWorkBudgetHold, match='work budget'):
+        _stop_for_work_budget()
+
+
+def test_hard_cpu_signal_is_not_a_deferred_budget():
+    import signal
+    from app.jobs.prepare_direct_13f_peers import _stop_for_work_budget, PreparationWorkBudgetHold
+    if not hasattr(signal, 'SIGXCPU'):
+        pytest.skip('POSIX CPU signal')
+    with pytest.raises(RuntimeError, match='hard CPU budget') as error:
+        _stop_for_work_budget(signal.SIGXCPU)
+    assert not isinstance(error.value, PreparationWorkBudgetHold)
+
+
 def test_preparation_requires_exclusive_queue_claim(tmp_path):
     import sqlite3
     from app.jobs.prepare_direct_13f_peers import require_preparation_queue, JOB_NAME

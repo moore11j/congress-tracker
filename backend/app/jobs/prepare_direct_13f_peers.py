@@ -13,6 +13,18 @@ class PreparationMemoryHold(RuntimeError):
     """The existing headroom guard stopped further work."""
 
 
+class PreparationWorkBudgetHold(RuntimeError):
+    """End this worker without discarding previously committed chunks."""
+
+
+def _stop_for_work_budget(signum=None, _frame=None):
+    import signal
+    # A hard CPU-limit signal remains a failure, including after prior commits.
+    if signum is not None and signum == getattr(signal, 'SIGXCPU', None):
+        raise RuntimeError('Institutional preparation hard CPU budget')
+    raise PreparationWorkBudgetHold('Institutional preparation work budget')
+
+
 def require_preparation_queue(queue, token, process_group):
     if not token:
         raise RuntimeError('missing_scheduler_token')
@@ -29,16 +41,16 @@ def prepare_chunks(session_factory, *, checkpoint, max_chunks=5):
     from sqlalchemy import text
     from app.services.direct_13f_preparation import advance_preparation
     chunks = []
-    deferred = False
+    deferred = None
     for _ in range(max_chunks):
         try:
             checkpoint()
-        except PreparationMemoryHold:
+        except (PreparationMemoryHold, PreparationWorkBudgetHold) as exc:
             if not chunks:
                 raise
             # Completed transactions are durable. End this worker so its
             # memory is released before any separately guarded next request.
-            deferred = True
+            deferred = 'memory_deferred' if isinstance(exc, PreparationMemoryHold) else 'budget_deferred'
             break
         with session_factory() as db:
             if db.bind.dialect.name != 'postgresql':
@@ -46,12 +58,29 @@ def prepare_chunks(session_factory, *, checkpoint, max_chunks=5):
             db.execute(text("SET LOCAL statement_timeout='3s'"))
             db.execute(text("SET LOCAL lock_timeout='500ms'"))
             db.execute(text("SET LOCAL idle_in_transaction_session_timeout='75s'"))
-            result = advance_preparation(db, checkpoint=checkpoint)
+            try:
+                result = advance_preparation(db, checkpoint=checkpoint)
+            except PreparationWorkBudgetHold:
+                # An alarm may interrupt a DBAPI query. Sending ROLLBACK on
+                # that connection can fail while its query is still pending.
+                # Closing it aborts the uncommitted transaction. Close first
+                # so a driver close error propagates instead of being logged
+                # and suppressed by pool invalidation, then discard it.
+                try:
+                    db.connection().connection.driver_connection.close()
+                finally:
+                    db.invalidate()
+                if not chunks:
+                    raise
+                # Report only earlier durable progress. Commit interruption
+                # remains outside this handler because its outcome is unknown.
+                deferred = 'budget_deferred'
+                break
             db.commit()
         chunks.append(result)
         if result['status'] in {'sweep_complete', 'busy'}:
             break
-    return dict(status='memory_deferred' if deferred else chunks[-1]['status'], cursor=chunks[-1].get('cursor'), chunks=len(chunks),
+    return dict(status=deferred or chunks[-1]['status'], cursor=chunks[-1].get('cursor'), chunks=len(chunks),
                 processed=sum(c['processed'] for c in chunks), parsed=sum(c.get('parsed', 0) for c in chunks),
                 source_bytes=sum(c.get('source_bytes', 0) for c in chunks), publication_writes=0)
 
@@ -79,18 +108,16 @@ def main():
         print(json.dumps(guard.to_dict()))
         return
     started, cpu = time.monotonic(), time.process_time()
-    def stop(*_):
-        raise RuntimeError('Institutional preparation work budget')
     def checkpoint():
         require_preparation_queue(QUEUE, os.getenv('WALNUT_JOB_TOKEN'), os.getpgrp())
         if time.monotonic() - started > 60 or time.process_time() - cpu > 45:
-            stop()
+            _stop_for_work_budget()
         available = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
                          if line.startswith('MemAvailable:'))
         if available < 750*1024:
             raise PreparationMemoryHold('memory_headroom')
-    signal.signal(signal.SIGALRM, stop)
-    signal.signal(signal.SIGXCPU, stop)
+    signal.signal(signal.SIGALRM, _stop_for_work_budget)
+    signal.signal(signal.SIGXCPU, _stop_for_work_budget)
     signal.alarm(70)
     resource.setrlimit(resource.RLIMIT_CPU, (60, 65))
     try:

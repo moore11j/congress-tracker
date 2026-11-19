@@ -195,6 +195,177 @@ def test_memory_inside_chunk_still_raises_and_rolls_back(pg, monkeypatch):
         assert db.get(preparation.Prepared13FProgress, 'peers') is None
 
 
+@pytest.mark.parametrize('boundary', ['between', 'inside', 'after_advance', 'alarm', 'database_alarm'])
+def test_work_budget_rolls_back_only_uncommitted_chunk_and_resumes(pg, monkeypatch, boundary):
+    import signal
+    from sqlalchemy import delete, func
+    from sqlalchemy.orm import sessionmaker
+    from app.jobs.prepare_direct_13f_peers import (
+        prepare_chunks, PreparationWorkBudgetHold, _stop_for_work_budget,
+    )
+    factory = sessionmaker(bind=pg)
+    with factory() as db:
+        for serial in range(1, 31):
+            stage(db, document(serial=serial))
+    prepare_chunks(factory, checkpoint=lambda: None)
+    with factory() as db:
+        expected = preparation.preparation_fingerprint(db)
+        db.execute(delete(preparation.Prepared13FParse))
+        db.execute(delete(preparation.Prepared13FProgress))
+        db.commit()
+    original = preparation.advance_preparation
+    def interrupted(db, **kwargs):
+        def checkpoint():
+            count = db.scalar(select(func.count()).select_from(preparation.Prepared13FParse))
+            if boundary in {'inside', 'alarm'} and count > 25:
+                if boundary == 'alarm':
+                    signal.raise_signal(signal.SIGALRM)
+                raise PreparationWorkBudgetHold('work budget')
+        result = original(db, checkpoint=checkpoint)
+        if boundary == 'after_advance' and result['cursor'] == 0:
+            raise PreparationWorkBudgetHold('work budget')
+        if boundary == 'database_alarm' and result['cursor'] == 0:
+            signal.setitimer(signal.ITIMER_REAL, .02)
+            try:
+                db.execute(text('SELECT pg_sleep(1)'))
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+        return result
+    def before_chunk():
+        if boundary == 'between':
+            with factory() as db:
+                if db.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) == 25:
+                    raise PreparationWorkBudgetHold('work budget')
+    monkeypatch.setattr(preparation, 'advance_preparation', interrupted)
+    previous_handler = signal.signal(signal.SIGALRM, _stop_for_work_budget)
+    try:
+        result = prepare_chunks(factory, checkpoint=before_chunk)
+    finally:
+        signal.signal(signal.SIGALRM, previous_handler)
+    assert result['status'] == 'budget_deferred'
+    assert result['chunks'] == 1 and result['processed'] == result['parsed'] == 25
+    assert result['cursor'] == 25 and result['publication_writes'] == 0
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) == 25
+        assert db.get(preparation.Prepared13FProgress, 'peers').cursor == 25
+        with pytest.raises(ValueError, match='pending'):
+            preparation.preparation_fingerprint(db)
+    monkeypatch.setattr(preparation, 'advance_preparation', original)
+    # PostgreSQL can observe the closed socket only after its current command
+    # returns. Its transaction advisory lock must protect the old chunk until
+    # then; a bounded busy response is safe, not permission to bypass the lock.
+    import time
+    deadline = time.monotonic() + 5
+    while True:
+        result = prepare_chunks(factory, checkpoint=lambda: None)
+        if result['status'] != 'busy':
+            break
+        assert result['processed'] == 0 and result['publication_writes'] == 0
+        assert time.monotonic() < deadline, 'Interrupted transaction lock was not released'
+        time.sleep(.02)
+    assert result['status'] == 'sweep_complete' and result['processed'] == 5
+    with factory() as db:
+        assert preparation.preparation_fingerprint(db) == expected
+        assert db.scalar(select(func.count()).select_from(DirectFeedPublication)) == 0
+
+
+def test_work_budget_inside_first_chunk_still_fails_and_rolls_back(pg, monkeypatch):
+    from sqlalchemy import func
+    from sqlalchemy.orm import sessionmaker
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks, PreparationWorkBudgetHold
+    factory = sessionmaker(bind=pg)
+    with factory() as db:
+        for doc in pair():
+            stage(db, doc)
+    original = preparation.advance_preparation
+    def interrupted(db, **kwargs):
+        result = original(db, **kwargs)
+        raise PreparationWorkBudgetHold('work budget')
+    monkeypatch.setattr(preparation, 'advance_preparation', interrupted)
+    with pytest.raises(PreparationWorkBudgetHold):
+        prepare_chunks(factory, checkpoint=lambda: None)
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) == 0
+        assert db.get(preparation.Prepared13FProgress, 'peers') is None
+
+
+@pytest.mark.parametrize('kind', ['parser', 'memory', 'cpu'])
+def test_other_inside_chunk_errors_after_commit_remain_failures(pg, monkeypatch, kind):
+    from sqlalchemy import func
+    from sqlalchemy.orm import sessionmaker
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks, PreparationMemoryHold
+    error = {'parser': ValueError('checksum'), 'memory': PreparationMemoryHold('memory_headroom'),
+             'cpu': RuntimeError('hard CPU budget')}[kind]
+    factory = sessionmaker(bind=pg)
+    with factory() as db:
+        for serial in range(1, 31):
+            stage(db, document(serial=serial))
+    original = preparation.advance_preparation
+    def interrupted(db, **kwargs):
+        result = original(db, **kwargs)
+        if result['cursor'] == 0:
+            raise error
+        return result
+    monkeypatch.setattr(preparation, 'advance_preparation', interrupted)
+    with pytest.raises(type(error), match=str(error)):
+        prepare_chunks(factory, checkpoint=lambda: None)
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) == 25
+        assert db.get(preparation.Prepared13FProgress, 'peers').cursor == 25
+
+
+def test_budget_during_commit_is_not_reported_as_safe_defer(pg):
+    from sqlalchemy import func
+    from sqlalchemy.orm import sessionmaker
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks, PreparationWorkBudgetHold
+    with Session(pg) as db:
+        for serial in range(1, 31):
+            stage(db, document(serial=serial))
+    commits = 0
+    class UncertainCommit(Session):
+        def commit(self):
+            nonlocal commits
+            super().commit()
+            commits += 1
+            if commits == 2:
+                raise PreparationWorkBudgetHold('uncertain commit acknowledgement')
+    with pytest.raises(PreparationWorkBudgetHold, match='uncertain commit'):
+        prepare_chunks(sessionmaker(bind=pg, class_=UncertainCommit), checkpoint=lambda: None)
+    with Session(pg) as db:
+        assert db.scalar(select(func.count()).select_from(preparation.Prepared13FParse)) == 30
+
+
+def test_interrupted_driver_close_failure_is_not_reported_as_safe_defer(pg, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from app.jobs.prepare_direct_13f_peers import prepare_chunks, PreparationWorkBudgetHold
+    factory = sessionmaker(bind=pg)
+    with factory() as db:
+        for serial in range(1, 31):
+            stage(db, document(serial=serial))
+    original = preparation.advance_preparation
+    driver = None
+    def interrupted(db, **kwargs):
+        nonlocal driver
+        result = original(db, **kwargs)
+        if result['cursor'] == 0:
+            driver = db.connection().connection.driver_connection
+            original_close = driver.close
+            def failing_close():
+                original_close()
+                raise RuntimeError('driver close acknowledgement failed')
+            monkeypatch.setattr(driver, 'close', failing_close)
+            raise PreparationWorkBudgetHold('work budget')
+        return result
+    monkeypatch.setattr(preparation, 'advance_preparation', interrupted)
+    try:
+        with pytest.raises(RuntimeError, match='driver close acknowledgement failed'):
+            prepare_chunks(factory, checkpoint=lambda: None)
+    finally:
+        monkeypatch.undo()
+    with factory() as db:
+        assert db.get(preparation.Prepared13FProgress, 'peers').cursor == 25
+
+
 def test_prepared_capacity_is_readonly_with_legacy_source_selected(pg, monkeypatch):
     from app.jobs.check_direct_13f_capacity import prepare_readonly
     from app.services.feed_source_control import FeedSourceControl
