@@ -67,13 +67,15 @@ class MassiveStocksClient:
             raise MassiveStocksError('invalid_response_status')
         return payload
 
-    def pages(self, path, params):
+    def pages(self, path, params, *, validate_page=None):
         results, seen = [], set()
         for _ in range(20):
             if path in seen:
                 raise MassiveStocksError('pagination_cycle')
             seen.add(path)
             payload = self.get(path, params)
+            if validate_page is not None:
+                validate_page(payload)
             rows = payload.get('results', [])
             if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
                 raise MassiveStocksError('invalid_results')
@@ -86,8 +88,22 @@ class MassiveStocksClient:
     def bars(self, symbol, start, end, *, adjusted=True, interval='day'):
         if interval not in {'day', 'minute'}:
             raise MassiveStocksError('invalid_interval')
-        return self.pages(f'/v2/aggs/ticker/{quote(provider_symbol(symbol), safe="")}/range/1/{interval}/{start}/{end}',
-                          {'adjusted': str(adjusted).lower(), 'sort': 'asc', 'limit': 50000})
+        requested = provider_symbol(symbol)
+        def validate(payload):
+            if payload.get('ticker') != requested or payload.get('adjusted') is not adjusted:
+                raise MassiveStocksError('aggregate_identity_or_adjustment_mismatch')
+        rows = self.pages(f'/v2/aggs/ticker/{quote(requested, safe="")}/range/1/{interval}/{start}/{end}',
+                          {'adjusted': str(adjusted).lower(), 'sort': 'asc', 'limit': 50000},
+                          validate_page=validate)
+        unique = {}
+        for row in rows:
+            stamp = _number(row.get('t'), positive=True)
+            if stamp is None or stamp != int(stamp):
+                raise MassiveStocksError('invalid_aggregate_timestamp')
+            if stamp in unique and unique[stamp] != row:
+                raise MassiveStocksError('conflicting_aggregate_identity')
+            unique[stamp] = row
+        return list(unique.values())
 
     def details(self, symbol):
         """Current reference data only; report-date lookup is not point-in-time evidence."""
@@ -124,13 +140,18 @@ class MassiveStocksClient:
         if not symbols or len(symbols) > 100:
             raise MassiveStocksError('invalid_snapshot_batch')
         payload = self.get('/v2/snapshot/locale/us/markets/stocks/tickers', {'tickers': ','.join(symbols)})
-        results = {}
+        results, seen = {}, {}
         now = datetime.now(timezone.utc)
         rows = payload.get('tickers', [])
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
             raise MassiveStocksError('invalid_snapshots')
         for row in rows:
             symbol, minute = row.get('ticker'), row.get('min') or {}
+            if symbol not in symbols:
+                continue
+            if symbol in seen and seen[symbol] != row:
+                raise MassiveStocksError('conflicting_snapshot_identity')
+            seen[symbol] = row
             if not isinstance(minute, dict):
                 continue
             price = _number(minute.get('c'), positive=True)
@@ -140,14 +161,17 @@ class MassiveStocksClient:
                 continue
             if symbol not in symbols or price is None or observed > now:
                 continue
-            prior = _number((row.get('prevDay') or {}).get('c'), positive=True)
+            prior_day, day = row.get('prevDay') or {}, row.get('day') or {}
+            if not isinstance(prior_day, dict) or not isinstance(day, dict):
+                continue
+            prior = _number(prior_day.get('c'), positive=True)
             # Use the minute bar's own timestamp, never fetch time or an
             # unrelated quote/update timestamp paired with a stale close.
             results[symbol] = {'symbol': symbol, 'price': price, 'asof_ts': observed.replace(tzinfo=None),
                 'provider_timestamp': observed.replace(tzinfo=None), 'cached_at': now.replace(tzinfo=None),
                 'source': 'massive_minute_snapshot', 'price_kind': 'minute_close',
                 'is_delayed': True, 'delay_minutes': 15, 'is_stale': (now - observed).total_seconds() > 1800,
-                'volume': _number((row.get('day') or {}).get('v')),
+                'volume': _number(day.get('v')),
                 'previous_close': prior, 'change': price - prior if prior else None,
                 'change_percent': (price / prior - 1) * 100 if prior else None}
         return results

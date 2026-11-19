@@ -11,7 +11,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from app.models import PriceCache, QuoteCache, Security, UserAccount, Watchlist, WatchlistAlertRule, WatchlistItem
-from app.services.price_lookup import is_market_trading_day, previous_market_trading_day, refresh_recent_price_history
+from app.services.price_lookup import is_market_trading_day, previous_market_trading_day, refresh_recent_price_history, get_expected_latest_market_date
+from app.clients.massive_stocks import selected as massive_stocks_selected
 
 logger = logging.getLogger(__name__)
 MARKET_TZ = ZoneInfo("America/New_York")
@@ -31,6 +32,14 @@ def reference_close(row):
     return _positive(row.adjusted_close if row.adjusted_close is not None else row.close)
 
 
+def _selected_reference_close(row):
+    if massive_stocks_selected() and (row is None
+            or row.price_source not in {'massive', 'massive+corporate_actions'}
+            or row.adjustment_status != 'split_adjusted_price_return'):
+        return None
+    return reference_close(row)
+
+
 def daily_price_observation(db, ticker: str, now: datetime) -> dict:
     current = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
     session = current.astimezone(MARKET_TZ).date()
@@ -40,7 +49,7 @@ def daily_price_observation(db, ticker: str, now: datetime) -> dict:
                 "change_pct": None, "status": "missing_reference_close"}
     if not is_market_trading_day(session):
         return {**evidence, "status": "not_trading_day"}
-    prior = reference_close(db.get(PriceCache, (ticker, reference_date)))
+    prior = _selected_reference_close(db.get(PriceCache, (ticker, reference_date)))
     if prior is None:
         return evidence
     evidence["reference_price"] = prior
@@ -49,10 +58,20 @@ def daily_price_observation(db, ticker: str, now: datetime) -> dict:
     if asof is not None and asof.tzinfo is None:
         asof = asof.replace(tzinfo=timezone.utc)
     price = _positive(quote.price) if quote is not None else None
+    metadata = {}
+    if massive_stocks_selected():
+        from app.services.quote_lookup import persisted_quote_metadata
+        metadata = persisted_quote_metadata(quote)
+        if metadata.get('source') != 'massive_minute_snapshot':
+            price = None
     if price is not None and asof is not None and current - timedelta(minutes=30) <= asof <= current and asof.astimezone(MARKET_TZ).date() == session:
         evidence.update(current_price=price, observed_at=asof.isoformat(), current_source="quote")
+        if massive_stocks_selected():
+            evidence.update(price_provider='massive', price_kind='minute_close', is_delayed=True, delay_minutes=15)
     else:
-        price = reference_close(db.get(PriceCache, (ticker, session.isoformat())))
+        price = _selected_reference_close(db.get(PriceCache, (ticker, session.isoformat())))
+        if massive_stocks_selected() and session > get_expected_latest_market_date(current):
+            price = None
         if price is None:
             return {**evidence, "status": "missing_current_price"}
         evidence.update(current_price=price, observed_at=current.isoformat(), current_source="daily_bar")
@@ -105,7 +124,7 @@ def refresh_daily_price_references(session_factory, *, now=None, symbols=None, m
     for ticker in sorted(set(symbols)):
         with session_factory() as db:
             result["checked"] += 1
-            available = reference_close(db.get(PriceCache, (ticker, expected))) is not None
+            available = _selected_reference_close(db.get(PriceCache, (ticker, expected))) is not None
             if not available and result["fetched"] < max_fetches and monotonic() - started < max_seconds:
                 result["fetched"] += 1
                 try:
@@ -115,7 +134,7 @@ def refresh_daily_price_references(session_factory, *, now=None, symbols=None, m
                     db.rollback()
                     refresh_recent_price_history(db, ticker, lookback_days=1, end_date=expected)
                     db.expire_all()
-                    available = reference_close(db.get(PriceCache, (ticker, expected))) is not None
+                    available = _selected_reference_close(db.get(PriceCache, (ticker, expected))) is not None
                 except Exception:
                     db.rollback()
                     logger.exception("price_alert_reference_refresh_failed ticker=%s date=%s", ticker, expected)
