@@ -198,6 +198,9 @@ def advance_preparation(db, *, max_documents=CHUNK_DOCUMENTS, max_bytes=CHUNK_BY
             record = next(verified_peer_records([{**row['document'], 'raw': raw}]))
             parsed += 1
         payload = json.dumps(record.compact, default=str, separators=(',', ':'))
+        # Compact strings can retain arenas from the full parsed filing. Only
+        # the serialized value is needed beyond this point or at a checkpoint.
+        del record
         if len(payload.encode()) > MAX_PARSE_BYTES:
             raise ValueError('Prepared parse exceeds byte budget')
         if cached is None:
@@ -210,6 +213,7 @@ def advance_preparation(db, *, max_documents=CHUNK_DOCUMENTS, max_bytes=CHUNK_BY
         cached.verified_xid, cached.verified_at = xid, datetime.now(timezone.utc)
         count += 1
         size += len(raw)
+        del raw
         cursor = row['id']
         db.flush()
     else:
