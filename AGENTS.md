@@ -1,5 +1,9 @@
 # Walnut Markets project memory
 
+<!-- current-institutional-replay-nov1 -->
+2026-11-19 02:35 UTC: Approved PR827 deployed97bd2281/17installed checks pass. Fresh institutional preparation stopped at5071/16587, job145 inside-chunk memory_headroom, cursor34583;41of250 requests used, no retry, zero capacity requests, all local helpers stopped. Readonly API RSS grows to948504KiB even without preparation; exact heap attribution unproved. Reproduced unbounded expired response retention; isolated candidate bounds seven caches,40response parity and112focused checks pass, broader201 tests retain177pass/24baseline failures. Candidate LinuxCI/release approval pending;19-file installed check prepared, no new production change. DMLP/FIP source-driven81-original offline batch still qualifies only six originals,22periods; reader/consumer gates and FIPequity reply remain. Core/pricesFMP/publicationoff; no sends. See [response memory](docs/response-cache-retention-2026-11-19.md).
+<!-- /current-institutional-replay-nov1 -->
+
 2026-11-18: PR824 is deployed75a55176;30installed hashes/tenfixtures and ordinaryMNOV two-metric recovery verify. Shared primary-equity candidate restores LGIH ROE from complete component and balance proofs while preserving existing values and unavailable classification. Local44distinct checks pass; final parity/LinuxCI/release gates remain. Institutional bounded preparation has resumed after successful diagnostic retry; source publication remains off. See [equity implementation](docs/primary-statement-equity-2026-11-18.md).
 
 Last reconciled: **2026-10-04**. Product/code baseline: `80aaa7f7` on `main` (also GitHub main when checked). This is the project's durable context, not a claim about today's deployed revision.
@@ -95,6 +99,8 @@ Public hosts: `walnutmarkets.com`, `app.walnutmarkets.com`. Backend: `congress-t
 - Preserve unrelated edits. Inspect generated Next.js files before reverting anything. Treat ignored `artifacts/` evidence as potentially local-only; durable conclusions need tracked summaries.
 
 ## Latest task checkpoint
+
+2026-11-19 02:35 UTC: Approved PR827 deployed97bd2281/17installed checks pass. Fresh institutional preparation stopped at5071/16587, job145 inside-chunk memory_headroom, cursor34583;41of250 requests used, no retry, zero capacity requests, all local helpers stopped. Readonly API RSS grows to948504KiB even without preparation; exact heap attribution unproved. Reproduced unbounded expired response retention; isolated candidate bounds seven caches,40response parity and112focused checks pass, broader201 tests retain177pass/24baseline failures. Candidate LinuxCI/release approval pending;19-file installed check prepared, no new production change. DMLP/FIP source-driven81-original offline batch still qualifies only six originals,22periods; reader/consumer gates and FIPequity reply remain. Core/pricesFMP/publicationoff; no sends. See [response memory](docs/response-cache-retention-2026-11-19.md).
 
 - 2026-10-31: Owner approved commit/deploy of the research-focused homepage. Isolated frontend copy and existing-test updates from the older crawl/measurement workspace on current origin/main. Hero is Know What You’re Buying with Stock Research & Analysis eyebrow, consolidation/alignment copy and matching metadata. Ten focused checks pass; layout/actions/pricing/entitlements unchanged. Release and live verification pending at this checkpoint; conversion lift unproven. This specific approval supersedes the earlier hero freeze for this copy change only.
 
