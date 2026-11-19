@@ -4297,6 +4297,18 @@ def _startup_create_tables():
         _startup_step_skipped("startup_profile_overview_prewarm", "PROFILE_OVERVIEW_PREWARM_ENABLED disabled")
 
 
+@app.on_event("startup")
+def _start_api_memory_inventory():
+    from app.services.api_memory_inventory import start_observer
+    start_observer()
+
+
+@app.on_event("shutdown")
+def _stop_api_memory_inventory():
+    from app.services.api_memory_inventory import stop_observer
+    stop_observer()
+
+
 def _sqlite_path_from_database_url(database_url: str) -> str | None:
     """
     Supports:
