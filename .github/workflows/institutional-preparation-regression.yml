@@ -7,6 +7,8 @@ on:
       - 'backend/app/clients/direct_sources.py'
       - 'backend/app/jobs/*13f*.py'
       - 'backend/tests/test_direct_13f*.py'
+      - 'backend/tests/fixtures/sec_13f_preparation_buffers/**'
+      - 'backend/scripts/verify_preparation_buffer_fixture.py'
       - '.github/workflows/institutional-preparation-regression.yml'
   workflow_dispatch:
 permissions:
@@ -48,6 +50,9 @@ jobs:
           tests/test_direct_13f_publication.py tests/test_direct_13f_capacity.py
           tests/test_direct_13f_streamed_peers.py tests/test_direct_13f_prepared_evidence.py
           -q --disable-warnings --junitxml=institutional-preparation-results.xml
+      - name: Complete large-original memory and output proof
+        working-directory: backend
+        run: python scripts/verify_preparation_buffer_fixture.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

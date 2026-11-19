@@ -47,6 +47,44 @@ def test_resume_and_complete_exact_peer_parity(db):
                 group.close()
 
 
+@pytest.mark.parametrize('reuse', [False, True])
+def test_full_parse_record_is_released_before_next_checkpoint(db, monkeypatch, reuse):
+    import weakref
+    for source in pair():
+        stage(db, source)
+    if reuse:
+        warm(db)
+        # Same immutable original with a changed source token requires rehash
+        # and compact-record reuse, without reparsing the original.
+        for cached in db.scalars(select(preparation.Prepared13FParse)):
+            cached.source_token = 'previous source token'
+        db.commit()
+    observed = []
+    if reuse:
+        original = preparation._decode
+        def decode(*args, **kwargs):
+            record = original(*args, **kwargs)
+            observed.append(weakref.ref(record))
+            return record
+        monkeypatch.setattr(preparation, '_decode', decode)
+    else:
+        original = preparation.verified_peer_records
+        def records(documents):
+            for record in original(documents):
+                observed.append(weakref.ref(record))
+                yield record
+        monkeypatch.setattr(preparation, 'verified_peer_records', records)
+    checkpoints_after_parse = []
+    def checkpoint():
+        if observed:
+            checkpoints_after_parse.append(True)
+            assert all(ref() is None for ref in observed)
+    result = preparation.advance_preparation(db, max_documents=1, checkpoint=checkpoint)
+    db.commit()
+    assert checkpoints_after_parse and result['processed'] == 1
+    assert result['reused' if reuse else 'parsed'] == 1
+
+
 @pytest.mark.parametrize('change', ['bytes', 'metadata', 'missing_original', 'arrival', 'payload', 'parser'])
 def test_changed_evidence_cannot_publish(db, monkeypatch, change):
     docs = pair()
