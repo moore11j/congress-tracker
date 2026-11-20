@@ -1,0 +1,140 @@
+[
+  {
+    "source": {
+      "symbol": "DMLP",
+      "cik": "0001172358",
+      "role": "current",
+      "url": "https://www.sec.gov/Archives/edgar/data/1172358/000143774926035295/dmlp20260930_10q.htm",
+      "identity_sha256": "a62d472945b02689b720c90862d6686a156023958bdf91de6292d664b806e60d",
+      "accessionNumber": "0001437749-26-035295",
+      "form": "10-Q",
+      "reportDate": "2026-09-30",
+      "filingDate": "2026-11-05",
+      "primaryDocument": "dmlp20260930_10q.htm",
+      "file": "DMLP-current.html.gz",
+      "bytes": 570401,
+      "sha256": "8d29b57013503a8314573dc3b7425911189c0e3912215069514e6c7c0499a8da",
+      "observed_at": "2026-11-18T16:45:58.580384+00:00"
+    },
+    "file": "DMLP-current.html.gz",
+    "company": {
+      "cik": "0001172358",
+      "name": "DORCHESTER MINERALS, L.P."
+    }
+  },
+  {
+    "source": {
+      "symbol": "DMLP",
+      "cik": "0001172358",
+      "role": "annual",
+      "url": "https://www.sec.gov/Archives/edgar/data/1172358/000143774926005376/dmlp20251231_10k.htm",
+      "identity_sha256": "a62d472945b02689b720c90862d6686a156023958bdf91de6292d664b806e60d",
+      "accessionNumber": "0001437749-26-005376",
+      "form": "10-K",
+      "reportDate": "2025-12-31",
+      "filingDate": "2026-02-24",
+      "primaryDocument": "dmlp20251231_10k.htm",
+      "file": "DMLP-annual.html.gz",
+      "bytes": 1146606,
+      "sha256": "02e53e8299e2f0e5e03850ffbf6200c45c366abe947ecf6b108a4a49f4a09e74",
+      "observed_at": "2026-11-18T16:45:59.433339+00:00"
+    },
+    "file": "DMLP-annual.html.gz",
+    "company": {
+      "cik": "0001172358",
+      "name": "DORCHESTER MINERALS, L.P."
+    }
+  },
+  {
+    "source": {
+      "symbol": "DMLP",
+      "cik": "0001172358",
+      "role": "prior",
+      "url": "https://www.sec.gov/Archives/edgar/data/1172358/000143774925033599/dmlp20250930_10q.htm",
+      "identity_sha256": "a62d472945b02689b720c90862d6686a156023958bdf91de6292d664b806e60d",
+      "accessionNumber": "0001437749-25-033599",
+      "form": "10-Q",
+      "reportDate": "2025-09-30",
+      "filingDate": "2025-11-06",
+      "primaryDocument": "dmlp20250930_10q.htm",
+      "file": "DMLP-prior.html.gz",
+      "bytes": 491188,
+      "sha256": "bb2abea6fb9ab65b0482465676ad57949eea02e4eb46017ac10a5b6bc9d0b560",
+      "observed_at": "2026-11-18T16:46:00.450674+00:00"
+    },
+    "file": "DMLP-prior.html.gz",
+    "company": {
+      "cik": "0001172358",
+      "name": "DORCHESTER MINERALS, L.P."
+    }
+  },
+  {
+    "source": {
+      "symbol": "FIP",
+      "cik": "0001899883",
+      "role": "current",
+      "url": "https://www.sec.gov/Archives/edgar/data/1899883/000189988326000043/fip-20260930.htm",
+      "identity_sha256": "beb8cb621fb756840dcc583f49f4365967549a37b782d515619c12b9ef451aad",
+      "accessionNumber": "0001899883-26-000043",
+      "form": "10-Q",
+      "reportDate": "2026-09-30",
+      "filingDate": "2026-11-06",
+      "primaryDocument": "fip-20260930.htm",
+      "file": "FIP-current.html.gz",
+      "bytes": 4074502,
+      "sha256": "98bcbe2937ba5bdf946c4d4e822c0bbe4e5da68a29476749c66c1f4ce09d8f6b",
+      "observed_at": "2026-11-18T16:46:01.444715+00:00"
+    },
+    "file": "FIP-current.html.gz",
+    "company": {
+      "cik": "0001899883",
+      "name": "FTAI Infrastructure Inc."
+    }
+  },
+  {
+    "source": {
+      "symbol": "FIP",
+      "cik": "0001899883",
+      "role": "annual",
+      "url": "https://www.sec.gov/Archives/edgar/data/1899883/000189988326000015/ftai-20251231.htm",
+      "identity_sha256": "beb8cb621fb756840dcc583f49f4365967549a37b782d515619c12b9ef451aad",
+      "accessionNumber": "0001899883-26-000015",
+      "form": "10-K",
+      "reportDate": "2025-12-31",
+      "filingDate": "2026-03-16",
+      "primaryDocument": "ftai-20251231.htm",
+      "file": "FIP-annual.html.gz",
+      "bytes": 4390145,
+      "sha256": "2f11e15bbfa160b6cd2398a6307227c4cf72190e7f23cf5c844ebc5360b8bb37",
+      "observed_at": "2026-11-18T16:46:02.613697+00:00"
+    },
+    "file": "FIP-annual.html.gz",
+    "company": {
+      "cik": "0001899883",
+      "name": "FTAI Infrastructure Inc."
+    }
+  },
+  {
+    "source": {
+      "symbol": "FIP",
+      "cik": "0001899883",
+      "role": "prior",
+      "url": "https://www.sec.gov/Archives/edgar/data/1899883/000189988325000054/fip-20250930.htm",
+      "identity_sha256": "beb8cb621fb756840dcc583f49f4365967549a37b782d515619c12b9ef451aad",
+      "accessionNumber": "0001899883-25-000054",
+      "form": "10-Q",
+      "reportDate": "2025-09-30",
+      "filingDate": "2025-10-31",
+      "primaryDocument": "fip-20250930.htm",
+      "file": "FIP-prior.html.gz",
+      "bytes": 4188794,
+      "sha256": "7c8d53045464d8ab9457df8b5c2dd27f1da984eee35dd375068f2ac44e518790",
+      "observed_at": "2026-11-18T16:46:03.604840+00:00"
+    },
+    "file": "FIP-prior.html.gz",
+    "company": {
+      "cik": "0001899883",
+      "name": "FTAI Infrastructure Inc."
+    }
+  }
+]
