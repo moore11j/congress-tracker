@@ -1,0 +1,2886 @@
+{
+  "DMLP-current": {
+    "proof": {
+      "symbol": "DMLP",
+      "role": "current",
+      "url": "https://www.sec.gov/Archives/edgar/data/1172358/000143774926035295/dmlp20260930_10q.htm",
+      "sha256": "8d29b57013503a8314573dc3b7425911189c0e3912215069514e6c7c0499a8da",
+      "bytes": 570401,
+      "headings": [
+        "DORCHESTER MINERALS, L.P.",
+        "(A Delaware Limited Partnership)",
+        "CONDENSED CONSOLIDATED INCOME STATEMENTS",
+        "(In Thousands, except per unit amounts)",
+        "(Unaudited)"
+      ],
+      "periods": [
+        {
+          "start": "2025-01-01",
+          "end": "2025-09-30",
+          "operating_subtotal": 41162000.0,
+          "revenue": {
+            "row": 9,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2025-01-01_2025-09-30",
+            "value": 110975000.0,
+            "label": "Total operating revenues 51,411 35,416 166,361 110,975",
+            "start": "2025-01-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 12,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2025-01-01_2025-09-30",
+              "value": 11292000.0,
+              "label": "Operating, including production taxes 4,971 4,328 15,158 11,292",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2025-01-01_2025-09-30",
+              "value": 48457000.0,
+              "label": "Depreciation, depletion and amortization 15,677 16,989 52,404 48,457",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 14,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2025-01-01_2025-09-30_RelatedPartyTransactionsByRelatedPartyAxis-NonrelatedPartyMember",
+              "value": 2124000.0,
+              "label": "General and administrative expenses 348 430 2,477 2,124",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": true
+            },
+            {
+              "row": 15,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2025-01-01_2025-09-30_RelatedPartyTransactionsByRelatedPartyAxis-RelatedPartyMember",
+              "value": 7940000.0,
+              "label": "General and administrative expenses - related party 2,832 2,496 8,731 7,940",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": true
+            }
+          ],
+          "cost_total": {
+            "row": 16,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2025-01-01_2025-09-30",
+            "value": 69813000.0,
+            "label": "Total costs and expenses 23,828 24,243 78,770 69,813",
+            "start": "2025-01-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 18,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2025-01-01_2025-09-30",
+              "value": 41162000.0,
+              "label": "Net income $27,583 $11,173 $87,591 $41,162",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2025-07-01",
+          "end": "2025-09-30",
+          "operating_subtotal": 11173000.0,
+          "revenue": {
+            "row": 9,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2025-07-01_2025-09-30",
+            "value": 35416000.0,
+            "label": "Total operating revenues 51,411 35,416 166,361 110,975",
+            "start": "2025-07-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 12,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2025-07-01_2025-09-30",
+              "value": 4328000.0,
+              "label": "Operating, including production taxes 4,971 4,328 15,158 11,292",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2025-07-01_2025-09-30",
+              "value": 16989000.0,
+              "label": "Depreciation, depletion and amortization 15,677 16,989 52,404 48,457",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 14,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2025-07-01_2025-09-30_RelatedPartyTransactionsByRelatedPartyAxis-NonrelatedPartyMember",
+              "value": 430000.0,
+              "label": "General and administrative expenses 348 430 2,477 2,124",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": true
+            },
+            {
+              "row": 15,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2025-07-01_2025-09-30_RelatedPartyTransactionsByRelatedPartyAxis-RelatedPartyMember",
+              "value": 2496000.0,
+              "label": "General and administrative expenses - related party 2,832 2,496 8,731 7,940",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": true
+            }
+          ],
+          "cost_total": {
+            "row": 16,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2025-07-01_2025-09-30",
+            "value": 24243000.0,
+            "label": "Total costs and expenses 23,828 24,243 78,770 69,813",
+            "start": "2025-07-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 18,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2025-07-01_2025-09-30",
+              "value": 11173000.0,
+              "label": "Net income $27,583 $11,173 $87,591 $41,162",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2026-01-01",
+          "end": "2026-09-30",
+          "operating_subtotal": 87591000.0,
+          "revenue": {
+            "row": 9,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2026-01-01_2026-09-30",
+            "value": 166361000.0,
+            "label": "Total operating revenues 51,411 35,416 166,361 110,975",
+            "start": "2026-01-01",
+            "end": "2026-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 12,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2026-01-01_2026-09-30",
+              "value": 15158000.0,
+              "label": "Operating, including production taxes 4,971 4,328 15,158 11,292",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2026-01-01_2026-09-30",
+              "value": 52404000.0,
+              "label": "Depreciation, depletion and amortization 15,677 16,989 52,404 48,457",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 14,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2026-01-01_2026-09-30_RelatedPartyTransactionsByRelatedPartyAxis-NonrelatedPartyMember",
+              "value": 2477000.0,
+              "label": "General and administrative expenses 348 430 2,477 2,124",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": true
+            },
+            {
+              "row": 15,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2026-01-01_2026-09-30_RelatedPartyTransactionsByRelatedPartyAxis-RelatedPartyMember",
+              "value": 8731000.0,
+              "label": "General and administrative expenses - related party 2,832 2,496 8,731 7,940",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": true
+            }
+          ],
+          "cost_total": {
+            "row": 16,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2026-01-01_2026-09-30",
+            "value": 78770000.0,
+            "label": "Total costs and expenses 23,828 24,243 78,770 69,813",
+            "start": "2026-01-01",
+            "end": "2026-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 18,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2026-01-01_2026-09-30",
+              "value": 87591000.0,
+              "label": "Net income $27,583 $11,173 $87,591 $41,162",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2026-07-01",
+          "end": "2026-09-30",
+          "operating_subtotal": 27583000.0,
+          "revenue": {
+            "row": 9,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2026-07-01_2026-09-30",
+            "value": 51411000.0,
+            "label": "Total operating revenues 51,411 35,416 166,361 110,975",
+            "start": "2026-07-01",
+            "end": "2026-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 12,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2026-07-01_2026-09-30",
+              "value": 4971000.0,
+              "label": "Operating, including production taxes 4,971 4,328 15,158 11,292",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2026-07-01_2026-09-30",
+              "value": 15677000.0,
+              "label": "Depreciation, depletion and amortization 15,677 16,989 52,404 48,457",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 14,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2026-07-01_2026-09-30_RelatedPartyTransactionsByRelatedPartyAxis-NonrelatedPartyMember",
+              "value": 348000.0,
+              "label": "General and administrative expenses 348 430 2,477 2,124",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": true
+            },
+            {
+              "row": 15,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2026-07-01_2026-09-30_RelatedPartyTransactionsByRelatedPartyAxis-RelatedPartyMember",
+              "value": 2832000.0,
+              "label": "General and administrative expenses - related party 2,832 2,496 8,731 7,940",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": true
+            }
+          ],
+          "cost_total": {
+            "row": 16,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2026-07-01_2026-09-30",
+            "value": 23828000.0,
+            "label": "Total costs and expenses 23,828 24,243 78,770 69,813",
+            "start": "2026-07-01",
+            "end": "2026-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 18,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2026-07-01_2026-09-30",
+              "value": 27583000.0,
+              "label": "Net income $27,583 $11,173 $87,591 $41,162",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            }
+          }
+        }
+      ]
+    },
+    "geometry": {
+      "symbol": "DMLP",
+      "role": "current",
+      "sha256": "8d29b57013503a8314573dc3b7425911189c0e3912215069514e6c7c0499a8da",
+      "periods": [
+        {
+          "start": "2025-01-01",
+          "end": "2025-09-30",
+          "header": "Nine Months Ended September 30, 2025",
+          "checked_rows": 7
+        },
+        {
+          "start": "2025-07-01",
+          "end": "2025-09-30",
+          "header": "Three Months Ended September 30, 2025",
+          "checked_rows": 7
+        },
+        {
+          "start": "2026-01-01",
+          "end": "2026-09-30",
+          "header": "Nine Months Ended September 30, 2026",
+          "checked_rows": 7
+        },
+        {
+          "start": "2026-07-01",
+          "end": "2026-09-30",
+          "header": "Three Months Ended September 30, 2026",
+          "checked_rows": 7
+        }
+      ],
+      "checked_numeric_cells": 28,
+      "sourcewide_matching_facts": 36
+    }
+  },
+  "DMLP-annual": {
+    "proof": {
+      "symbol": "DMLP",
+      "role": "annual",
+      "url": "https://www.sec.gov/Archives/edgar/data/1172358/000143774926005376/dmlp20251231_10k.htm",
+      "sha256": "02e53e8299e2f0e5e03850ffbf6200c45c366abe947ecf6b108a4a49f4a09e74",
+      "bytes": 1146606,
+      "headings": [
+        "Table of Contents",
+        "DORCHESTER MINERALS, L.P.",
+        "(A Delaware Limited Partnership)",
+        "CONSOLIDATED INCOME STATEMENTS",
+        "For each of the Years Ended December 31, (In Thousands, except per unit amounts)"
+      ],
+      "periods": [
+        {
+          "start": "2023-01-01",
+          "end": "2023-12-31",
+          "operating_subtotal": 114117000.0,
+          "revenue": {
+            "row": 6,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2023-01-01_2023-12-31",
+            "value": 163799000.0,
+            "label": "Total operating revenues 152,832 161,523 163,799",
+            "start": "2023-01-01",
+            "end": "2023-12-31",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 9,
+              "tag": "us-gaap:ProductionTaxExpense",
+              "context": "d_2023-01-01_2023-12-31",
+              "value": 5776000.0,
+              "label": "Production taxes 5,834 6,884 5,776",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2023-01-01_2023-12-31",
+              "value": 6435000.0,
+              "label": "Operating expenses 10,022 7,671 6,435",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2023-01-01_2023-12-31",
+              "value": 26307000.0,
+              "label": "Depreciation, depletion and amortization 66,300 42,588 26,307",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2023-01-01_2023-12-31_RelatedPartyTransactionsByRelatedPartyAxis-NonrelatedPartyMember",
+              "value": 3350000.0,
+              "label": "General and administrative expenses 2,179 1,980 3,350",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": true
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2023-01-01_2023-12-31_RelatedPartyTransactionsByRelatedPartyAxis-RelatedPartyMember",
+              "value": 7814000.0,
+              "label": "General and administrative expenses - related party 11,145 9,951 7,814",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": true
+            }
+          ],
+          "cost_total": {
+            "row": 14,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2023-01-01_2023-12-31",
+            "value": 49682000.0,
+            "label": "Total costs and expenses 95,480 69,074 49,682",
+            "start": "2023-01-01",
+            "end": "2023-12-31",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 15,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2023-01-01_2023-12-31",
+              "value": 114117000.0,
+              "label": "Net income $57,352 $92,449 $114,117",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2024-01-01",
+          "end": "2024-12-31",
+          "operating_subtotal": 92449000.0,
+          "revenue": {
+            "row": 6,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2024-01-01_2024-12-31",
+            "value": 161523000.0,
+            "label": "Total operating revenues 152,832 161,523 163,799",
+            "start": "2024-01-01",
+            "end": "2024-12-31",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 9,
+              "tag": "us-gaap:ProductionTaxExpense",
+              "context": "d_2024-01-01_2024-12-31",
+              "value": 6884000.0,
+              "label": "Production taxes 5,834 6,884 5,776",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2024-01-01_2024-12-31",
+              "value": 7671000.0,
+              "label": "Operating expenses 10,022 7,671 6,435",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2024-01-01_2024-12-31",
+              "value": 42588000.0,
+              "label": "Depreciation, depletion and amortization 66,300 42,588 26,307",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2024-01-01_2024-12-31_RelatedPartyTransactionsByRelatedPartyAxis-NonrelatedPartyMember",
+              "value": 1980000.0,
+              "label": "General and administrative expenses 2,179 1,980 3,350",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": true
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2024-01-01_2024-12-31_RelatedPartyTransactionsByRelatedPartyAxis-RelatedPartyMember",
+              "value": 9951000.0,
+              "label": "General and administrative expenses - related party 11,145 9,951 7,814",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": true
+            }
+          ],
+          "cost_total": {
+            "row": 14,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2024-01-01_2024-12-31",
+            "value": 69074000.0,
+            "label": "Total costs and expenses 95,480 69,074 49,682",
+            "start": "2024-01-01",
+            "end": "2024-12-31",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 15,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2024-01-01_2024-12-31",
+              "value": 92449000.0,
+              "label": "Net income $57,352 $92,449 $114,117",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2025-01-01",
+          "end": "2025-12-31",
+          "operating_subtotal": 57352000.0,
+          "revenue": {
+            "row": 6,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2025-01-01_2025-12-31",
+            "value": 152832000.0,
+            "label": "Total operating revenues 152,832 161,523 163,799",
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 9,
+              "tag": "us-gaap:ProductionTaxExpense",
+              "context": "d_2025-01-01_2025-12-31",
+              "value": 5834000.0,
+              "label": "Production taxes 5,834 6,884 5,776",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2025-01-01_2025-12-31",
+              "value": 10022000.0,
+              "label": "Operating expenses 10,022 7,671 6,435",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2025-01-01_2025-12-31",
+              "value": 66300000.0,
+              "label": "Depreciation, depletion and amortization 66,300 42,588 26,307",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2025-01-01_2025-12-31_RelatedPartyTransactionsByRelatedPartyAxis-NonrelatedPartyMember",
+              "value": 2179000.0,
+              "label": "General and administrative expenses 2,179 1,980 3,350",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": true
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2025-01-01_2025-12-31_RelatedPartyTransactionsByRelatedPartyAxis-RelatedPartyMember",
+              "value": 11145000.0,
+              "label": "General and administrative expenses - related party 11,145 9,951 7,814",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": true
+            }
+          ],
+          "cost_total": {
+            "row": 14,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2025-01-01_2025-12-31",
+            "value": 95480000.0,
+            "label": "Total costs and expenses 95,480 69,074 49,682",
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 15,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2025-01-01_2025-12-31",
+              "value": 57352000.0,
+              "label": "Net income $57,352 $92,449 $114,117",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            }
+          }
+        }
+      ]
+    },
+    "geometry": {
+      "symbol": "DMLP",
+      "role": "annual",
+      "sha256": "02e53e8299e2f0e5e03850ffbf6200c45c366abe947ecf6b108a4a49f4a09e74",
+      "periods": [
+        {
+          "start": "2023-01-01",
+          "end": "2023-12-31",
+          "header": "2023 For each of the Years Ended December 31, (In Thousands, except per unit amounts)",
+          "checked_rows": 8
+        },
+        {
+          "start": "2024-01-01",
+          "end": "2024-12-31",
+          "header": "2024 For each of the Years Ended December 31, (In Thousands, except per unit amounts)",
+          "checked_rows": 8
+        },
+        {
+          "start": "2025-01-01",
+          "end": "2025-12-31",
+          "header": "2025 For each of the Years Ended December 31, (In Thousands, except per unit amounts)",
+          "checked_rows": 8
+        }
+      ],
+      "checked_numeric_cells": 24,
+      "sourcewide_matching_facts": 33
+    }
+  },
+  "DMLP-prior": {
+    "proof": {
+      "symbol": "DMLP",
+      "role": "prior",
+      "url": "https://www.sec.gov/Archives/edgar/data/1172358/000143774925033599/dmlp20250930_10q.htm",
+      "sha256": "bb2abea6fb9ab65b0482465676ad57949eea02e4eb46017ac10a5b6bc9d0b560",
+      "bytes": 491188,
+      "headings": [
+        "DORCHESTER MINERALS, L.P.",
+        "(A Delaware Limited Partnership)",
+        "CONDENSED CONSOLIDATED INCOME STATEMENTS",
+        "(In Thousands, except per unit amounts)",
+        "(Unaudited)"
+      ],
+      "periods": [
+        {
+          "start": "2024-01-01",
+          "end": "2024-09-30",
+          "operating_subtotal": 78208000.0,
+          "revenue": {
+            "row": 9,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2024-01-01_2024-09-30",
+            "value": 121811000.0,
+            "label": "Total operating revenues 35,416 53,472 110,975 121,811",
+            "start": "2024-01-01",
+            "end": "2024-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 12,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2024-01-01_2024-09-30",
+              "value": 10273000.0,
+              "label": "Operating, including production taxes 4,328 4,135 11,292 10,273",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2024-01-01_2024-09-30",
+              "value": 24627000.0,
+              "label": "Depreciation, depletion and amortization 16,989 10,041 48,457 24,627",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 14,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2024-01-01_2024-09-30",
+              "value": 8703000.0,
+              "label": "General and administrative 2,926 2,883 10,064 8,703",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 15,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2024-01-01_2024-09-30",
+            "value": 43603000.0,
+            "label": "Total costs and expenses 24,243 17,059 69,813 43,603",
+            "start": "2024-01-01",
+            "end": "2024-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 17,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2024-01-01_2024-09-30",
+              "value": 78208000.0,
+              "label": "Net income $11,173 $36,413 $41,162 $78,208",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2024-07-01",
+          "end": "2024-09-30",
+          "operating_subtotal": 36413000.0,
+          "revenue": {
+            "row": 9,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2024-07-01_2024-09-30",
+            "value": 53472000.0,
+            "label": "Total operating revenues 35,416 53,472 110,975 121,811",
+            "start": "2024-07-01",
+            "end": "2024-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 12,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2024-07-01_2024-09-30",
+              "value": 4135000.0,
+              "label": "Operating, including production taxes 4,328 4,135 11,292 10,273",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2024-07-01_2024-09-30",
+              "value": 10041000.0,
+              "label": "Depreciation, depletion and amortization 16,989 10,041 48,457 24,627",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 14,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2024-07-01_2024-09-30",
+              "value": 2883000.0,
+              "label": "General and administrative 2,926 2,883 10,064 8,703",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 15,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2024-07-01_2024-09-30",
+            "value": 17059000.0,
+            "label": "Total costs and expenses 24,243 17,059 69,813 43,603",
+            "start": "2024-07-01",
+            "end": "2024-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 17,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2024-07-01_2024-09-30",
+              "value": 36413000.0,
+              "label": "Net income $11,173 $36,413 $41,162 $78,208",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2025-01-01",
+          "end": "2025-09-30",
+          "operating_subtotal": 41162000.0,
+          "revenue": {
+            "row": 9,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2025-01-01_2025-09-30",
+            "value": 110975000.0,
+            "label": "Total operating revenues 35,416 53,472 110,975 121,811",
+            "start": "2025-01-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 12,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2025-01-01_2025-09-30",
+              "value": 11292000.0,
+              "label": "Operating, including production taxes 4,328 4,135 11,292 10,273",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2025-01-01_2025-09-30",
+              "value": 48457000.0,
+              "label": "Depreciation, depletion and amortization 16,989 10,041 48,457 24,627",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 14,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2025-01-01_2025-09-30",
+              "value": 10064000.0,
+              "label": "General and administrative 2,926 2,883 10,064 8,703",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 15,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2025-01-01_2025-09-30",
+            "value": 69813000.0,
+            "label": "Total costs and expenses 24,243 17,059 69,813 43,603",
+            "start": "2025-01-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 17,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2025-01-01_2025-09-30",
+              "value": 41162000.0,
+              "label": "Net income $11,173 $36,413 $41,162 $78,208",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2025-07-01",
+          "end": "2025-09-30",
+          "operating_subtotal": 11173000.0,
+          "revenue": {
+            "row": 9,
+            "tag": "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
+            "context": "d_2025-07-01_2025-09-30",
+            "value": 35416000.0,
+            "label": "Total operating revenues 35,416 53,472 110,975 121,811",
+            "start": "2025-07-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 12,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "d_2025-07-01_2025-09-30",
+              "value": 4328000.0,
+              "label": "Operating, including production taxes 4,328 4,135 11,292 10,273",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 13,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "d_2025-07-01_2025-09-30",
+              "value": 16989000.0,
+              "label": "Depreciation, depletion and amortization 16,989 10,041 48,457 24,627",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 14,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "d_2025-07-01_2025-09-30",
+              "value": 2926000.0,
+              "label": "General and administrative 2,926 2,883 10,064 8,703",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 15,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "d_2025-07-01_2025-09-30",
+            "value": 24243000.0,
+            "label": "Total costs and expenses 24,243 17,059 69,813 43,603",
+            "start": "2025-07-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "net_income": {
+              "row": 17,
+              "tag": "us-gaap:NetIncomeLoss",
+              "context": "d_2025-07-01_2025-09-30",
+              "value": 11173000.0,
+              "label": "Net income $11,173 $36,413 $41,162 $78,208",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          }
+        }
+      ]
+    },
+    "geometry": {
+      "symbol": "DMLP",
+      "role": "prior",
+      "sha256": "bb2abea6fb9ab65b0482465676ad57949eea02e4eb46017ac10a5b6bc9d0b560",
+      "periods": [
+        {
+          "start": "2024-01-01",
+          "end": "2024-09-30",
+          "header": "Nine Months Ended September 30, 2024",
+          "checked_rows": 6
+        },
+        {
+          "start": "2024-07-01",
+          "end": "2024-09-30",
+          "header": "Three Months Ended September 30, 2024",
+          "checked_rows": 6
+        },
+        {
+          "start": "2025-01-01",
+          "end": "2025-09-30",
+          "header": "Nine Months Ended September 30, 2025",
+          "checked_rows": 6
+        },
+        {
+          "start": "2025-07-01",
+          "end": "2025-09-30",
+          "header": "Three Months Ended September 30, 2025",
+          "checked_rows": 6
+        }
+      ],
+      "checked_numeric_cells": 24,
+      "sourcewide_matching_facts": 28
+    }
+  },
+  "FIP-current": {
+    "proof": {
+      "symbol": "FIP",
+      "role": "current",
+      "url": "https://www.sec.gov/Archives/edgar/data/1899883/000189988326000043/fip-20260930.htm",
+      "sha256": "98bcbe2937ba5bdf946c4d4e822c0bbe4e5da68a29476749c66c1f4ce09d8f6b",
+      "bytes": 4074502,
+      "headings": [
+        "See accompanying notes to consolidated financial statements.",
+        "6",
+        "FTAI INFRASTRUCTURE INC.",
+        "CONSOLIDATED STATEMENTS OF OPERATIONS (unaudited)",
+        "(Dollars in thousands, except share and per share data)"
+      ],
+      "periods": [
+        {
+          "start": "2025-01-01",
+          "end": "2025-09-30",
+          "operating_subtotal": 6693000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-11",
+            "value": 359003000.0,
+            "label": "Total revenues10$218,973 $140,556 $594,105 $359,003",
+            "start": "2025-01-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OtherCostAndExpenseOperating",
+              "context": "c-11",
+              "value": 216465000.0,
+              "label": "Operating expenses120,602 74,985 358,329 216,465",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-11",
+              "value": 12177000.0,
+              "label": "General and administrative4,180 3,202 11,408 12,177",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-11",
+              "value": 15440000.0,
+              "label": "Acquisition and transaction expenses7,487 3,221 20,328 15,440",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-11",
+              "value": 10004000.0,
+              "label": "Management fees and incentive allocation to affiliate133,113 3,782 10,882 10,004",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-11",
+              "value": 93823000.0,
+              "label": "Depreciation and amortization3, 4, 635,328 34,813 125,530 93,823",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-11",
+              "value": 4401000.0,
+              "label": "Asset impairment28,587 \u2014 91,775 4,401",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-11",
+            "value": 352310000.0,
+            "label": "Total expenses199,297 120,003 618,252 352,310",
+            "start": "2025-01-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-11",
+              "value": -96507000.0,
+              "label": "Total other expense(140,564)(120,010)(371,448)(96,507)",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-11",
+                "value": 6247000.0,
+                "label": "Equity in (losses) earnings of unconsolidated entities5(590)2,928 (1,668)6,247",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnSaleOfPropertyPlantEquipment",
+                "context": "c-11",
+                "value": 119856000.0,
+                "label": "Gain (loss) on sale of assets, net37 28 (545)119,856",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-11",
+                "value": -234909000.0,
+                "label": "Interest expense (116,524)(128,520)(352,019)(234,909)",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-11",
+                "value": 12299000.0,
+                "label": "Other (expense) income(23,487)5,554 (17,216)12,299",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-11",
+              "value": -89814000.0,
+              "label": "Loss before income taxes(120,888)(99,457)(395,595)(89,814)",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2025-07-01",
+          "end": "2025-09-30",
+          "operating_subtotal": 20553000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-10",
+            "value": 140556000.0,
+            "label": "Total revenues10$218,973 $140,556 $594,105 $359,003",
+            "start": "2025-07-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OtherCostAndExpenseOperating",
+              "context": "c-10",
+              "value": 74985000.0,
+              "label": "Operating expenses120,602 74,985 358,329 216,465",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-10",
+              "value": 3202000.0,
+              "label": "General and administrative4,180 3,202 11,408 12,177",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-10",
+              "value": 3221000.0,
+              "label": "Acquisition and transaction expenses7,487 3,221 20,328 15,440",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-10",
+              "value": 3782000.0,
+              "label": "Management fees and incentive allocation to affiliate133,113 3,782 10,882 10,004",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-10",
+              "value": 34813000.0,
+              "label": "Depreciation and amortization3, 4, 635,328 34,813 125,530 93,823",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-10",
+              "value": 0.0,
+              "label": "Asset impairment28,587 \u2014 91,775 4,401",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-10",
+            "value": 120003000.0,
+            "label": "Total expenses199,297 120,003 618,252 352,310",
+            "start": "2025-07-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-10",
+              "value": -120010000.0,
+              "label": "Total other expense(140,564)(120,010)(371,448)(96,507)",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-10",
+                "value": 2928000.0,
+                "label": "Equity in (losses) earnings of unconsolidated entities5(590)2,928 (1,668)6,247",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnSaleOfPropertyPlantEquipment",
+                "context": "c-10",
+                "value": 28000.0,
+                "label": "Gain (loss) on sale of assets, net37 28 (545)119,856",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-10",
+                "value": -128520000.0,
+                "label": "Interest expense (116,524)(128,520)(352,019)(234,909)",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-10",
+                "value": 5554000.0,
+                "label": "Other (expense) income(23,487)5,554 (17,216)12,299",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-10",
+              "value": -99457000.0,
+              "label": "Loss before income taxes(120,888)(99,457)(395,595)(89,814)",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2026-01-01",
+          "end": "2026-09-30",
+          "operating_subtotal": -24147000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-1",
+            "value": 594105000.0,
+            "label": "Total revenues10$218,973 $140,556 $594,105 $359,003",
+            "start": "2026-01-01",
+            "end": "2026-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OtherCostAndExpenseOperating",
+              "context": "c-1",
+              "value": 358329000.0,
+              "label": "Operating expenses120,602 74,985 358,329 216,465",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-1",
+              "value": 11408000.0,
+              "label": "General and administrative4,180 3,202 11,408 12,177",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-1",
+              "value": 20328000.0,
+              "label": "Acquisition and transaction expenses7,487 3,221 20,328 15,440",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-1",
+              "value": 10882000.0,
+              "label": "Management fees and incentive allocation to affiliate133,113 3,782 10,882 10,004",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-1",
+              "value": 125530000.0,
+              "label": "Depreciation and amortization3, 4, 635,328 34,813 125,530 93,823",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-1",
+              "value": 91775000.0,
+              "label": "Asset impairment28,587 \u2014 91,775 4,401",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-1",
+            "value": 618252000.0,
+            "label": "Total expenses199,297 120,003 618,252 352,310",
+            "start": "2026-01-01",
+            "end": "2026-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-1",
+              "value": -371448000.0,
+              "label": "Total other expense(140,564)(120,010)(371,448)(96,507)",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-1",
+                "value": -1668000.0,
+                "label": "Equity in (losses) earnings of unconsolidated entities5(590)2,928 (1,668)6,247",
+                "start": "2026-01-01",
+                "end": "2026-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnSaleOfPropertyPlantEquipment",
+                "context": "c-1",
+                "value": -545000.0,
+                "label": "Gain (loss) on sale of assets, net37 28 (545)119,856",
+                "start": "2026-01-01",
+                "end": "2026-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-1",
+                "value": -352019000.0,
+                "label": "Interest expense (116,524)(128,520)(352,019)(234,909)",
+                "start": "2026-01-01",
+                "end": "2026-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-1",
+                "value": -17216000.0,
+                "label": "Other (expense) income(23,487)5,554 (17,216)12,299",
+                "start": "2026-01-01",
+                "end": "2026-09-30",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-1",
+              "value": -395595000.0,
+              "label": "Loss before income taxes(120,888)(99,457)(395,595)(89,814)",
+              "start": "2026-01-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2026-07-01",
+          "end": "2026-09-30",
+          "operating_subtotal": 19676000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-9",
+            "value": 218973000.0,
+            "label": "Total revenues10$218,973 $140,556 $594,105 $359,003",
+            "start": "2026-07-01",
+            "end": "2026-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OtherCostAndExpenseOperating",
+              "context": "c-9",
+              "value": 120602000.0,
+              "label": "Operating expenses120,602 74,985 358,329 216,465",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-9",
+              "value": 4180000.0,
+              "label": "General and administrative4,180 3,202 11,408 12,177",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-9",
+              "value": 7487000.0,
+              "label": "Acquisition and transaction expenses7,487 3,221 20,328 15,440",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-9",
+              "value": 3113000.0,
+              "label": "Management fees and incentive allocation to affiliate133,113 3,782 10,882 10,004",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-9",
+              "value": 35328000.0,
+              "label": "Depreciation and amortization3, 4, 635,328 34,813 125,530 93,823",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-9",
+              "value": 28587000.0,
+              "label": "Asset impairment28,587 \u2014 91,775 4,401",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-9",
+            "value": 199297000.0,
+            "label": "Total expenses199,297 120,003 618,252 352,310",
+            "start": "2026-07-01",
+            "end": "2026-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-9",
+              "value": -140564000.0,
+              "label": "Total other expense(140,564)(120,010)(371,448)(96,507)",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-9",
+                "value": -590000.0,
+                "label": "Equity in (losses) earnings of unconsolidated entities5(590)2,928 (1,668)6,247",
+                "start": "2026-07-01",
+                "end": "2026-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnSaleOfPropertyPlantEquipment",
+                "context": "c-9",
+                "value": 37000.0,
+                "label": "Gain (loss) on sale of assets, net37 28 (545)119,856",
+                "start": "2026-07-01",
+                "end": "2026-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-9",
+                "value": -116524000.0,
+                "label": "Interest expense (116,524)(128,520)(352,019)(234,909)",
+                "start": "2026-07-01",
+                "end": "2026-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-9",
+                "value": -23487000.0,
+                "label": "Other (expense) income(23,487)5,554 (17,216)12,299",
+                "start": "2026-07-01",
+                "end": "2026-09-30",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-9",
+              "value": -120888000.0,
+              "label": "Loss before income taxes(120,888)(99,457)(395,595)(89,814)",
+              "start": "2026-07-01",
+              "end": "2026-09-30",
+              "dimensions": false
+            }
+          }
+        }
+      ]
+    },
+    "geometry": {
+      "symbol": "FIP",
+      "role": "current",
+      "sha256": "98bcbe2937ba5bdf946c4d4e822c0bbe4e5da68a29476749c66c1f4ce09d8f6b",
+      "periods": [
+        {
+          "start": "2025-01-01",
+          "end": "2025-09-30",
+          "header": "Nine Months Ended September 30, 2025",
+          "checked_rows": 14
+        },
+        {
+          "start": "2025-07-01",
+          "end": "2025-09-30",
+          "header": "Three Months Ended September 30, 2025",
+          "checked_rows": 14
+        },
+        {
+          "start": "2026-01-01",
+          "end": "2026-09-30",
+          "header": "Nine Months Ended September 30, 2026",
+          "checked_rows": 14
+        },
+        {
+          "start": "2026-07-01",
+          "end": "2026-09-30",
+          "header": "Three Months Ended September 30, 2026",
+          "checked_rows": 14
+        }
+      ],
+      "checked_numeric_cells": 56,
+      "sourcewide_matching_facts": 136
+    }
+  },
+  "FIP-annual": {
+    "proof": {
+      "symbol": "FIP",
+      "role": "annual",
+      "url": "https://www.sec.gov/Archives/edgar/data/1899883/000189988326000015/ftai-20251231.htm",
+      "sha256": "2f11e15bbfa160b6cd2398a6307227c4cf72190e7f23cf5c844ebc5360b8bb37",
+      "bytes": 4390145,
+      "headings": [
+        "See accompanying notes to the consolidated financial statements.",
+        "62",
+        "FTAI INFRASTRUCTURE INC.",
+        "CONSOLIDATED STATEMENTS OF OPERATIONS",
+        "(Dollars in thousands, except share and per share data)"
+      ],
+      "periods": [
+        {
+          "start": "2023-01-01",
+          "end": "2023-12-31",
+          "operating_subtotal": -44375000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-13",
+            "value": 320472000.0,
+            "label": "Total revenues11$502,520 $331,497 $320,472",
+            "start": "2023-01-01",
+            "end": "2023-12-31",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "c-13",
+              "value": 253672000.0,
+              "label": "Operating expenses2299,587 247,674 253,672",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-13",
+              "value": 12833000.0,
+              "label": "General and administrative16,222 14,798 12,833",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-13",
+              "value": 4140000.0,
+              "label": "Acquisition and transaction expenses27,138 5,457 4,140",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-13",
+              "value": 12467000.0,
+              "label": "Management fees and incentive allocation to affiliate1614,714 11,318 12,467",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-13",
+              "value": 80992000.0,
+              "label": "Depreciation and amortization4, 5, 7132,489 79,410 80,992",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-13",
+              "value": 743000.0,
+              "label": "Asset impairment4,401 72,336 743",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-13",
+            "value": 364847000.0,
+            "label": "Total expenses494,551 430,993 364,847",
+            "start": "2023-01-01",
+            "end": "2023-12-31",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-13",
+              "value": -112905000.0,
+              "label": "Total other expense(163,341)(163,255)(112,905)",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-13",
+                "value": -24707000.0,
+                "label": "Equity in earnings (losses) of unconsolidated entities612,303 (55,496)(24,707)",
+                "start": "2023-01-01",
+                "end": "2023-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnDispositionOfAssets",
+                "context": "c-13",
+                "value": 6855000.0,
+                "label": "Gain on sale of assets, net128,842 2,370 6,855",
+                "start": "2023-01-01",
+                "end": "2023-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 18,
+                "tag": "us-gaap:GainsLossesOnExtinguishmentOfDebt",
+                "context": "c-13",
+                "value": -2036000.0,
+                "label": "Loss on modification or extinguishment of debt(59,323)(8,925)(2,036)",
+                "start": "2023-01-01",
+                "end": "2023-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-13",
+                "value": -99603000.0,
+                "label": "Interest expense(265,914)(122,108)(99,603)",
+                "start": "2023-01-01",
+                "end": "2023-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-13",
+                "value": 6586000.0,
+                "label": "Other income20,751 20,904 6,586",
+                "start": "2023-01-01",
+                "end": "2023-12-31",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-13",
+              "value": -157280000.0,
+              "label": "Loss before income taxes(155,372)(262,751)(157,280)",
+              "start": "2023-01-01",
+              "end": "2023-12-31",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2024-01-01",
+          "end": "2024-12-31",
+          "operating_subtotal": -99496000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-12",
+            "value": 331497000.0,
+            "label": "Total revenues11$502,520 $331,497 $320,472",
+            "start": "2024-01-01",
+            "end": "2024-12-31",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "c-12",
+              "value": 247674000.0,
+              "label": "Operating expenses2299,587 247,674 253,672",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-12",
+              "value": 14798000.0,
+              "label": "General and administrative16,222 14,798 12,833",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-12",
+              "value": 5457000.0,
+              "label": "Acquisition and transaction expenses27,138 5,457 4,140",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-12",
+              "value": 11318000.0,
+              "label": "Management fees and incentive allocation to affiliate1614,714 11,318 12,467",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-12",
+              "value": 79410000.0,
+              "label": "Depreciation and amortization4, 5, 7132,489 79,410 80,992",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-12",
+              "value": 72336000.0,
+              "label": "Asset impairment4,401 72,336 743",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-12",
+            "value": 430993000.0,
+            "label": "Total expenses494,551 430,993 364,847",
+            "start": "2024-01-01",
+            "end": "2024-12-31",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-12",
+              "value": -163255000.0,
+              "label": "Total other expense(163,341)(163,255)(112,905)",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-12",
+                "value": -55496000.0,
+                "label": "Equity in earnings (losses) of unconsolidated entities612,303 (55,496)(24,707)",
+                "start": "2024-01-01",
+                "end": "2024-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnDispositionOfAssets",
+                "context": "c-12",
+                "value": 2370000.0,
+                "label": "Gain on sale of assets, net128,842 2,370 6,855",
+                "start": "2024-01-01",
+                "end": "2024-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 18,
+                "tag": "us-gaap:GainsLossesOnExtinguishmentOfDebt",
+                "context": "c-12",
+                "value": -8925000.0,
+                "label": "Loss on modification or extinguishment of debt(59,323)(8,925)(2,036)",
+                "start": "2024-01-01",
+                "end": "2024-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-12",
+                "value": -122108000.0,
+                "label": "Interest expense(265,914)(122,108)(99,603)",
+                "start": "2024-01-01",
+                "end": "2024-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-12",
+                "value": 20904000.0,
+                "label": "Other income20,751 20,904 6,586",
+                "start": "2024-01-01",
+                "end": "2024-12-31",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-12",
+              "value": -262751000.0,
+              "label": "Loss before income taxes(155,372)(262,751)(157,280)",
+              "start": "2024-01-01",
+              "end": "2024-12-31",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2025-01-01",
+          "end": "2025-12-31",
+          "operating_subtotal": 7969000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-1",
+            "value": 502520000.0,
+            "label": "Total revenues11$502,520 $331,497 $320,472",
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OperatingCostsAndExpenses",
+              "context": "c-1",
+              "value": 299587000.0,
+              "label": "Operating expenses2299,587 247,674 253,672",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-1",
+              "value": 16222000.0,
+              "label": "General and administrative16,222 14,798 12,833",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-1",
+              "value": 27138000.0,
+              "label": "Acquisition and transaction expenses27,138 5,457 4,140",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-1",
+              "value": 14714000.0,
+              "label": "Management fees and incentive allocation to affiliate1614,714 11,318 12,467",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-1",
+              "value": 132489000.0,
+              "label": "Depreciation and amortization4, 5, 7132,489 79,410 80,992",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-1",
+              "value": 4401000.0,
+              "label": "Asset impairment4,401 72,336 743",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-1",
+            "value": 494551000.0,
+            "label": "Total expenses494,551 430,993 364,847",
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-1",
+              "value": -163341000.0,
+              "label": "Total other expense(163,341)(163,255)(112,905)",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-1",
+                "value": 12303000.0,
+                "label": "Equity in earnings (losses) of unconsolidated entities612,303 (55,496)(24,707)",
+                "start": "2025-01-01",
+                "end": "2025-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnDispositionOfAssets",
+                "context": "c-1",
+                "value": 128842000.0,
+                "label": "Gain on sale of assets, net128,842 2,370 6,855",
+                "start": "2025-01-01",
+                "end": "2025-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 18,
+                "tag": "us-gaap:GainsLossesOnExtinguishmentOfDebt",
+                "context": "c-1",
+                "value": -59323000.0,
+                "label": "Loss on modification or extinguishment of debt(59,323)(8,925)(2,036)",
+                "start": "2025-01-01",
+                "end": "2025-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-1",
+                "value": -265914000.0,
+                "label": "Interest expense(265,914)(122,108)(99,603)",
+                "start": "2025-01-01",
+                "end": "2025-12-31",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-1",
+                "value": 20751000.0,
+                "label": "Other income20,751 20,904 6,586",
+                "start": "2025-01-01",
+                "end": "2025-12-31",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-1",
+              "value": -155372000.0,
+              "label": "Loss before income taxes(155,372)(262,751)(157,280)",
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "dimensions": false
+            }
+          }
+        }
+      ]
+    },
+    "geometry": {
+      "symbol": "FIP",
+      "role": "annual",
+      "sha256": "2f11e15bbfa160b6cd2398a6307227c4cf72190e7f23cf5c844ebc5360b8bb37",
+      "periods": [
+        {
+          "start": "2023-01-01",
+          "end": "2023-12-31",
+          "header": "Year Ended December 31, 2023",
+          "checked_rows": 15
+        },
+        {
+          "start": "2024-01-01",
+          "end": "2024-12-31",
+          "header": "Year Ended December 31, 2024",
+          "checked_rows": 15
+        },
+        {
+          "start": "2025-01-01",
+          "end": "2025-12-31",
+          "header": "Year Ended December 31, 2025",
+          "checked_rows": 15
+        }
+      ],
+      "checked_numeric_cells": 45,
+      "sourcewide_matching_facts": 109
+    }
+  },
+  "FIP-prior": {
+    "proof": {
+      "symbol": "FIP",
+      "role": "prior",
+      "url": "https://www.sec.gov/Archives/edgar/data/1899883/000189988325000054/fip-20250930.htm",
+      "sha256": "7c8d53045464d8ab9457df8b5c2dd27f1da984eee35dd375068f2ac44e518790",
+      "bytes": 4188794,
+      "headings": [
+        "See accompanying notes to consolidated financial statements.",
+        "6",
+        "FTAI INFRASTRUCTURE INC.",
+        "CONSOLIDATED STATEMENTS OF OPERATIONS (unaudited)",
+        "(Dollars in thousands, except share and per share data)"
+      ],
+      "periods": [
+        {
+          "start": "2024-01-01",
+          "end": "2024-09-30",
+          "operating_subtotal": -21656000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-13",
+            "value": 250733000.0,
+            "label": "Total revenues11$140,556 $83,311 $359,003 $250,733",
+            "start": "2024-01-01",
+            "end": "2024-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OtherCostAndExpenseOperating",
+              "context": "c-13",
+              "value": 188566000.0,
+              "label": "Operating expenses74,985 62,766 216,465 188,566",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-13",
+              "value": 10690000.0,
+              "label": "General and administrative3,202 2,989 12,177 10,690",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-13",
+              "value": 4373000.0,
+              "label": "Acquisition and transaction expenses3,221 2,526 15,440 4,373",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-13",
+              "value": 8584000.0,
+              "label": "Management fees and incentive allocation to affiliate153,782 2,807 10,004 8,584",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-13",
+              "value": 60176000.0,
+              "label": "Depreciation and amortization4, 734,813 19,492 93,823 60,176",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-13",
+              "value": 0.0,
+              "label": "Asset impairment\u2014 \u2014 4,401 \u2014",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-13",
+            "value": 272389000.0,
+            "label": "Total expenses120,003 90,580 352,310 272,389",
+            "start": "2024-01-01",
+            "end": "2024-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-13",
+              "value": -117757000.0,
+              "label": "Total other expense(120,010)(35,779)(96,507)(117,757)",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-13",
+                "value": -38998000.0,
+                "label": "Equity in earnings (losses) of unconsolidated entities62,928 (14,308)6,247 (38,998)",
+                "start": "2024-01-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnSaleOfPropertyPlantEquipment",
+                "context": "c-13",
+                "value": 2595000.0,
+                "label": "Gain on sale of assets, net28 2,758 119,856 2,595",
+                "start": "2024-01-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 18,
+                "tag": "us-gaap:GainsLossesOnExtinguishmentOfDebt",
+                "context": "c-13",
+                "value": -8423000.0,
+                "label": "(Loss) gain on modification or extinguishment of debt8(55,208)747 (59,281)(8,423)",
+                "start": "2024-01-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-13",
+                "value": -88796000.0,
+                "label": "Interest expense (73,312)(31,513)(175,628)(88,796)",
+                "start": "2024-01-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-13",
+                "value": 15865000.0,
+                "label": "Other income5,554 6,537 12,299 15,865",
+                "start": "2024-01-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-13",
+              "value": -139413000.0,
+              "label": "Loss before income taxes(99,457)(43,048)(89,814)(139,413)",
+              "start": "2024-01-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2024-07-01",
+          "end": "2024-09-30",
+          "operating_subtotal": -7269000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-12",
+            "value": 83311000.0,
+            "label": "Total revenues11$140,556 $83,311 $359,003 $250,733",
+            "start": "2024-07-01",
+            "end": "2024-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OtherCostAndExpenseOperating",
+              "context": "c-12",
+              "value": 62766000.0,
+              "label": "Operating expenses74,985 62,766 216,465 188,566",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-12",
+              "value": 2989000.0,
+              "label": "General and administrative3,202 2,989 12,177 10,690",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-12",
+              "value": 2526000.0,
+              "label": "Acquisition and transaction expenses3,221 2,526 15,440 4,373",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-12",
+              "value": 2807000.0,
+              "label": "Management fees and incentive allocation to affiliate153,782 2,807 10,004 8,584",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-12",
+              "value": 19492000.0,
+              "label": "Depreciation and amortization4, 734,813 19,492 93,823 60,176",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-12",
+              "value": 0.0,
+              "label": "Asset impairment\u2014 \u2014 4,401 \u2014",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-12",
+            "value": 90580000.0,
+            "label": "Total expenses120,003 90,580 352,310 272,389",
+            "start": "2024-07-01",
+            "end": "2024-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-12",
+              "value": -35779000.0,
+              "label": "Total other expense(120,010)(35,779)(96,507)(117,757)",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-12",
+                "value": -14308000.0,
+                "label": "Equity in earnings (losses) of unconsolidated entities62,928 (14,308)6,247 (38,998)",
+                "start": "2024-07-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnSaleOfPropertyPlantEquipment",
+                "context": "c-12",
+                "value": 2758000.0,
+                "label": "Gain on sale of assets, net28 2,758 119,856 2,595",
+                "start": "2024-07-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 18,
+                "tag": "us-gaap:GainsLossesOnExtinguishmentOfDebt",
+                "context": "c-12",
+                "value": 747000.0,
+                "label": "(Loss) gain on modification or extinguishment of debt8(55,208)747 (59,281)(8,423)",
+                "start": "2024-07-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-12",
+                "value": -31513000.0,
+                "label": "Interest expense (73,312)(31,513)(175,628)(88,796)",
+                "start": "2024-07-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-12",
+                "value": 6537000.0,
+                "label": "Other income5,554 6,537 12,299 15,865",
+                "start": "2024-07-01",
+                "end": "2024-09-30",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-12",
+              "value": -43048000.0,
+              "label": "Loss before income taxes(99,457)(43,048)(89,814)(139,413)",
+              "start": "2024-07-01",
+              "end": "2024-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2025-01-01",
+          "end": "2025-09-30",
+          "operating_subtotal": 6693000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-1",
+            "value": 359003000.0,
+            "label": "Total revenues11$140,556 $83,311 $359,003 $250,733",
+            "start": "2025-01-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OtherCostAndExpenseOperating",
+              "context": "c-1",
+              "value": 216465000.0,
+              "label": "Operating expenses74,985 62,766 216,465 188,566",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-1",
+              "value": 12177000.0,
+              "label": "General and administrative3,202 2,989 12,177 10,690",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-1",
+              "value": 15440000.0,
+              "label": "Acquisition and transaction expenses3,221 2,526 15,440 4,373",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-1",
+              "value": 10004000.0,
+              "label": "Management fees and incentive allocation to affiliate153,782 2,807 10,004 8,584",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-1",
+              "value": 93823000.0,
+              "label": "Depreciation and amortization4, 734,813 19,492 93,823 60,176",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-1",
+              "value": 4401000.0,
+              "label": "Asset impairment\u2014 \u2014 4,401 \u2014",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-1",
+            "value": 352310000.0,
+            "label": "Total expenses120,003 90,580 352,310 272,389",
+            "start": "2025-01-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-1",
+              "value": -96507000.0,
+              "label": "Total other expense(120,010)(35,779)(96,507)(117,757)",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-1",
+                "value": 6247000.0,
+                "label": "Equity in earnings (losses) of unconsolidated entities62,928 (14,308)6,247 (38,998)",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnSaleOfPropertyPlantEquipment",
+                "context": "c-1",
+                "value": 119856000.0,
+                "label": "Gain on sale of assets, net28 2,758 119,856 2,595",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 18,
+                "tag": "us-gaap:GainsLossesOnExtinguishmentOfDebt",
+                "context": "c-1",
+                "value": -59281000.0,
+                "label": "(Loss) gain on modification or extinguishment of debt8(55,208)747 (59,281)(8,423)",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-1",
+                "value": -175628000.0,
+                "label": "Interest expense (73,312)(31,513)(175,628)(88,796)",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-1",
+                "value": 12299000.0,
+                "label": "Other income5,554 6,537 12,299 15,865",
+                "start": "2025-01-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-1",
+              "value": -89814000.0,
+              "label": "Loss before income taxes(99,457)(43,048)(89,814)(139,413)",
+              "start": "2025-01-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          }
+        },
+        {
+          "start": "2025-07-01",
+          "end": "2025-09-30",
+          "operating_subtotal": 20553000.0,
+          "revenue": {
+            "row": 4,
+            "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "context": "c-11",
+            "value": 140556000.0,
+            "label": "Total revenues11$140,556 $83,311 $359,003 $250,733",
+            "start": "2025-07-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "expenses": [
+            {
+              "row": 7,
+              "tag": "us-gaap:OtherCostAndExpenseOperating",
+              "context": "c-11",
+              "value": 74985000.0,
+              "label": "Operating expenses74,985 62,766 216,465 188,566",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 8,
+              "tag": "us-gaap:GeneralAndAdministrativeExpense",
+              "context": "c-11",
+              "value": 3202000.0,
+              "label": "General and administrative3,202 2,989 12,177 10,690",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 9,
+              "tag": "us-gaap:BusinessCombinationAcquisitionRelatedCosts",
+              "context": "c-11",
+              "value": 3221000.0,
+              "label": "Acquisition and transaction expenses3,221 2,526 15,440 4,373",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 10,
+              "tag": "us-gaap:ManagementFeeExpense",
+              "context": "c-11",
+              "value": 3782000.0,
+              "label": "Management fees and incentive allocation to affiliate153,782 2,807 10,004 8,584",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 11,
+              "tag": "us-gaap:DepreciationDepletionAndAmortization",
+              "context": "c-11",
+              "value": 34813000.0,
+              "label": "Depreciation and amortization4, 734,813 19,492 93,823 60,176",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            {
+              "row": 12,
+              "tag": "us-gaap:AssetImpairmentCharges",
+              "context": "c-11",
+              "value": 0.0,
+              "label": "Asset impairment\u2014 \u2014 4,401 \u2014",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          ],
+          "cost_total": {
+            "row": 13,
+            "tag": "us-gaap:CostsAndExpenses",
+            "context": "c-11",
+            "value": 120003000.0,
+            "label": "Total expenses120,003 90,580 352,310 272,389",
+            "start": "2025-07-01",
+            "end": "2025-09-30",
+            "dimensions": false
+          },
+          "bridge": {
+            "nonoperating": {
+              "row": 21,
+              "tag": "us-gaap:NonoperatingIncomeExpense",
+              "context": "c-11",
+              "value": -120010000.0,
+              "label": "Total other expense(120,010)(35,779)(96,507)(117,757)",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            },
+            "components": [
+              {
+                "row": 16,
+                "tag": "us-gaap:IncomeLossFromEquityMethodInvestments",
+                "context": "c-11",
+                "value": 2928000.0,
+                "label": "Equity in earnings (losses) of unconsolidated entities62,928 (14,308)6,247 (38,998)",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 17,
+                "tag": "us-gaap:GainLossOnSaleOfPropertyPlantEquipment",
+                "context": "c-11",
+                "value": 28000.0,
+                "label": "Gain on sale of assets, net28 2,758 119,856 2,595",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 18,
+                "tag": "us-gaap:GainsLossesOnExtinguishmentOfDebt",
+                "context": "c-11",
+                "value": -55208000.0,
+                "label": "(Loss) gain on modification or extinguishment of debt8(55,208)747 (59,281)(8,423)",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 19,
+                "tag": "us-gaap:InterestIncomeExpenseNet",
+                "context": "c-11",
+                "value": -73312000.0,
+                "label": "Interest expense (73,312)(31,513)(175,628)(88,796)",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              },
+              {
+                "row": 20,
+                "tag": "us-gaap:OtherNonoperatingIncomeExpense",
+                "context": "c-11",
+                "value": 5554000.0,
+                "label": "Other income5,554 6,537 12,299 15,865",
+                "start": "2025-07-01",
+                "end": "2025-09-30",
+                "dimensions": false
+              }
+            ],
+            "pretax": {
+              "row": 22,
+              "tag": "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+              "context": "c-11",
+              "value": -99457000.0,
+              "label": "Loss before income taxes(99,457)(43,048)(89,814)(139,413)",
+              "start": "2025-07-01",
+              "end": "2025-09-30",
+              "dimensions": false
+            }
+          }
+        }
+      ]
+    },
+    "geometry": {
+      "symbol": "FIP",
+      "role": "prior",
+      "sha256": "7c8d53045464d8ab9457df8b5c2dd27f1da984eee35dd375068f2ac44e518790",
+      "periods": [
+        {
+          "start": "2024-01-01",
+          "end": "2024-09-30",
+          "header": "Nine Months Ended September 30, 2024",
+          "checked_rows": 15
+        },
+        {
+          "start": "2024-07-01",
+          "end": "2024-09-30",
+          "header": "Three Months Ended September 30, 2024",
+          "checked_rows": 15
+        },
+        {
+          "start": "2025-01-01",
+          "end": "2025-09-30",
+          "header": "Nine Months Ended September 30, 2025",
+          "checked_rows": 15
+        },
+        {
+          "start": "2025-07-01",
+          "end": "2025-09-30",
+          "header": "Three Months Ended September 30, 2025",
+          "checked_rows": 15
+        }
+      ],
+      "checked_numeric_cells": 60,
+      "sourcewide_matching_facts": 143
+    }
+  }
+}
