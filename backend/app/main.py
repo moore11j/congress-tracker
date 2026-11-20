@@ -24,6 +24,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.request_admission import acquire_without_blocking
+from app.services.response_memory_cache import ResponseMemoryCache
 
 from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -2662,7 +2663,7 @@ _TICKER_CHART_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_CHART
 _TICKER_WIDGET_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_WIDGET_MAX_CONCURRENCY", "3") or 3))
 _ANALYTICS_TEMPORARILY_UNAVAILABLE = "Analytics temporarily unavailable. Try again shortly."
 _MEMBER_ANALYTICS_CACHE_TTL_SECONDS = int(os.getenv("MEMBER_ANALYTICS_CACHE_TTL_SECONDS", "900") or 900)
-_MEMBER_ANALYTICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_MEMBER_ANALYTICS_CACHE = ResponseMemoryCache(max_bytes=8 * 1024 * 1024)
 _MEMBER_ANALYTICS_CACHE_LOCK = threading.Lock()
 
 
@@ -2706,11 +2707,14 @@ def _member_analytics_cache_set(cache_key: str | None, payload: dict[str, Any]) 
         with _MEMBER_ANALYTICS_CACHE_LOCK:
             _MEMBER_ANALYTICS_CACHE[cache_key] = (time.time() + _member_analytics_cache_ttl_seconds(), copy.deepcopy(payload))
     return payload
-_PUBLIC_GET_RESPONSE_CACHE: dict[str, tuple[float, int, dict[str, str], bytes]] = {}
+_PUBLIC_GET_RESPONSE_CACHE = ResponseMemoryCache(
+    max_bytes=32 * 1024 * 1024,
+    retain_until=lambda value: value[0] + _public_get_cache_stale_seconds(),
+)
 _PUBLIC_GET_RESPONSE_INFLIGHT: dict[str, asyncio.Event] = {}
 _PUBLIC_GET_RESPONSE_CACHE_LOCK = threading.Lock()
 _PUBLIC_GET_RESPONSE_CACHE_STATS: dict[str, int] = {"hit": 0, "stale": 0, "store": 0, "miss": 0, "bypass": 0}
-_PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE = ResponseMemoryCache(max_bytes=8 * 1024 * 1024)
 _PUBLIC_OUTCOME_LEDGER_RESPONSE_CACHE_LOCK = threading.Lock()
 _TICKER_CHART_INFLIGHT: dict[str, dict] = {}
 _TICKER_CHART_INFLIGHT_LOCK = threading.Lock()
@@ -3032,7 +3036,11 @@ def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | Non
 PROFILE_OVERVIEW_CACHE_TTL_SECONDS = 900
 CONGRESS_OVERVIEW_CACHE_VERSION = "active_members_v3"
 DEPARTMENTS_OVERVIEW_CACHE_VERSION = "department_row_prior_values_v1"
-_PROFILE_OVERVIEW_RESPONSE_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
+_PROFILE_OVERVIEW_RESPONSE_CACHE = ResponseMemoryCache(
+    max_bytes=16 * 1024 * 1024, max_entries=100,
+    retain_until=lambda value: value[0] + PROFILE_OVERVIEW_CACHE_TTL_SECONDS,
+    clock=lambda: time.monotonic(),
+)
 _PROFILE_OVERVIEW_RESPONSE_CACHE_LOCK = threading.Lock()
 _PROFILE_OVERVIEW_INFLIGHT: dict[tuple[Any, ...], threading.Event] = {}
 
@@ -3712,15 +3720,21 @@ async def public_get_response_cache(request: Request, call_next):
             _PUBLIC_GET_RESPONSE_CACHE[cache_key] = (
                 time.time() + _public_get_cache_ttl_seconds(),
                 response.status_code,
-                headers,
+                dict(headers),
                 body,
             )
+            stored = cache_key in _PUBLIC_GET_RESPONSE_CACHE
+            cache_entries = len(_PUBLIC_GET_RESPONSE_CACHE)
+            cache_bytes = _PUBLIC_GET_RESPONSE_CACHE.charged_bytes
             _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
         if inflight_leader and inflight_event is not None:
             inflight_event.set()
-        _public_get_cache_stat("store")
+        if not stored:
+            headers["x-walnut-public-cache"] = "bypass"
+        _public_get_cache_stat("store" if stored else "bypass")
         headers["x-walnut-public-cache-key"] = cache_key_hash or ""
-        logger.info("public_get_response_cache_store path=%s key=%s bytes=%s", request.url.path, cache_key_hash, len(body))
+        logger.info("public_get_response_cache_admission path=%s key=%s bytes=%s stored=%s entries=%s charged_bytes=%s",
+                    request.url.path, cache_key_hash, len(body), stored, cache_entries, cache_bytes)
         return Response(content=body, status_code=response.status_code, headers=headers)
     finally:
         if cache_key and inflight_leader and inflight_event is not None:
@@ -4282,6 +4296,18 @@ def _startup_create_tables():
         _schedule_startup_maintenance("startup_profile_overview_prewarm", _run_profile_overview_prewarm)
     else:
         _startup_step_skipped("startup_profile_overview_prewarm", "PROFILE_OVERVIEW_PREWARM_ENABLED disabled")
+
+
+@app.on_event("startup")
+def _start_api_memory_inventory():
+    from app.services.api_memory_inventory import start_observer
+    start_observer()
+
+
+@app.on_event("shutdown")
+def _stop_api_memory_inventory():
+    from app.services.api_memory_inventory import stop_observer
+    stop_observer()
 
 
 def _sqlite_path_from_database_url(database_url: str) -> str | None:
@@ -9249,11 +9275,11 @@ def _log_ticker_endpoint_payload(
     )
 
 
-_TICKER_PROFILE_RESPONSE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-_TICKER_SIGNALS_SUMMARY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TICKER_PROFILE_RESPONSE_CACHE = ResponseMemoryCache(max_bytes=8 * 1024 * 1024)
+_TICKER_SIGNALS_SUMMARY_CACHE = ResponseMemoryCache(max_bytes=8 * 1024 * 1024)
 _TICKER_SIGNALS_SUMMARY_INFLIGHT: dict[str, dict[str, Any]] = {}
 _TICKER_SIGNALS_SUMMARY_INFLIGHT_LOCK = threading.Lock()
-_TICKER_CHART_BUNDLE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TICKER_CHART_BUNDLE_CACHE = ResponseMemoryCache(max_bytes=8 * 1024 * 1024)
 _TICKER_RESPONSE_CACHE_LOCK = threading.Lock()
 
 

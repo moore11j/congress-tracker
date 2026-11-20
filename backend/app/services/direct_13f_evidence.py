@@ -101,6 +101,9 @@ class VerifiedPeerRecord:
     compact: tuple | None
 
 
+_VerifiedPeerRecordType = VerifiedPeerRecord
+
+
 MAX_STREAM_SPOOL_BYTES = 128_000_000
 MAX_STREAM_RESIDENT_BYTES = 20_000_000
 
@@ -254,6 +257,33 @@ class VerifiedPeerCohort:
 
 
 def prepare_streamed_peer_groups(documents, *, scopes, spill_to_disk=False):
+    return prepare_verified_peer_groups(verified_peer_records(documents, periods=scopes), scopes=scopes,
+                                       spill_to_disk=spill_to_disk)
+
+
+def verified_peer_records(documents, *, periods=None):
+    """Verify originals before producing immutable full-scope parse records."""
+    from app.services.direct_feed_worker import _source_url
+    for document in documents:
+        if document.get('feed') != 'sec_13f':
+            raise ValueError('Wrong comparison evidence feed')
+        _source_url(document['metadata'])
+        identity = _evidence_key(document)
+        compact = None
+        try:
+            _, parsed, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
+        except DirectSourceError:
+            pass
+        else:
+            compact = (json.dumps(parsed['metadata'], default=str), json.dumps(reasons),
+                       _equity_totals(parsed['positions']) if periods is None or parsed['metadata']['report_period'] in periods else ())
+            del parsed
+        yield VerifiedPeerRecord(identity, json.dumps(document['metadata'], sort_keys=True),
+                                 document['content_hash'], len(document['raw']), compact)
+        del compact
+
+
+def prepare_verified_peer_groups(records, *, scopes, spill_to_disk=False):
     """Scan complete originals, retaining bounded summaries instead of raw files.
 
     scopes maps report periods to target CUSIPs; None retains complete values
@@ -280,35 +310,32 @@ def prepare_streamed_peer_groups(documents, *, scopes, spill_to_disk=False):
         return _SpooledPeerRecord(record.identity, record.metadata_json, record.content_hash,
                                   record.source_bytes, spool.append(record.compact), spool)
     try:
-        for document in documents:
-            if document.get('feed') != 'sec_13f':
-                raise ValueError('Wrong comparison evidence feed')
-            _source_url(document['metadata'])
-            identity = _evidence_key(document)
+        for original in records:
+            if not isinstance(original, _VerifiedPeerRecordType):
+                raise TypeError('Expected verified original parse record')
+            _source_url(json.loads(original.metadata_json))
             compact = None
             periods = groups
-            try:
-                _, parsed, reasons = parse_document('sec_13f', document['raw'], document['metadata'])
-            except DirectSourceError:
-                pass
-            else:
-                period = parsed['metadata']['report_period']
+            if original.compact is not None:
+                parsed_metadata, reasons, all_totals = original.compact
+                period = json.loads(parsed_metadata)['report_period']
                 periods = [period] if period in groups else []
                 if scopes is None:
                     periods = [None]
                 if periods:
                     wanted = scopes[period] if scopes is not None else None
-                    totals = tuple(row for row in _equity_totals(parsed['positions'])
+                    totals = tuple(row for row in all_totals
                                    if wanted is None or row[0] in wanted)
                     if wanted is not None:
                         totals = tuple((indexes[period][cusip], shares, value)
                                        for cusip, shares, value in totals)
-                    compact = (json.dumps(parsed['metadata'], default=str), json.dumps(reasons), totals)
-                del parsed
+                    compact = (parsed_metadata, reasons, totals)
+                del all_totals
             if not periods:
+                del original
                 continue
-            record = VerifiedPeerRecord(identity, json.dumps(document['metadata'], sort_keys=True),
-                                        document['content_hash'], len(document['raw']), compact)
+            record = VerifiedPeerRecord(original.identity, original.metadata_json,
+                                        original.content_hash, original.source_bytes, compact)
             size = _peer_record_size(record)
             heap_size = _peer_record_resident_size(record) if spill_to_disk else 0
             if spool is None and spill_to_disk and (
@@ -341,6 +368,7 @@ def prepare_streamed_peer_groups(documents, *, scopes, spill_to_disk=False):
                 groups[period].append(record)
                 sizes[period] += size
                 heap_sizes[period] += heap_size
+            del original, compact
         if any(not records for records in groups.values()):
             raise ValueError('Missing staged comparison period evidence')
         if spool is not None:

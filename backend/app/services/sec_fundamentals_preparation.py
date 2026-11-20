@@ -38,6 +38,13 @@ def version_for_symbol(symbol):
 
 
 def _base_version_for_symbol(symbol):
+    if symbol == 'LGIH':
+        from app.services.sec_primary_equity import VERSION as primary_equity_version
+        return VERSION+'_'+primary_equity_version
+    if symbol == 'MNOV':
+        # Retry the retained incomplete cache, not an eligibility allowlist.
+        from app.services.sec_domestic_revenue_zeros import VERSION as domestic_zero_version
+        return VERSION+'_'+domestic_zero_version
     if symbol == 'ADAG':
         from app.services.sec_primary_revenue_zero import VERSION as zero_version
         return VERSION+'_'+zero_version

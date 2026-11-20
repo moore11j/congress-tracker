@@ -272,7 +272,8 @@ def select_13f_batch(db, *, generation, limit=100, retry_waiting=False, include_
     return ids, retry_ids, expected_state
 
 
-def prepare_13f_batch(db, *, ids, identifier_documents, use_staged_references=False, checkpoint=lambda phase: None):
+def prepare_13f_batch(db, *, ids, identifier_documents, use_staged_references=False, checkpoint=lambda phase: None,
+                     use_prepared_peers=False):
     """Prepare complete original-bound evidence; no writes or transaction changes."""
     if not ids or len(ids) > 200 or len(set(ids)) != len(ids):
         raise ValueError("Preparation requires 1 to 200 distinct targets")
@@ -303,9 +304,20 @@ def prepare_13f_batch(db, *, ids, identifier_documents, use_staged_references=Fa
         for document in _staged_sources(db, retain_originals=False):
             checkpoint('complete_peer_scan')
             yield document
-    groups = prepare_streamed_peer_groups(sources(),
-        scopes=value_scopes if report_periods is not None else None, spill_to_disk=True)
+    peer_fingerprint = None
+    if use_prepared_peers:
+        from app.services.direct_13f_preparation import prepared_records, preparation_fingerprint
+        from app.services.direct_13f_evidence import prepare_verified_peer_groups
+        tick = lambda: checkpoint('complete_peer_scan')
+        peer_fingerprint = preparation_fingerprint(db, checkpoint=tick)
+        groups = prepare_verified_peer_groups(prepared_records(db, checkpoint=tick),
+            scopes=value_scopes if report_periods is not None else None, spill_to_disk=True)
+    else:
+        groups = prepare_streamed_peer_groups(sources(),
+            scopes=value_scopes if report_periods is not None else None, spill_to_disk=True)
     try:
+        if use_prepared_peers and preparation_fingerprint(db, checkpoint=tick) != peer_fingerprint:
+            raise ValueError('Complete institutional preparation changed')
         checkpoint('references_and_evidence')
         references = []
         if use_staged_references:
@@ -318,7 +330,7 @@ def prepare_13f_batch(db, *, ids, identifier_documents, use_staged_references=Fa
         comparisons = {record.identity: record for cohort in groups.values() for record in cohort.records}
         checkpoint('complete')
         return dict(groups=groups, evidence=evidence, references=references,
-            target_periods=target_periods, reference_scopes=reference_scopes,
+            target_periods=target_periods, reference_scopes=reference_scopes, peer_fingerprint=peer_fingerprint,
             summary={
                 'comparison_periods': sorted(report_periods) if report_periods is not None else None,
                 'comparison_group_counts': {str(period): len(group) for period, group in groups.items()},
@@ -333,7 +345,8 @@ def prepare_13f_batch(db, *, ids, identifier_documents, use_staged_references=Fa
         raise
 
 
-def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False, include_waiting=False):
+def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=False, use_staged_references=False, include_waiting=False,
+                     use_prepared_peers=False):
     _validate_batch_options(limit, retry_waiting, include_waiting)
     if db.new or db.dirty or db.deleted:
         raise ValueError('Feed writer session has unrelated pending changes')
@@ -344,7 +357,7 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         db.rollback()
         return {'status': 'ok', 'processed': 0, 'feed_events': 0, 'results': [], 'email_deliveries': 0}
     prepared = prepare_13f_batch(db, ids=ids, identifier_documents=identifier_documents,
-        use_staged_references=use_staged_references)
+        use_staged_references=use_staged_references, use_prepared_peers=use_prepared_peers)
     try:
         db.rollback()  # Recheck durable ownership inside every filing transaction.
         groups, evidence, references = prepared['groups'], prepared['evidence'], prepared['references']
@@ -352,9 +365,15 @@ def publish_13f_batch(db, *, identifier_documents, limit=100, retry_waiting=Fals
         report_periods = prepared['summary']['comparison_periods']
         def group_key(document_id):
             return target_periods[document_id] if report_periods is not None else None
+        def verify_prepared():
+            if use_prepared_peers:
+                from app.services.direct_13f_preparation import preparation_fingerprint
+                if preparation_fingerprint(db) != prepared['peer_fingerprint']:
+                    raise ValueError('Complete institutional preparation changed')
         results = [dict(document_id=document_id, **publish_13f_document(db, document_id,
             identifier_documents=identifier_documents, comparison_documents=groups[group_key(document_id)],
             prepared_evidence=evidence[group_key(document_id)],
+            **({'verify_prepared': verify_prepared} if use_prepared_peers else {}),
             reference_documents=[r for r in references if (r['query']['cusip'], r['query']['date']) in reference_scopes.get(document_id, set())])) for document_id in ids]
         if retry_ids:
             _save_retry_position(db, generation, expected_state, retry_ids[-1])
