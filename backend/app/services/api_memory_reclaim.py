@@ -44,8 +44,10 @@ def _rss_kib():
 
 
 class ReclaimTrial:
-    def __init__(self, *, clock=time.monotonic, resolve=_native_trim, rss=_rss_kib):
+    def __init__(self, *, clock=time.monotonic, resolve=_native_trim, rss=_rss_kib,
+                 timer=time.perf_counter):
         self._clock, self._resolve, self._rss = clock, resolve, rss
+        self._timer = timer
         self._deadline = clock() + MAX_LEASE_SECONDS
         self._eligible_at = None
         self._consumed = False
@@ -75,9 +77,9 @@ class ReclaimTrial:
                 return None
             # Consume before symbol resolution or native invocation, including failure.
             self._consumed = True
-            result = dict(event='api_memory_reclaim', mode='once', observed_rss_kib=rss,
+            result = dict(event='api_memory_reclaim', mode='once', pid=os.getpid(), observed_rss_kib=rss,
                           observed_allocator_free_bytes=free, pad_bytes=PAD_BYTES)
-            started = self._clock()
+            started = self._timer()
             try:
                 trim = self._resolve()
                 if trim is None:
@@ -88,7 +90,7 @@ class ReclaimTrial:
             except Exception:
                 result['state'] = 'unavailable'  # No exception text or heap values.
             finally:
-                result['duration_ms'] = round((self._clock() - started) * 1000, 3)
+                result['duration_ms'] = round((self._timer() - started) * 1000, 3)
             try:
                 after = self._rss()
                 if type(after) is int and after >= 0:

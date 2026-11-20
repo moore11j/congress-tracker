@@ -3,6 +3,7 @@ import json
 import sys
 import threading
 import time
+import os
 
 import pytest
 
@@ -59,6 +60,7 @@ def test_two_qualifying_observations_and_no_second_attempt(monkeypatch):
     result = reclaim.maybe_reclaim(original)
     assert result['state'] == 'attempted' and result['released_pages'] is True
     assert result['after_rss_kib'] == 12345
+    assert result['pid'] == os.getpid() and result['duration_ms'] >= 0
     assert calls == [8 * 1024**2] and original == saved
     now[0] = 999999
     assert reclaim.maybe_reclaim(original) is None
