@@ -15,6 +15,7 @@ import threading
 import time
 
 from app.services.response_memory_cache import ResponseMemoryCache
+from app.services.api_memory_reclaim import maybe_reclaim
 
 
 _MAIN = (
@@ -191,7 +192,12 @@ def observe(stop, emit, *, collect=collect_inventory, summary=process_summary, c
         if clock() >= deadline:
             return
         try:
-            emit(dict(event='api_memory_inventory', sequence=index + 1, **summary(), **collect()))
+            sample = dict(event='api_memory_inventory', sequence=index + 1, **summary(), **collect())
+            emit(sample)
+            if not stop.is_set():
+                reclaimed = maybe_reclaim(sample)
+                if reclaimed is not None:
+                    emit(reclaimed)
         except Exception:
             emit(dict(event='api_memory_inventory', sequence=index + 1, state='unavailable'))
         remaining = deadline - clock()

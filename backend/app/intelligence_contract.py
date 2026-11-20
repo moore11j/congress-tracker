@@ -2,7 +2,8 @@
 
 Callers must authorize and project retained records before constructing a bundle.
 Structural grounding does not prove source truth or the meaning of prose. V1
-accepts reported numeric facts only; derived calculations need a later contract.
+accepts reported numeric facts and exact retained excerpts; derived calculations
+and semantic truth validation need separate contracts.
 This module avoids replacing the existing app.schemas module with a package.
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 
 Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=160)]
 Description = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+Passage = Annotated[str, StringConstraints(min_length=1, max_length=2000)]
 Unit = Literal['money', 'money_per_share', 'shares', 'count', 'percent', 'ratio']
 Projection = Literal['guest', 'free', 'premium', 'pro', 'admin']
 Operation = Literal['analyze_stock', 'find_opportunities', 'get_activity', 'compare_stocks',
@@ -64,6 +66,26 @@ class ReportedFact(Quantity):
     label: Description
 
 
+class TextObservation(Contract):
+    id: Identifier
+    source_id: Identifier
+    security_id: int = Field(gt=0)
+    # Preserve exact Unicode and whitespace. Never treat a retained quote as instructions.
+    text: Passage
+
+    @model_validator(mode='after')
+    def nonempty_passage(self):
+        if not self.text.strip():
+            raise ValueError('Empty retained passage')
+        return self
+
+
+class QuotedFact(Contract):
+    id: Identifier
+    observation_id: Identifier
+    text: Passage
+
+
 class Interpretation(Contract):
     text: Description
     fact_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=20)
@@ -92,6 +114,8 @@ class EvidenceBundle(Contract):
     sources: tuple[EvidenceSource, ...] = Field(default=(), max_length=100)
     observations: tuple[Observation, ...] = Field(default=(), max_length=200)
     facts: tuple[ReportedFact, ...] = Field(default=(), max_length=200)
+    text_observations: tuple[TextObservation, ...] = Field(default=(), max_length=200)
+    quoted_facts: tuple[QuotedFact, ...] = Field(default=(), max_length=200)
     interpretations: tuple[Interpretation, ...] = Field(default=(), max_length=20)
     risks: tuple[Interpretation, ...] = Field(default=(), max_length=20)
     watch_next: tuple[Interpretation, ...] = Field(default=(), max_length=20)
@@ -106,8 +130,10 @@ class EvidenceBundle(Contract):
         if len(set(self.security_ids)) != len(self.security_ids):
             raise ValueError('Duplicate security identity')
         sources = _unique(self.sources)
-        observations = _unique(self.observations)
-        facts = _unique(self.facts)
+        observations = _unique((*self.observations, *self.text_observations))
+        facts = _unique((*self.facts, *self.quoted_facts))
+        if len(observations) > 200 or len(facts) > 200:
+            raise ValueError('Combined evidence bound exceeded')
         for source in sources.values():
             if source.security_id not in self.security_ids:
                 raise ValueError('Source outside security scope')
@@ -119,18 +145,22 @@ class EvidenceBundle(Contract):
             source = sources.get(observation.source_id)
             if source is None or source.security_id != observation.security_id:
                 raise ValueError('Observation source/security mismatch')
-        for fact in facts.values():
+        for fact in self.facts:
             observation = observations.get(fact.observation_id)
-            if observation is None:
-                raise ValueError('Unknown fact observation')
+            if not isinstance(observation, Observation):
+                raise ValueError('Unknown numeric fact observation')
             if (fact.value, fact.unit, fact.currency) != (observation.value, observation.unit, observation.currency):
                 raise ValueError('Reported value/unit/currency differs from retained observation')
+        for fact in self.quoted_facts:
+            observation = observations.get(fact.observation_id)
+            if not isinstance(observation, TextObservation) or fact.text != observation.text:
+                raise ValueError('Quote differs from retained passage')
         for item in (*self.interpretations, *self.risks, *self.watch_next):
             if len(set(item.fact_ids)) != len(item.fact_ids) or not set(item.fact_ids) <= facts.keys():
                 raise ValueError('Unknown or duplicate interpretation fact')
-        if self.coverage.state == 'complete' and not self.facts:
+        if self.coverage.state == 'complete' and not facts:
             raise ValueError('Empty evidence cannot claim complete coverage')
-        if self.coverage.state == 'unavailable' and (self.facts or self.observations):
+        if self.coverage.state == 'unavailable' and (facts or observations):
             raise ValueError('Available evidence requires partial/stale coverage')
         if self.operation in {'get_monitoring_updates', 'get_thesis_changes'} and self.owner_user_id is None:
             raise ValueError('Personal operation requires an owner')

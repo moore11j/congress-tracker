@@ -19,3 +19,12 @@ Next: implement cache-only authorized readers against the existing evidence serv
 Local validation at 2026-11-19 21:49 MST: 48 tests pass on the configured Python 3.14 environment in 1.19 seconds. Dedicated Python 3.12 Linux CI is prepared; no CI result yet.
 
 2026-11-19 22:20 MST: Reconciled with deployed main9253e258; no application conflict. Prior code at ebe8a208 passed48Linux tests and all6checks. The approved proposal and historical audit sources are retained in this branch; no new product or source activation occurs.
+
+
+## Exact retained quotations, 2026-11-20 12:19 MST
+
+The passive draft now represents retained text observations and quoted facts, in addition to numeric observations. A quote must equal its cited passage character for character, including Unicode and whitespace. Numeric and text identities share one namespace and combined200item bounds; citations, source/security scope, availability dates, account/plan projections and consumption revalidation apply to both. Quotes remain untrusted data: exact quotation proves neither truth nor the meaning of an interpretation. Derived calculations remain unsupported.
+
+Sixty-five local contract checks pass, including altered quotations, cross-type citations, empty/oversized passages, ID collisions, malicious text as inert data and copied-model revalidation. Existing live routes and readers are unchanged. Main48368bca reconciliation has no application conflicts. LinuxCI is pending for the expanded draft.
+
+Reader audit: the existing event serializer omits source_revision_hash, normalized numeric observations use Float, and document rows retain the latest mutable revision rather than a complete availability history. current_entitlements can seed missing feature/plan defaults. New pure readers must consume server-resolved access separately, retain source revisions and conservative availability, avoid provider calls/writes, and expose source coverage limits. This draft does not yet implement or authorize a public evidence facade or Ask Walnut.

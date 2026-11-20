@@ -165,6 +165,7 @@ def test_wall_deadline_stops_observer_even_when_samples_are_delayed():
     now, records = [0], []
     class Stop:
         def wait(self, seconds): return False
+        def is_set(self): return False
     def delayed():
         now[0] += 86401
         return {}

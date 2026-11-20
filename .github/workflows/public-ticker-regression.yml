@@ -5,6 +5,9 @@ on:
       - "backend/app/main.py"
       - "backend/app/services/api_memory_inventory.py"
       - "backend/tests/test_api_memory_inventory.py"
+      - "backend/app/services/api_memory_reclaim.py"
+      - "backend/tests/test_api_memory_reclaim.py"
+      - "backend/scripts/verify_allocator_reclaim_fixture.py"
       - "backend/app/services/response_memory_cache.py"
       - "backend/tests/test_response_memory_cache.py"
       - "backend/tests/test_public_get_response_cache.py"
@@ -36,12 +39,20 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: python -m pip install -r backend/requirements.txt pytest
       - working-directory: backend
-        run: python -m pytest tests/test_public_ticker_snapshot.py tests/test_public_ticker_render_cache.py tests/test_ticker_context_canonical_projection.py tests/test_native_cash_flow_display.py tests/test_response_memory_cache.py tests/test_api_memory_inventory.py tests/test_public_get_response_cache.py tests/test_ticker_chart_bundle.py tests/test_outcome_ledger.py -q --disable-warnings --junitxml=public-ticker-results.xml
+        run: python -m pytest tests/test_public_ticker_snapshot.py tests/test_public_ticker_render_cache.py tests/test_ticker_context_canonical_projection.py tests/test_native_cash_flow_display.py tests/test_response_memory_cache.py tests/test_api_memory_inventory.py tests/test_api_memory_reclaim.py tests/test_public_get_response_cache.py tests/test_ticker_chart_bundle.py tests/test_outcome_ledger.py -q --disable-warnings --junitxml=public-ticker-results.xml
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: public-ticker-results
           path: backend/public-ticker-results.xml
+          retention-days: 7
+      - working-directory: backend
+        run: python scripts/verify_allocator_reclaim_fixture.py > allocator-reclaim-fixture.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allocator-reclaim-fixture
+          path: backend/allocator-reclaim-fixture.json
           retention-days: 7
   ticker-fetch:
     runs-on: ubuntu-24.04
