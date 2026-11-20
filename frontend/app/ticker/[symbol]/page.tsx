@@ -25,6 +25,7 @@ import {
   tradeTypeTextClassName,
 } from "@/components/ticker/TickerActivityText";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
+import { TickerPriceHeader } from "@/components/ticker/TickerPriceHeader";
 import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemoryCard";
 import { TickerDecisionPanels } from "@/components/ticker/TickerDecisionPanels";
 import { TickerFundamentalsSnapshot } from "@/components/ticker/TickerFundamentalsSnapshot";
@@ -2890,6 +2891,7 @@ async function resolveTickerActivityData({
 async function DeferredTickerContent({
   activityPromise,
   normalizedSymbol,
+  initialQuote,
   decisionLayer,
   lookback,
   source,
@@ -2912,6 +2914,7 @@ async function DeferredTickerContent({
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
+  initialQuote?: TickerContextBundleResponse["quote"];
   decisionLayer?: TickerDecisionLayer | null;
   lookback: Lookback;
   source: SourceFilter;
@@ -3027,7 +3030,7 @@ async function DeferredTickerContent({
   const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending;
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
   const closeDate = formatDateShort(priceVolumeContext?.latest_date ?? null);
-  const closeObservation = closeDate === "—" ? "Price date unavailable" : `Price as of ${closeDate}`;
+  const closeObservation = closeDate === "—" ? "Daily close date unavailable" : `Daily close as of ${closeDate}`;
   const priceVolumeChange = typeof priceVolumeContext?.change_pct_1d === "number" ? priceVolumeContext.change_pct_1d : null;
   const priceVolumeChangeTone = priceVolumeChange === null
     ? "text-slate-500"
@@ -3472,16 +3475,10 @@ showGovernmentContracts ? (
             institutionalActivity={institutionalActivity}
             contractsActivity={contractsActivity}
             mobileQuote={
-              <div aria-label="Price and volume summary" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-white/10 bg-slate-950/40 px-4 py-3 xl:hidden">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Latest available price · {normalizedSymbol}</p>
-                  <p className="text-xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)} <span className={`ml-2 text-xs ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)} <span className="text-slate-500">1D</span></span></p>
-                  <p className="mt-1 text-xs text-slate-400">{closeObservation}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500">Volume vs 30D avg</p>
-                  <p className="text-sm font-semibold tabular-nums text-slate-200">{formatUpperCardMultiple(priceVolumeContext?.volume_vs_avg)}</p>
-                </div>
+              <div aria-label="Price and volume summary" className="border-b border-white/10 bg-slate-950/40 px-4 py-3">
+                <TickerPriceHeader key={normalizedSymbol} symbol={normalizedSymbol} initialQuote={initialQuote}
+                  daily={{ price: priceVolumeContext?.latest_close, date: priceVolumeContext?.latest_date,
+                    changePercent: priceVolumeChange, relativeVolume: priceVolumeContext?.volume_vs_avg }} />
               </div>
             }
             overview={
@@ -4007,6 +4004,7 @@ export async function TickerPageRenderer({ params, searchParams, requestHeaders 
         <DeferredTickerContent
           activityPromise={activityPromise}
           normalizedSymbol={normalizedSymbol}
+          initialQuote={contextBundle?.quote}
           decisionLayer={contextBundle?.decision_layer ?? null}
           lookback={lookback}
           source={source}
