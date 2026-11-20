@@ -9,3 +9,8 @@ The recurring-refresh audit found a second defect: completed quote jobs inherit 
 Regression coverage exercises the next refresh cycle against a real SQLite job table, retaining the same job identity and rejecting duplicate queued/running jobs and immediate repeats. Boundary tests cover naive and UTC timestamps, FMP rollback behavior and other enrichment types. Linux price, consumer and PostgreSQL checks run in the existing compatibility workflow. Candidate release is not yet deployed at this checkpoint.
 
 Evidence in the owner workspace: `massive-price-incident-activation-nov20.json`, `massive-selected-installed-1795210554.json`, `massive-price-incident-warming-nov20.json`, `massive-price-recovery-1795210814.json`, `massive-price-recovery-1795211364.json`, and `price-refresh-cadence-1795211430.json` under `artifacts/`. Source activation is verified; broad universe warming, sustained capacity and the full FMP exit remain separate work.
+
+
+## Page-demand queue priority
+
+After PR836, ordinary run3896 refreshed NBIS and NVDA but SPY, ANT and QQQ remained queued. Current readonly replay finds bulk daily-price work fills95of120slots. Candidate selection moves only quote jobs with reason massive_quote_stale_or_missing ahead in the existing priority stream when Massive is selected. The overdue fairness stream still interleaves every fifth slot, and total/runtime/pressure limits are unchanged. Actual readonly120-row selection includes all three pending controls and13job kinds in0.240seconds, with no writes.94local tests pass including a metadata-flood case and FMP rollback parity; LinuxCI and release pending.

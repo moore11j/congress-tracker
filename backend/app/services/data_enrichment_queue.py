@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -820,7 +820,19 @@ def _select_enrichment_jobs(
     )
     # next_run_at measures this enqueue/retry, unlike the original creation date
     # retained when a completed deduplicated job is queued again.
+    from app.clients.massive_stocks import selected as massive_prices_selected
+
+    demand_order = []
+    if massive_prices_selected():
+        # Page-requested snapshots expire while waiting behind bulk metadata.
+        # Reserve no extra slots: use the existing priority stream and retain
+        # the interleaved overdue stream, limits and per-job pressure guards.
+        demand_order = [case((
+            (DataEnrichmentJob.job_type == "quote")
+            & (DataEnrichmentJob.reason == "massive_quote_stale_or_missing"), 0,
+        ), else_=1)]
     priority = db.execute(select(*columns).where(*filters).order_by(
+        *demand_order,
         DataEnrichmentJob.priority.asc(), DataEnrichmentJob.next_run_at.asc(),
         DataEnrichmentJob.id.asc(),
     ).limit(batch_size)).mappings().all()
