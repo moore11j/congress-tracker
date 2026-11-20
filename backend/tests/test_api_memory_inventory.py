@@ -1,10 +1,66 @@
 import json
 import sys
 import threading
+import ctypes
+import pytest
 from types import ModuleType
 
 from app.services import api_memory_inventory as inventory
 from app.services.response_memory_cache import ResponseMemoryCache
+
+
+def test_allocator_structure_uses_native_size_t_without_truncating_large_values():
+    assert ctypes.sizeof(inventory._Mallinfo2) == 10 * ctypes.sizeof(ctypes.c_size_t)
+    measured = inventory._Mallinfo2()
+    measured.arena = 8 * 1024**3
+    measured.uordblks = 3 * 1024**3
+    measured.fordblks = 5 * 1024**3
+    result = inventory.allocator_summary(read=lambda: measured)
+    assert result['state'] == 'observed'
+    assert result['counters']['arena'] == 8 * 1024**3
+    assert result['counters']['fordblks'] == 5 * 1024**3
+    assert set(result['counters']) == set(inventory._MALLINFO_FIELDS)
+    assert result['measurement_ms'] >= 0
+
+
+def test_allocator_failures_and_unsupported_platform_never_emit_private_data(monkeypatch):
+    def failure():
+        raise RuntimeError('PRIVATE-ALLOCATION-CONTENTS')
+    assert inventory.allocator_summary(read=failure) == {'state': 'unavailable'}
+    monkeypatch.setattr(inventory, '_allocator_reader', lambda: None)
+    assert inventory.allocator_summary() == {'state': 'unsupported'}
+
+
+def test_allocator_statistics_do_not_accept_object_representations():
+    class Trap:
+        def __repr__(self):
+            raise AssertionError('Private object repr invoked')
+    from types import SimpleNamespace
+    measured = SimpleNamespace(**dict.fromkeys(inventory._MALLINFO_FIELDS, Trap()))
+    assert inventory.allocator_summary(read=lambda: measured) == {'state': 'unavailable'}
+
+
+def test_process_summary_keeps_allocator_and_rss_distinct(monkeypatch):
+    monkeypatch.setattr(inventory, 'allocator_summary', lambda: {'state': 'unsupported'})
+    result = inventory.process_summary()
+    assert result['native_allocator'] == {'state': 'unsupported'}
+    assert 'python_allocated_blocks' in result and 'process_status' in result
+
+
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='GNU allocator integration runs in Linux CI')
+def test_real_gnu_allocator_reports_counters_without_changing_or_trimming_heap():
+    reader = inventory._allocator_reader()
+    if reader is None:
+        pytest.skip('mallinfo2 unavailable on this libc')
+    before = inventory.allocator_summary()
+    assert before['state'] == 'observed'
+    # Keep a buffer alive across the read; validate the real ABI without depending
+    # on one allocator's arena/tcache/mmap policy or exact allocation byte delta.
+    retained = bytearray(2 * 1024**2)
+    retained[0] = 97
+    after = inventory.allocator_summary()
+    assert after['state'] == 'observed' and retained[0] == 97
+    assert all(type(value) is int and value >= 0 for value in after['counters'].values())
 
 
 def module(cache, lock=None):
