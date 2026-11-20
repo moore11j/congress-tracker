@@ -34,6 +34,7 @@ DEFAULT_PREWARM_SYMBOLS = (
     "LMT",
 )
 DONE_JOB_COOLDOWN_SECONDS = 60 * 60
+MASSIVE_QUOTE_DONE_COOLDOWN_SECONDS = 60
 DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS = 7
 SYMBOL_REQUIRED_JOB_TYPES = {
     "analyst_recommendations",
@@ -364,7 +365,16 @@ def _job_completed_recently(job: DataEnrichmentJob, now: datetime) -> bool:
         return False
     if updated_at.tzinfo is None:
         updated_at = updated_at.replace(tzinfo=timezone.utc)
-    return (now - updated_at).total_seconds() < DONE_JOB_COOLDOWN_SECONDS
+    cooldown = DONE_JOB_COOLDOWN_SECONDS
+    if job.job_type == "quote":
+        from app.clients.massive_stocks import selected
+
+        # Delayed snapshots need another refresh on the next queue run. The
+        # general enrichment cooldown otherwise suppresses them for an hour.
+        # Keep active-job coalescing, worker limits and other feeds unchanged.
+        if selected():
+            cooldown = MASSIVE_QUOTE_DONE_COOLDOWN_SECONDS
+    return (now - updated_at).total_seconds() < cooldown
 
 
 def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
