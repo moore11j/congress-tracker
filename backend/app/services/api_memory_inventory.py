@@ -4,6 +4,8 @@ This measures only named caches in already-loaded modules. Partial traversals
 are explicitly lower bounds; totals cannot be equated with process RSS.
 """
 import itertools
+import ctypes
+from functools import lru_cache
 import json
 import logging
 import os
@@ -130,7 +132,54 @@ def process_summary():
     except (OSError, ValueError):
         status = {}
     return dict(pid=os.getpid(), process_status=status, python_allocated_blocks=sys.getallocatedblocks(),
-                python_threads=threading.active_count())
+                python_threads=threading.active_count(), native_allocator=allocator_summary())
+
+
+_MALLINFO_FIELDS = ('arena', 'ordblks', 'smblks', 'hblks', 'hblkhd', 'usmblks',
+                    'fsmblks', 'uordblks', 'fordblks', 'keepcost')
+
+
+class _Mallinfo2(ctypes.Structure):
+    # GNU malloc.h ABI: ten size_t fields, not deprecated mallinfo's int fields.
+    _fields_ = [(name, ctypes.c_size_t) for name in _MALLINFO_FIELDS]
+
+
+@lru_cache(maxsize=1)
+def _allocator_reader():
+    if not sys.platform.startswith('linux'):
+        return None
+    try:
+        library = ctypes.CDLL(None)
+        # Do not assume a similarly named API on another libc has the GNU ABI.
+        getattr(library, 'gnu_get_libc_version')
+        reader = library.mallinfo2
+        reader.argtypes = []
+        reader.restype = _Mallinfo2
+        return reader
+    except (AttributeError, OSError):
+        return None
+
+
+def allocator_summary(*, read=None):
+    """Allocator-reported counters only, not a full heap census or an RSS total.
+
+    No heap traversal, pointers, allocation contents, trim, GC or malloc tuning.
+    Native allocator locking has no Python-enforceable wall-time ceiling; report
+    elapsed time separately from the existing cooperative cache traversal budget.
+    """
+    started = time.monotonic()
+    try:
+        reader = read if read is not None else _allocator_reader()
+        if reader is None:
+            return {'state': 'unsupported'}
+        measured = reader()
+        counters = {name: getattr(measured, name) for name in _MALLINFO_FIELDS}
+        if any(type(value) is not int or value < 0 for value in counters.values()):
+            return {'state': 'unavailable'}
+        return dict(state='observed', api='glibc_mallinfo2', counters=counters,
+                    measurement_ms=round((time.monotonic()-started)*1000, 3))
+    except Exception:
+        return {'state': 'unavailable'}  # Never emit exception text or native values beyond the counters.
 
 
 def observe(stop, emit, *, collect=collect_inventory, summary=process_summary, clock=time.monotonic):

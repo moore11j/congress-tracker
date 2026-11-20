@@ -17,3 +17,5 @@ Acceptance tests cover source/date/identity injection, altered numbers and curre
 Next: implement cache-only authorized readers against the existing evidence services and source selectors, then connect a bounded facade and the new interface. Preserve the existing 84-route compatibility baseline and advanced tools. No public Ask or full monitoring completion is claimed.
 
 Local validation at 2026-11-19 21:49 MST: 48 tests pass on the configured Python 3.14 environment in 1.19 seconds. Dedicated Python 3.12 Linux CI is prepared; no CI result yet.
+
+2026-11-19 22:20 MST: Reconciled with deployed main9253e258; no application conflict. Prior code at ebe8a208 passed48Linux tests and all6checks. The approved proposal and historical audit sources are retained in this branch; no new product or source activation occurs.
