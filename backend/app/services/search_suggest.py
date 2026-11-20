@@ -407,7 +407,7 @@ def _with_exact_symbol_ticker_first(db: Session, query: str, items: list[SearchS
         return items
 
     symbols = set(_lookup_symbols(symbol))
-    if not symbols or not any(normalize_symbol(str(item.get("symbol") or "")) in symbols for item in items):
+    if not symbols:
         return items
 
     existing_ticker = next(
@@ -425,6 +425,9 @@ def _with_exact_symbol_ticker_first(db: Session, query: str, items: list[SearchS
 
     ticker_item = _exact_ticker_suggestion(db, query)
     if ticker_item is None:
+        # Prefix matches do not establish the requested ticker's identity.
+        if not any(normalize_symbol(str(item.get("symbol") or "")) in symbols for item in items):
+            return items
         _enqueue_ticker_search_enrichment(symbol)
         ticker_item = _ticker_item(symbol, _company_label_from_symbol_items(items, symbols), None, 3900.0)
     ticker_item = _strip_score(ticker_item)
