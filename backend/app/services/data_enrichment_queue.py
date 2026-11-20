@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,7 @@ DEFAULT_PREWARM_SYMBOLS = (
     "LMT",
 )
 DONE_JOB_COOLDOWN_SECONDS = 60 * 60
+MASSIVE_QUOTE_DONE_COOLDOWN_SECONDS = 60
 DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS = 7
 SYMBOL_REQUIRED_JOB_TYPES = {
     "analyst_recommendations",
@@ -364,7 +365,16 @@ def _job_completed_recently(job: DataEnrichmentJob, now: datetime) -> bool:
         return False
     if updated_at.tzinfo is None:
         updated_at = updated_at.replace(tzinfo=timezone.utc)
-    return (now - updated_at).total_seconds() < DONE_JOB_COOLDOWN_SECONDS
+    cooldown = DONE_JOB_COOLDOWN_SECONDS
+    if job.job_type == "quote":
+        from app.clients.massive_stocks import selected
+
+        # Delayed snapshots need another refresh on the next queue run. The
+        # general enrichment cooldown otherwise suppresses them for an hour.
+        # Keep active-job coalescing, worker limits and other feeds unchanged.
+        if selected():
+            cooldown = MASSIVE_QUOTE_DONE_COOLDOWN_SECONDS
+    return (now - updated_at).total_seconds() < cooldown
 
 
 def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
@@ -810,7 +820,19 @@ def _select_enrichment_jobs(
     )
     # next_run_at measures this enqueue/retry, unlike the original creation date
     # retained when a completed deduplicated job is queued again.
+    from app.clients.massive_stocks import selected as massive_prices_selected
+
+    demand_order = []
+    if massive_prices_selected():
+        # Page-requested snapshots expire while waiting behind bulk metadata.
+        # Reserve no extra slots: use the existing priority stream and retain
+        # the interleaved overdue stream, limits and per-job pressure guards.
+        demand_order = [case((
+            (DataEnrichmentJob.job_type == "quote")
+            & (DataEnrichmentJob.reason == "massive_quote_stale_or_missing"), 0,
+        ), else_=1)]
     priority = db.execute(select(*columns).where(*filters).order_by(
+        *demand_order,
         DataEnrichmentJob.priority.asc(), DataEnrichmentJob.next_run_at.asc(),
         DataEnrichmentJob.id.asc(),
     ).limit(batch_size)).mappings().all()
