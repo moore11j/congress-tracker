@@ -1,3 +1,11 @@
+## November 19 approved release installed
+
+At 2026-11-19 21:49 MST, PR805 is merged as `280037c5fa7aa8985475066ee3f04b187e64b2d0` and deployed by guarded workflow44675805381. All15 changed backend runtime hashes match, the nullable schema is verified and the isolated captured-source/cache repeat passes. The normal workflow readiness and Premium-route access checks pass. Massive price selection remains off. Receipt: `artifacts/price-compatibility-installed-1795149647.json`.
+
+Eight bounded read-only provider requests through the installed adapter verify 1,254 daily bars each for SPY/QQQ from November22,2021 to November19,2026; NVDA adjusted/unadjusted bars around June10,2024 plus its0.1 split factor and0.01 dividend; and14 recent daily bars each for BRK-B/NBIS. Adapter identity/adjustment checks pass. These establish sampled source access, not full-universe coverage or ordinary consumer acceptance. Receipts: `artifacts/massive-price-source-*-nov19.json`. No production quote writes, provider selection change or emails.
+
+Current institutional inspection is12,334 prepared of16,662 originals, cursor59031, run215successful/idle, no pending request. The old window expired. A new bounded window is prepared but unapproved/unstarted. A read-only five-minute post-release memory/readiness observation is running. Full price activation/warming, consumer/scheduled checks, sustained capacity and remaining financial acceptance still gate the migration. Independent Walnut2.0 evidence-contract preparation continues.
+
 # Massive price consumer preparation
 
 This draft reconciles the existing default-off price core onto production base `5865b09c` and closes additional public-reader and absolute-alert compatibility gaps. It is not deployed or activated. No subscription, production schema change, source selection or customer message occurs in this preparation.
