@@ -1,0 +1,13 @@
+# Durable observations for individual market quotes
+
+The approved frontend PR839 is deployed as d34ce21b10927da5dafd2e6078520d9d15ad7e33. Vercel success and the public version endpoint agree. Its public NBIS header advanced automatically from84.80 observed18:01EST to85.00 observed18:31EST on November20 after ordinary worker3904 completed at23:47UTC. The header removed its stale warning, retained its15-minute delay label, and the chart explicitly shows November20 daily statistics. Public Premium/Pro locks remain visible. No backend deployment or manual refresh was used for this verification.
+
+The verification found a separate backend shortcut: requests consisting only of AAPL, LMT, NOW, NVDA, PLTR or TSLA omit the database session because their company names are static. This was compatible with the former direct quote path, but Massive preparation now runs in another worker. Omitting the session prevents an expired process cache from reading the worker's newer durable observation. The exact individual NVDA endpoint returned129.16 observed21:56UTC while NBIS,NVDA returned129.6462 observed23:01UTC. Both the frontend proxy and backend reproduced the difference, ruling out a browser-only cache explanation.
+
+The repair requires a database session when rebuilding a Massive response, including all-static symbol requests. Existing bounded response-cache hits still avoid database work. The legacy FMP static-name path remains unchanged. No synchronous provider fetch, quote write, source activation, alert/scoring change or scheduler change is added.
+
+Twelve regression cases exercise all six static symbols with missing and expired process observations through the actual market response and durable quote lookup. The first case fails on the deployed baseline because it queues an already prepared observation instead of reading it. The repaired path must return the newer price, original timestamp, change percentage and delay metadata, close the session, avoid provider calls/writes/refresh enqueue, and preserve response-cache hits. Existing market, Massive core and public-caller tests are included in validation; Linux compatibility and actual PostgreSQL contracts run in CI.
+
+This backend candidate is not deployed. The approved PR839 frontend release is complete; a separate exact-head backend release and installed/public checks remain required. The existing fifteen-minute enrichment schedule is unchanged. PR838 and all broader Walnut2.0 source/coverage gates remain separate.
+
+Local validation:105 tests pass on Python3.14, including all12 new cases and93 existing market/Massive core/public-caller cases. Linux/Python3.12 and PostgreSQL CI remain pending.

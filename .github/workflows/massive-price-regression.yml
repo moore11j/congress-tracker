@@ -12,6 +12,7 @@ on:
       - "backend/app/services/email_digests.py"
       - "backend/app/jobs/run_watchlist_price_alerts.py"
       - "backend/tests/test_massive*.py"
+      - "backend/tests/test_market_quotes_durable.py"
       - "frontend/tests/research-delayed-quotes.test.mjs"
       - ".github/workflows/massive-price-regression.yml"
   workflow_dispatch:
@@ -41,7 +42,7 @@ jobs:
           tests/test_massive_financials_contract.py tests/test_price_alert_reference.py
           tests/test_price_threshold_freshness.py tests/test_watchlist_price_alert_job.py
           tests/test_price_lookup_date_clamping.py tests/test_quote_lookup_timezone.py
-          tests/test_price_lookup_index.py tests/test_market_quotes.py
+          tests/test_price_lookup_index.py tests/test_market_quotes.py tests/test_market_quotes_durable.py
           tests/test_market_pressure.py tests/test_market_pressure_ingest.py
           tests/test_fmp_shutdown_transport.py tests/test_independent_fundamentals.py
           tests/test_fundamentals_provider_baseline.py tests/test_member_quote_cache.py
