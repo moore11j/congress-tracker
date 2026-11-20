@@ -3,7 +3,9 @@ on:
   pull_request:
     paths:
       - "backend/app/intelligence_contract.py"
+      - "backend/app/services/intelligence_document_reader.py"
       - "backend/tests/test_intelligence_contract.py"
+      - "backend/tests/test_intelligence_document_reader.py"
       - ".github/workflows/intelligence-contract.yml"
   workflow_dispatch:
 permissions:
@@ -24,4 +26,4 @@ jobs:
         env:
           DATABASE_URL: sqlite://
           PYTHONPATH: .
-        run: python -m pytest tests/test_intelligence_contract.py -q
+        run: python -m pytest tests/test_intelligence_contract.py tests/test_intelligence_document_reader.py -q
