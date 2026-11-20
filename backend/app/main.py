@@ -212,7 +212,8 @@ from app.services.price_lookup import (
     get_intraday_chart_series_with_fallback,
     is_price_history_stale,
 )
-from app.services.quote_lookup import get_current_prices, get_current_prices_db, get_current_prices_meta_db
+from app.services.quote_lookup import get_current_prices, get_current_prices_db, get_current_prices_meta_db, persisted_quote_metadata, public_quote_metadata
+from app.clients.massive_stocks import selected as massive_stocks_selected
 from app.services.custom_alert_rules import ensure_default_intraday_price_move_alert
 from app.services.notifications import upsert_subscription
 from app.services.watchlist_delivery import WATCHLIST_ALERT_CATEGORIES
@@ -6085,7 +6086,8 @@ def _parse_market_quote_symbols(symbols: str | None) -> list[str]:
 
 
 def _market_quotes_response_cache_key(parsed_symbols: list[str]) -> tuple[str, ...]:
-    return tuple(sorted({symbol.strip().upper() for symbol in parsed_symbols if symbol}))
+    symbols = tuple(sorted({symbol.strip().upper() for symbol in parsed_symbols if symbol}))
+    return ("provider:massive", *symbols) if massive_stocks_selected() else symbols
 
 
 def _market_quotes_response_cache_ttl_seconds() -> int:
@@ -6266,6 +6268,8 @@ def _fetch_eod_light_closes_for_symbol(
 
 
 def _latest_eod_light_closes_by_symbol(symbols: list[str]) -> dict[str, list[dict]]:
+    if massive_stocks_selected():
+        return {}
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key or not symbols:
         return {}
@@ -6385,11 +6389,11 @@ def _build_market_quotes_response(symbols: str | None, db: Session | None = None
             parsed_symbols,
             allow_cache_write=False,
             lane="ticker_quote",
-            allow_live_user_fetch=True,
+            allow_live_user_fetch=not massive_stocks_selected(),
             release_connection_before_fetch=True,
             stale_while_revalidate=False,
             coalesce_wait_seconds=1.0,
-            force_quote_endpoint=True,
+            force_quote_endpoint=not massive_stocks_selected(),
             skip_db_sanity=not use_db_support,
         )
         eod_light_closes = _latest_eod_light_closes_by_symbol(parsed_symbols)
@@ -6419,6 +6423,8 @@ def _build_market_quotes_response(symbols: str | None, db: Session | None = None
                     except ValueError:
                         pass
             previous_close = _previous_close_for_quote(previous_close_rows, asof_ts)
+            if massive_stocks_selected():
+                previous_close = _quote_float(quote or {}, "previous_close")
             day_change_pct = _quote_float(quote, "change_percent") if isinstance(quote, dict) else None
             if day_change_pct is None and current_price is not None and previous_close not in (None, 0):
                 day_change_pct = ((current_price - previous_close) / previous_close) * 100
@@ -6433,7 +6439,9 @@ def _build_market_quotes_response(symbols: str | None, db: Session | None = None
                     "company_name": company_name or symbol,
                     "current_price": current_price,
                     "day_change_pct": day_change_pct,
-                    "as_of": asof_ts.isoformat() if asof_ts is not None else None,
+                    "as_of": _dt_iso(asof_ts) if massive_stocks_selected() else asof_ts.isoformat() if asof_ts is not None else None,
+                    **({**public_quote_metadata(quote), "is_stale": bool((quote or {}).get("is_stale", True))}
+                       if massive_stocks_selected() else {}),
                 }
             )
 
@@ -7273,11 +7281,11 @@ def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[
         [symbol],
         allow_cache_write=True,
         lane="ticker_context_bundle_quote",
-        allow_live_user_fetch=True,
+        allow_live_user_fetch=not massive_stocks_selected(),
         release_connection_before_fetch=True,
         stale_while_revalidate=False,
         coalesce_wait_seconds=1.0,
-        force_quote_endpoint=True,
+        force_quote_endpoint=not massive_stocks_selected(),
         bypass_miss_cache=True,
     )
     quote = quote_rows.get(symbol) if isinstance(quote_rows, dict) else None
@@ -7285,7 +7293,7 @@ def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[
     change = None
     change_percent = None
     as_of = None
-    stale = False
+    stale = massive_stocks_selected()
     if isinstance(quote, dict):
         try:
             current_price = float(quote["price"]) if quote.get("price") is not None else None
@@ -7316,6 +7324,8 @@ def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[
         or _parse_numeric(profile_ticker.get("market_cap")),
         "as_of": as_of,
         "stale": stale,
+        **(public_quote_metadata(quote if isinstance(quote, dict) and quote.get("price") is not None else profile_ticker)
+           if massive_stocks_selected() else {}),
     }
 
 
@@ -8177,6 +8187,8 @@ def _ticker_shell_quote_snapshot(db: Session, symbol: str, fundamentals: Fundame
         "avg_volume": float(fundamentals.avg_volume) if fundamentals is not None and fundamentals.avg_volume is not None else None,
         "beta": float(fundamentals.beta) if fundamentals is not None and fundamentals.beta is not None else None,
         "quote_as_of": price_as_of,
+        **(public_quote_metadata(persisted_quote_metadata(quote) if quote is not None else {})
+           if massive_stocks_selected() else {}),
     }
 
 
@@ -12556,7 +12568,8 @@ def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCac
                 reason="incomplete_upper_card_metrics",
                 priority=60,
             )
-            row = _refresh_incomplete_ticker_fundamentals_row(db, normalized, row)
+            if not massive_stocks_selected():
+                row = _refresh_incomplete_ticker_fundamentals_row(db, normalized, row)
         elif age_seconds > _ticker_fundamentals_cache_ttl_seconds():
             enqueue_data_enrichment_job(
                 job_type="fundamentals",
@@ -12575,7 +12588,8 @@ def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCac
                 reason="incomplete_upper_card_metrics",
                 priority=60,
             )
-            row = _refresh_incomplete_ticker_fundamentals_row(db, normalized, row)
+            if not massive_stocks_selected():
+                row = _refresh_incomplete_ticker_fundamentals_row(db, normalized, row)
     return row
 
 
@@ -12586,7 +12600,8 @@ def _build_ticker_chart_quote(
 ) -> dict:
     fundamentals_row = _cached_ticker_fundamentals_row(db, symbol)
     user_api_request = bool((get_request_context() or {}).get("path"))
-    if user_api_request:
+    selected_prices = massive_stocks_selected()
+    if user_api_request or selected_prices:
         row = {}
         ratios_row = {}
         profile_row = {}
@@ -12603,15 +12618,15 @@ def _build_ticker_chart_quote(
         ratios_row = _ratios_ttm_from_fmp(symbol)
         profile_row = _company_profile_snapshot_from_fmp(symbol)
     row_price = _quote_float(row, "price", "close")
-    fundamentals_price = fundamentals_row.price if fundamentals_row is not None else None
+    fundamentals_price = fundamentals_row.price if fundamentals_row is not None and not selected_prices else None
     quote_meta = (
         {}
-        if row_price is not None or fundamentals_price is not None
+        if row_price is not None or fundamentals_price is not None or (selected_prices and price_points and price_points[-1].get("close") is not None)
         else get_current_prices_meta_db(
             db,
             [symbol],
             lane="ticker_quote",
-            allow_live_user_fetch=True,
+            allow_live_user_fetch=not selected_prices,
         )
     )
     cached_quote = quote_meta.get(symbol) if isinstance(quote_meta, dict) else None
@@ -12669,10 +12684,10 @@ def _build_ticker_chart_quote(
         or (fundamentals_row.market_cap if fundamentals_row is not None else None)
     )
     beta = _quote_float(profile_row, "beta") or (fundamentals_row.beta if fundamentals_row is not None else None)
-    if market_cap is None and user_api_request:
+    if market_cap is None and user_api_request and not selected_prices:
         market_cap_row = _market_cap_snapshot_from_fmp_for_user_request(symbol)
         market_cap = _quote_float(market_cap_row, "marketCap", "market_cap", "mktCap", "marketCapitalization")
-    if beta is None and user_api_request:
+    if beta is None and user_api_request and not selected_prices:
         beta_row = _company_profile_snapshot_from_fmp_for_user_request(symbol)
         beta = _quote_float(beta_row, "beta")
 
@@ -12699,7 +12714,10 @@ def _build_ticker_chart_quote(
         )
         or (fundamentals_row.trailing_pe if fundamentals_row is not None else None),
         "beta": beta,
-        "asof": latest_date or _ticker_chart_date_key(
+        **(({'price_kind': 'daily_close', 'is_delayed': None, 'delay_minutes': None}
+            if latest_close is not None else public_quote_metadata(cached_quote or row))
+           if selected_prices else {}),
+        "asof": latest_date or (_dt_iso(cached_quote.get("asof_ts")) if selected_prices and isinstance(cached_quote, dict) else None) or _ticker_chart_date_key(
             row.get("timestamp")
             or row.get("date")
             or row.get("earningsAnnouncement")

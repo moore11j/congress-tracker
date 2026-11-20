@@ -253,6 +253,18 @@ def _reason_code_for_status(status_code: int) -> str:
 
 
 def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list[dict[str, Any]]:
+    from app.clients.massive_stocks import selected as massive_stocks_selected
+    if endpoint == "historical-price-eod/light" and massive_stocks_selected():
+        from app.services.quote_lookup import get_current_prices_meta_db, public_quote_metadata
+        with SessionLocal() as quote_db:
+            rows = get_current_prices_meta_db(quote_db, [symbol], allow_cache_write=False,
+                allow_live_user_fetch=False, release_connection_before_fetch=True)
+        quote = rows.get(symbol)
+        if not quote or quote.get("is_stale") or quote.get("source") != "massive_minute_snapshot":
+            raise TickerFinancialsUnavailable("Stock price unavailable", reason_code="provider_unavailable")
+        asof = quote.get("asof_ts")
+        return [{"price": quote["price"], "close": quote["price"],
+                 "date": asof.isoformat() if asof is not None else None, **public_quote_metadata(quote)}]
     category = f"financials:{endpoint}"
     try:
         ensure_fmp_live_allowed(

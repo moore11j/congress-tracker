@@ -40,6 +40,8 @@ CRON_TZ=America/Los_Angeles
 # Price thresholds have their own refresh/evaluation/delivery lane.
 */5 6-12 * * 1-5 cd /app && sh /app/scripts/run_watchlist_price_alerts.sh
 0,5 13 * * 1-5 cd /app && sh /app/scripts/run_watchlist_price_alerts.sh
+# Selected delayed snapshots require a final close sweep; legacy provider skips.
+20,25 13 * * 1-5 cd /app && sh /app/scripts/run_watchlist_price_alerts.sh
 12,42 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm
 8,38 6-18 * * * cd /app && sh /app/scripts/run_profile_overview_prewarm.sh
 10 7-13 * * 1-5 cd /app && python -m app.ingest_run --job outcome-ledger-hydrator

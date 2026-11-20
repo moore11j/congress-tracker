@@ -1,7 +1,31 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
+import pytest
 
 import app.jobs.run_watchlist_price_alerts as job
+
+
+@pytest.mark.parametrize('provider,minute,expected', [
+    ('fmp',5,True),('fmp',20,False),('massive',20,True),
+    ('massive',25,True),('massive',31,False),
+])
+def test_delayed_close_sweep_preserves_legacy_cutoff(monkeypatch, provider, minute, expected):
+    monkeypatch.setenv('STOCK_PRICE_PROVIDER',provider)
+    monkeypatch.setenv('EMAIL_ALERT_INTRADAY_ENABLED','true')
+    monkeypatch.delenv('BACKGROUND_JOBS_PAUSED',raising=False)
+    monkeypatch.setattr(job,'SessionLocal',MagicMock())
+    refresh=MagicMock(return_value={'failures':0})
+    references=MagicMock(return_value={'unavailable':0})
+    delivery=MagicMock(return_value=[])
+    monkeypatch.setattr(job,'refresh_all_monitored_watchlist_confirmation_monitoring',refresh)
+    monkeypatch.setattr(job,'refresh_daily_price_references',references)
+    monkeypatch.setattr(job,'run_intraday_alert_sweep',delivery)
+    result=job.run_price_alert_cycle(now=datetime(2026,11,6,21,minute,tzinfo=timezone.utc))
+    assert (result['status']=='ok') is expected
+    assert refresh.call_count==references.call_count==delivery.call_count==int(expected)
+    if expected:
+        assert delivery.call_args.kwargs['custom_price_only'] is True
+        assert delivery.call_args.kwargs['market_hours_only'] is False
 
 
 def test_price_cycle_evaluates_and_delivers_independently_with_close_grace(monkeypatch):

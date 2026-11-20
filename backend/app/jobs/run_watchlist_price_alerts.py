@@ -15,14 +15,16 @@ from app.services.email_intraday import (
 )
 from app.services.price_lookup import is_market_trading_day
 from app.services.price_alert_reference import refresh_daily_price_references
+from app.clients.massive_stocks import selected as massive_stocks_selected
 
 
 def run_price_alert_cycle(*, now: datetime | None = None) -> dict:
     current = now or datetime.now(timezone.utc)
     local = current.astimezone(ZoneInfo("America/New_York"))
-    # The close sweep has a short grace period so the 16:00 observation is not
-    # rejected by the generic intraday sweep's strict market-hours cutoff.
-    if not is_market_trading_day(local.date()) or not time(9, 30) <= local.time() <= time(16, 10):
+    # Delayed snapshots need a post-close sweep after the regular close becomes
+    # observable. Keep the existing cutoff for the legacy provider.
+    cutoff = time(16, 30) if massive_stocks_selected() else time(16, 10)
+    if not is_market_trading_day(local.date()) or not time(9, 30) <= local.time() <= cutoff:
         return {"status": "skipped", "reason": "outside_price_alert_window"}
     if not intraday_alerts_enabled():
         return {"status": "skipped", "reason": "intraday_disabled"}
