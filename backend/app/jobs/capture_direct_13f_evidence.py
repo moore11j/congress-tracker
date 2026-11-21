@@ -24,7 +24,7 @@ def package_hash():
     root = Path(__file__).resolve().parents[1]
     files = [Path(__file__), *(root / 'services' / name for name in (
         'institutional_capture_transport.py', 'institutional_capture_file.py',
-        'institutional_capture_export.py'))]
+        'institutional_capture_export.py', 'institutional_original_segments.py'))]
     digest = hashlib.sha256()
     for path in files:
         digest.update(path.name.encode() + b'\0' + path.read_bytes() + b'\0')
@@ -34,22 +34,33 @@ def package_hash():
 def read_request(path, *, now=None):
     now = time.time() if now is None else now
     path = Path(path)
-    if path.is_symlink() or path.stat().st_size > 4096:
+    if path.is_symlink() or path.stat().st_size > 65536:
         raise ValueError('invalid_capture_request_file')
     # A request contains no credentials or customer records. It authorizes only
     # this exact installed package and preserves an explicit operator audit ID.
     from app.services.institutional_capture_transport import decode
-    request = decode(path.read_bytes())
-    if (not isinstance(request, dict) or type(request.get('version')) is not int or request['version'] != 1 or
+    raw = path.read_bytes()
+    request = decode(raw)
+    if (not isinstance(request, dict) or type(request.get('version')) is not int or request['version'] not in (1, 2) or
             not isinstance(request.get('request_id'), str) or not re.fullmatch(r'[a-f0-9]{32}', request['request_id']) or
             request.get('package_sha256') != package_hash() or
             type(request.get('approved_at')) not in (int, float) or
             type(request.get('expires_at')) not in (int, float) or
             not request['approved_at'] <= now < request['expires_at'] or
             not 0 < request['expires_at'] - request['approved_at'] <= 3600 or
-            request.get('payload') != 'institutional_originals_and_canonical_reference_rows' or
             request.get('destination') != 'owner_local_onedrive_migration_validation'):
         raise ValueError('missing_or_expired_exact_capture_approval')
+    if request['version'] == 1:
+        if (len(raw) > 4096 or 'original_piece' in request or
+                request.get('payload') != 'institutional_originals_and_canonical_reference_rows'):
+            raise ValueError('invalid_legacy_capture_approval')
+    else:
+        if request.get('payload') != 'institutional_originals_segment':
+            raise ValueError('invalid_original_piece_approval')
+        from app.services.institutional_original_segments import validate_piece
+        validate_piece(request.get('original_piece'))
+        if not 0 <= now - request['original_piece']['snapshot_at'] <= 3600:
+            raise ValueError('expired_original_inventory')
     return request
 
 
@@ -62,7 +73,7 @@ def require_queue_ownership(queue, token, cycle, process_group):
         raise RuntimeError('not_exclusive_data_lane_owner')
 
 
-def export_snapshot(output):
+def export_snapshot(output, original_piece=None):
     from sqlalchemy import text
     from sqlalchemy.orm import Session
     from app.db import engine
@@ -80,8 +91,15 @@ def export_snapshot(output):
             if connection.scalar(text('SHOW transaction_read_only')) != 'on':
                 raise RuntimeError('readonly_transaction_required')
             with Session(bind=connection) as db:
-                receipt = export_records(db, stream)
+                if original_piece is None:
+                    receipt = export_records(db, stream)
+                else:
+                    from app.services.institutional_original_segments import export_piece
+                    receipt = export_piece(db, stream, original_piece)
     # A failure while closing the transaction must not earn a terminal frame.
+    if original_piece is not None:
+        from app.services.institutional_original_segments import finish_piece
+        return finish_piece(stream, receipt)
     return stream.finish(**receipt)
 
 
@@ -96,6 +114,9 @@ def main():
 
     def guard(force=False):
         elapsed = time.monotonic()
+        if request['version'] == 2 and (time.time() >= request['expires_at'] or
+                time.time() - request['original_piece']['snapshot_at'] > 3600):
+            raise RuntimeError('original_capture_approval_expired')
         if elapsed-started > MAX_WALL_SECONDS or time.process_time()-cpu > MAX_CPU_SECONDS:
             raise RuntimeError('capture_work_budget')
         if force or elapsed-last_check[0] >= 1:
@@ -147,11 +168,20 @@ def main():
                 raise RuntimeError('source_collection_active')
             guard(force=True)
             result['phase'] = 'capture'
-            captured = prepare_file(root, request['request_id'], export_snapshot, guard)
+            if request['version'] == 1:
+                captured = prepare_file(root, request['request_id'], export_snapshot, guard)
+            else:
+                from app.services.institutional_original_segments import PIECE_BYTES
+                captured = prepare_file(root, request['request_id'],
+                    lambda output: export_snapshot(output, request['original_piece']), guard, limit=PIECE_BYTES)
         result.update(status='captured', phase='complete', request_id=request['request_id'],
                       compressed_bytes=captured['compressed_bytes'],
                       compressed_sha256=captured['compressed_sha256'],
                       acceptance='transport_only_requires_original_scope_verification')
+        if request['version'] == 2:
+            from app.services.institutional_original_segments import ACCEPTANCE
+            result.update(acceptance=ACCEPTANCE, piece_index=request['original_piece']['index'],
+                          inventory_sha256=request['original_piece']['inventory_sha256'])
     except Exception as exc:
         # Do not leak database exception text or original-record contents to logs.
         result.update(error_type=type(exc).__name__)
