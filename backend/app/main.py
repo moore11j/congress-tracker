@@ -6364,7 +6364,9 @@ def _build_market_quotes_response(symbols: str | None, db: Session | None = None
             # Build independently, but do not signal or clear another request's in-flight marker.
             inflight_event = None
 
-    use_db_support = db is not None or any(symbol not in _MARKET_QUOTES_STATIC_META for symbol in parsed_symbols)
+    # Massive refreshes run in another worker. Even static-name symbols must
+    # read its durable observation when rebuilding an expired response.
+    use_db_support = massive_stocks_selected() or db is not None or any(symbol not in _MARKET_QUOTES_STATIC_META for symbol in parsed_symbols)
     owns_session = False
     try:
         cached_response = _market_quotes_response_cache_get(parsed_symbols)
