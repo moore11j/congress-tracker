@@ -1,0 +1,29 @@
+name: Walnut Intelligence Contract
+on:
+  pull_request:
+    paths:
+      - "backend/app/intelligence_contract.py"
+      - "backend/app/services/intelligence_document_reader.py"
+      - "backend/tests/test_intelligence_contract.py"
+      - "backend/tests/test_intelligence_document_reader.py"
+      - ".github/workflows/intelligence-contract.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - working-directory: backend
+        env:
+          DATABASE_URL: sqlite://
+          PYTHONPATH: .
+        run: python -m pytest tests/test_intelligence_contract.py tests/test_intelligence_document_reader.py -q

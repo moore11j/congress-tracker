@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
+import pytest
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import InsiderTransactionNormalized, InstitutionalHolder, Member, SearchEntityTerm, Security, TickerMeta
+from app.models import InsightsSnapshot, InsiderTransactionNormalized, InstitutionalHolder, Member, SearchEntityTerm, Security, TickerMeta
 import app.services.search_suggest as search_suggest_module
 from app.services.search_suggest import search_suggestions
 from app.services.universal_search import rebuild_search_entities, search_coverage_audit, search_entities
@@ -178,6 +181,40 @@ def test_search_coverage_audit_reports_index_counts_and_valid_urls():
         assert audit["invalid_urls"] == 0
         assert db.query(SearchEntityTerm).count() > audit["indexed_entities"]
     finally:
+        db.close()
+
+
+def test_new_prepared_listing_precedes_existing_prefix_index(monkeypatch):
+    from app.services import sec_directory
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    monkeypatch.setenv('COMPANY_METADATA_PROVIDER', 'fmp')
+    monkeypatch.setattr('requests.sessions.Session.request', lambda *a, **k: pytest.fail('Unexpected HTTP'))
+    monkeypatch.setattr(search_suggest_module, '_enqueue_ticker_search_enrichment',
+                        lambda *a: pytest.fail('Verified listing must not enqueue'))
+    try:
+        db.add(Security(symbol='ZBEXX', name='Other Prefix Company', asset_class='stock'))
+        db.commit()
+        rebuild_search_entities(db)
+        db.commit()
+        indexed = search_entities(db, 'ZBEX', limit=5)
+        assert indexed and all(item.get('symbol') != 'ZBEX' for item in indexed)
+        data = sec_directory.parse_directory({'fields': ['cik', 'name', 'ticker', 'exchange'],
+            'data': [[123456, 'New Prepared Company', 'ZBEX', None]]})
+        db.add(InsightsSnapshot(kind='sec-directory:exchange:v1', source='sec_edgar',
+            fetched_at=datetime.now(timezone.utc), payload_json=json.dumps({
+                'source': 'sec_edgar', 'source_url': sec_directory.URL,
+                'sha256': hashlib.sha256(json.dumps(data).encode()).hexdigest(), 'data': data})))
+        db.commit()
+        monkeypatch.setenv('COMPANY_METADATA_PROVIDER', 'sec_edgar')
+        items = search_suggestions(db, 'ZBEX', limit=5)['items']
+        assert items[0]['symbol'] == 'ZBEX'
+        assert items[0]['label'] == 'New Prepared Company'
+        assert items[0]['href'] == '/ticker/ZBEX'
+        assert items[1:] == indexed[:4]
+        assert search_entities(db, 'ZBEX', limit=5) == indexed
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
         db.close()
 
 
