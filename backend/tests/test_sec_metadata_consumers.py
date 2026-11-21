@@ -98,6 +98,51 @@ def test_selected_debug_reader_cannot_contact_fmp(db):
     assert ticker_meta.debug_stable_search_row('ZBEX')=={'error':'fmp_identity_not_selected'}
 
 
+@pytest.mark.parametrize('query,expected', [('zbex', 'ZBEX'), ('ZBEX.A', 'ZBEX-A')])
+@pytest.mark.parametrize('limit', [1, 5])
+def test_prepared_exact_identity_precedes_unrelated_index_results(db, monkeypatch, query, expected, limit):
+    from app.services import search_suggest
+    seed(db, company=False)
+    unrelated = [{'kind': 'insider', 'id': 'other-owner', 'symbol': 'ZBEXX',
+                  'label': 'Other Owner', 'href': '/insider/other-owner'}]
+    monkeypatch.setattr(search_suggest, 'universal_search_entities', lambda *a, **k: list(unrelated))
+    monkeypatch.setattr(search_suggest, 'record_search_query', lambda *a, **k: None)
+    monkeypatch.setattr(search_suggest, '_enqueue_ticker_search_enrichment',
+                        lambda *a: pytest.fail('Prepared identity must not enqueue enrichment'))
+    search_suggest._anonymous_suggestion_cache.clear()
+    try:
+        result = search_suggest.search_suggestions(db, query, limit=limit)
+        assert result['items'][0]['symbol'] == expected
+        assert result['items'][0]['label'] == 'Zebra Example Inc'
+        assert result['items'][0]['href'] == f'/ticker/{expected}'
+        assert result['items'][0]['kind'] == 'ticker'
+        assert 'score' not in result['items'][0]
+        assert result['results'] == result['items']
+        assert len(result['items']) == min(limit, 2)
+        if limit > 1:
+            assert result['items'][1:] == unrelated
+        assert search_suggest.search_suggestions(db, query, limit=limit) == result
+    finally:
+        search_suggest._anonymous_suggestion_cache.clear()
+
+
+@pytest.mark.parametrize('state', ['missing', 'stale', 'wrong_source', 'absent_symbol'])
+def test_unrelated_index_matches_cannot_create_unverified_exact_ticker(db, monkeypatch, state):
+    from app.services import search_suggest
+    if state != 'missing':
+        seed(db, company=False, age=2 if state == 'stale' else 0)
+    if state == 'wrong_source':
+        row = db.get(InsightsSnapshot, 'sec-directory:exchange:v1')
+        row.source = 'fmp'
+        db.commit()
+    query = 'ABSENT' if state == 'absent_symbol' else 'ZBEX'
+    unrelated = [{'kind': 'insider', 'id': 'other-owner', 'symbol': query + 'X',
+                  'label': 'Other Owner', 'href': '/insider/other-owner'}]
+    monkeypatch.setattr(search_suggest, '_enqueue_ticker_search_enrichment',
+                        lambda *a: pytest.fail('Unrelated results must not fabricate a ticker'))
+    assert search_suggest._with_exact_symbol_ticker_first(db, query, unrelated) == unrelated
+
+
 def test_worker_refresh_uses_separate_cache_and_releases_transaction(db,monkeypatch):
     seed(db,company=False)
     db.add(TickerMeta(symbol='ZBEX',company_name='Preserved',updated_at=datetime(2026,1,1)));db.commit()
