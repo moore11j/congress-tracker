@@ -1,0 +1,31 @@
+name: Ticker Current Price Display
+on:
+  pull_request:
+    paths:
+      - "frontend/app/ticker/**"
+      - "frontend/components/ticker/TickerPriceHeader.tsx"
+      - "frontend/components/ticker/PremiumTickerChart.tsx"
+      - "frontend/lib/tickerHeaderPrice.ts"
+      - "frontend/lib/api.ts"
+      - "frontend/tests/ticker-current-price.test.mjs"
+      - ".github/workflows/ticker-current-price.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  current-price:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - working-directory: frontend
+        run: npx tsc --noEmit --incremental false
+      - working-directory: frontend
+        run: node --test tests/ticker-current-price.test.mjs tests/daily-price-terminal-consistency.test.mjs tests/ticker-fetch-freshness.test.mjs tests/ticker-context-bundle.test.mjs tests/ticker-edge-cache.test.mjs tests/research-delayed-quotes.test.mjs

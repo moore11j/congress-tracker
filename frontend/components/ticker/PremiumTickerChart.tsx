@@ -20,6 +20,7 @@ import {
   type Time,
 } from "lightweight-charts";
 import { getTickerChartBundle, type TickerChartBundle, type TickerChartMarker } from "@/lib/api";
+import { formatPriceSession } from "@/lib/tickerHeaderPrice";
 
 type MarkerGroup = {
   id: string;
@@ -1204,6 +1205,9 @@ export function PremiumTickerChart({
               ? `Quotes delayed ${quote.delay_minutes} minutes.` : "Delayed quote."}
             {quote.asof ? ` Price observed ${formatDate(quote.asof)} UTC.` : " Quote time unavailable."}
           </p>
+        ) : null}
+        {quote?.price_kind === "daily_close" && formatPriceSession(bundle?.prices?.[bundle.prices.length - 1]?.date) ? (
+          <p className="mt-2 text-xs text-slate-400">Daily chart and statistics through {formatPriceSession(bundle?.prices?.[bundle.prices.length - 1]?.date)}.</p>
         ) : null}
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-white/10 bg-slate-950/70 p-1">

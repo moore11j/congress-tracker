@@ -4174,6 +4174,15 @@ export type TickerChartQuote = {
   } | null;
 };
 
+/** Lightweight public cached quote, separate from completed daily chart bars. */
+export async function getTickerMarketQuote(symbol: string, signal?: AbortSignal): Promise<import("./tickerHeaderPrice").MarketQuote | null> {
+  const response = await fetchPublicJson<{ items?: import("./tickerHeaderPrice").MarketQuote[] }>(
+    buildApiUrl(`/api/market/quotes?symbols=${encodeURIComponent(symbol)}`),
+    { cache: "no-store", signal, source: "TickerPriceHeader" },
+  );
+  return Array.isArray(response.items) ? response.items.find((quote) => quote.symbol === symbol) ?? null : null;
+}
+
 export type TickerChartVolumePoint = {
   date: string;
   volume: number;
