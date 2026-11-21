@@ -85,8 +85,12 @@ class RecordStream:
 
 class StreamReceiver:
     """Spool untrusted records, but accept only after full original-source closure."""
-    def __init__(self,destination,parser=None):
+    def __init__(self,destination,parser=None,*,original_piece=None):
         self.destination=destination;self.parser=parser;self.digest=hashlib.sha256()
+        self.original_piece=original_piece
+        if original_piece is not None:
+            from app.services.institutional_original_segments import validate_piece
+            validate_piece(original_piece)
         self.counts=Counter();self.bytes=0;self.receipt=None;self.metadata=None
         self.ids=set();self.source_bytes=0;self.originals_verified=0
         self.required_ciks=set();self.required_cusips=set();self.required_periods=set()
@@ -95,6 +99,11 @@ class StreamReceiver:
     def _document(self,row):
         ident=row.get('id')
         if type(ident) is not int or ident<=0 or ident in self.ids:raise ValueError('Invalid or repeated source identity')
+        if self.original_piece is not None:
+            if len(self.ids)>=len(self.original_piece['rows']):raise ValueError('Extra original outside piece')
+            expected=self.original_piece['rows'][len(self.ids)]
+            if [ident,row.get('content_hash'),row.get('status')]!=expected[:3]:
+                raise ValueError('Original piece identity mismatch')
         self.ids.add(ident)
         metadata=row.get('metadata')
         if not isinstance(metadata,dict):raise ValueError('Missing source metadata')
@@ -181,6 +190,12 @@ class StreamReceiver:
                     not self.required_periods<=actual_periods):raise ValueError('Original-source query scope is incomplete')
             except (KeyError,TypeError):raise ValueError('Missing or invalid query scope') from None
             if self.metadata.get('document_count')!=self.counts['documents']:raise ValueError('Inventory count mismatch')
+            if self.original_piece is not None:
+                from app.services.institutional_original_segments import digest,ACCEPTANCE
+                if (r.get('original_piece_sha256')!=digest(self.original_piece) or
+                    r.get('acceptance')!=ACCEPTANCE or
+                    self.source_bytes!=sum(row[6] for row in self.original_piece['rows'])):
+                    raise ValueError('Original piece receipt mismatch')
             self.receipt=r
             return
         if set(item)!={'table','row'}:raise ValueError('Unknown frame')
@@ -203,12 +218,21 @@ class StreamReceiver:
             if self.counts or type(row.get('transport_version')) is not int or row['transport_version'] not in (2,3) or row.get('transaction_read_only') is not True:raise ValueError('Invalid initial metadata')
             if type(row.get('document_count')) is not int or not 1<=row['document_count']<=MAX_DOCUMENTS:raise ValueError('Inventory count bound')
             if row.get('filing_date')!='2026-10-07':raise ValueError('Unexpected cutover boundary')
+            if self.original_piece is None:
+                if 'original_piece' in row:raise ValueError('Original pieces are not canonical baselines')
+            else:
+                from app.services.institutional_original_segments import ACCEPTANCE
+                if (row['transport_version']!=3 or row.get('original_piece')!=self.original_piece or row.get('acceptance')!=ACCEPTANCE or
+                    row['document_count']!=len(self.original_piece['rows'])):
+                    raise ValueError('Original piece manifest mismatch')
             self.metadata=row
         elif self.metadata is None:raise ValueError('Missing initial metadata')
         elif table=='documents':
             if self.canonical_started:raise ValueError('Sources after canonical records')
             self._document(normalized)
-        else:self.canonical_started=True
+        else:
+            if self.original_piece is not None:raise ValueError('Canonical records in original piece')
+            self.canonical_started=True
         if self.counts[table]>=row_bound(table):raise ValueError('Row count exceeds bound')
         self.digest.update(line)
         if source_bytes is not _NO_BODY:self.digest.update(source_bytes);self.digest.update(b'\n')

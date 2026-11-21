@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "backend/app/services/institutional_capture_*.py"
+      - "backend/app/services/institutional_original_*.py"
+      - "backend/scripts/receive_institutional_originals.py"
+      - "backend/scripts/verify_original_segments_fixture.py"
+      - "backend/tests/test_institutional_original_*.py"
       - "backend/app/jobs/capture_direct_13f_evidence.py"
       - "backend/app/jobs/capture_institutional_peers.py"
       - "backend/app/services/institutional_peer_capture.py"
@@ -35,9 +39,23 @@ jobs:
   capture:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: institutional_preparation_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: sqlite://
       PYTHONPATH: .
+      INSTITUTIONAL_TEST_POSTGRES_URL: postgresql+psycopg://postgres:isolated-test-only@127.0.0.1:5432/institutional_preparation_test
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -49,3 +67,9 @@ jobs:
       - name: Verify capture and source acceptance guards
         working-directory: backend
         run: python -m pytest tests/test_institutional_peer_capture.py tests/test_institutional_peer_job.py tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_event_ids.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py tests/test_direct_13f_reference_mapping.py tests/test_direct_13f_publication.py tests/test_direct_13f_empty_historical.py tests/test_institutional_historical_rebaseline.py tests/test_institutional_source_reconciliation.py tests/test_institutional_repair_bundle.py tests/test_direct_13f_worker.py tests/test_direct_13f_batch.py tests/test_direct_13f_streamed_peers.py tests/test_direct_13f_prepared_evidence.py tests/test_scheduled_jobs.py -q --disable-warnings --maxfail=3
+      - name: Complete original pieces and actual PostgreSQL snapshot contracts
+        working-directory: backend
+        run: python -m pytest tests/test_institutional_original_segments.py tests/test_institutional_original_segments_postgres.py -q --disable-warnings
+      - name: Complete retained original with installed-code resource bounds
+        working-directory: backend
+        run: python scripts/verify_original_segments_fixture.py

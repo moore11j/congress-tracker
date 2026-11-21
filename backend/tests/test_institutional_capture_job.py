@@ -136,10 +136,15 @@ assert 'app.db' not in sys.modules and 'app.models' not in sys.modules
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='Production Linux queue/process limits')
-@pytest.mark.parametrize('lose_claim', [False, True])
-def test_real_child_owns_queue_and_closes_file_or_rejects_lost_claim(tmp_path, lose_claim):
+@pytest.mark.parametrize('lose_claim', [False, True, 'expired'])
+@pytest.mark.parametrize('version', [1, 2])
+def test_real_child_owns_queue_and_closes_file_or_rejects_lost_claim(tmp_path, lose_claim, version):
     path=tmp_path/'queue'; approval=tmp_path/'request.json'; output=tmp_path/'output'
     value=request();value.update(approved_at=time.time()-1,expires_at=time.time()+300)
+    if version == 2:
+        from app.services.institutional_original_segments import make_plan
+        piece = make_plan([[1,None,'quarantined','123:(1,1)',None,None,0,100,0]])['pieces'][0]
+        value.update(version=2,payload='institutional_originals_segment',original_piece=piece)
     approval.write_text(json.dumps(value))
     with queue.database(path) as db:
         queue.enqueue(db,KEY,MANIFEST[KEY]);job=queue.claim(db,'data',MANIFEST)
@@ -150,33 +155,46 @@ from app.services.institutional_capture_transport import RecordStream
 job.QUEUE,job.REQUEST,job.OUTPUT=sys.argv[1:4]
 sys.modules['app.background_job_guard']=types.SimpleNamespace(check_background_job_guard=lambda _:types.SimpleNamespace(proceed=True))
 sys.modules['app.jobs.collect_direct_feeds']=types.SimpleNamespace(collector_lock=lambda **_:contextlib.nullcontext(True))
-def fixture(output):
+def fixture(output, original_piece=None):
     if sys.argv[4]=='lose':
         with sqlite3.connect(job.QUEUE) as db:db.execute('UPDATE jobs SET token=?',('b'*32,))
         time.sleep(1.1)
+    elif sys.argv[4]=='expired':
+        expired=time.time()+1000
+        job.time.time=lambda:expired
     writer=RecordStream(output)
-    writer.write('metadata',dict(transport_version=2,transaction_read_only=True,document_count=1,filing_date='2026-10-07'))
-    writer.write('documents',dict(id=1,metadata=dict(cik='123',filing_date='2026-10-08'),status='quarantined',raw_base64=None))
-    return writer.finish(transaction_read_only=True,production_writes=0,source_bytes=0,query_scope=dict(ciks=['123'],cusips=[],periods=[]))
+    extra={}
+    metadata=dict(transport_version=2,transaction_read_only=True,document_count=1,filing_date='2026-10-07')
+    doc=dict(id=1,metadata=dict(cik='123',filing_date='2026-10-08'),status='quarantined',content_hash=None)
+    if original_piece is not None:
+        from app.services.institutional_original_segments import ACCEPTANCE,digest
+        metadata.update(transport_version=3,original_piece=original_piece,acceptance=ACCEPTANCE)
+        extra.update(original_piece_sha256=digest(original_piece),acceptance=ACCEPTANCE)
+    writer.write('metadata',metadata)
+    if original_piece is None:writer.write('documents',{**doc,'raw_base64':None})
+    else:writer.write_document(doc,None)
+    return writer.finish(transaction_read_only=True,production_writes=0,source_bytes=0,query_scope=dict(ciks=['123'],cusips=[],periods=[]),**extra)
 job.export_snapshot=fixture
 job.main()
 '''
     env={**os.environ,'COMBINED_SCHEDULER_ENABLED':'true','FLY_MACHINE_ID':'fixture',
          'COMBINED_SCHEDULER_MACHINE_ID':'fixture','WALNUT_JOB_KEY':KEY,'WALNUT_JOB_QUEUE':str(path),
          'WALNUT_JOB_TOKEN':job['token'],'WALNUT_JOB_CYCLE':job['cycle_id']}
-    child=subprocess.Popen([sys.executable,'-c',script,str(path),str(approval),str(output),'lose' if lose_claim else 'keep'],
+    mode='expired' if lose_claim=='expired' else 'lose' if lose_claim else 'keep'
+    child=subprocess.Popen([sys.executable,'-c',script,str(path),str(approval),str(output),mode],
                            env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
     with queue.database(path) as db:db.execute('UPDATE jobs SET pid=? WHERE key=?',(child.pid,KEY))
     stdout,stderr=child.communicate(timeout=20)
-    assert child.returncode==(75 if lose_claim else 0),stdout+stderr
-    assert json.loads(stdout)['status']==('held' if lose_claim else 'captured')
+    failed=lose_claim is True or (lose_claim=='expired' and version==2)
+    assert child.returncode==(75 if failed else 0),stdout+stderr
+    assert json.loads(stdout)['status']==('held' if failed else 'captured')
     manifest=output/(value['request_id']+'.complete.json')
-    assert manifest.exists() is not lose_claim
-    if not lose_claim:
+    assert manifest.exists() is not failed
+    if not failed:
         import gzip,io
         from app.services.institutional_capture_file import verify_file
         from app.services.institutional_capture_transport import StreamReceiver
-        verified=verify_file(output,value['request_id']);receiver=StreamReceiver(io.BytesIO())
+        verified=verify_file(output,value['request_id']);receiver=StreamReceiver(io.BytesIO(),original_piece=value.get('original_piece'))
         with gzip.open(output/verified['filename'],'rb') as stream:
-            for line in stream:receiver.accept(line)
+            receiver.read(stream)
         assert receiver.finish(0)['scope_verified']
