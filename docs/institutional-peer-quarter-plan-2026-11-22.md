@@ -1,0 +1,15 @@
+# Current institutional canonical comparison plan
+
+The approved PR842 source copy is running on release `fb23941e`. It contains 17,452 document records and 3,586,013,717 original bytes across 91 pieces. This is source-only work; independent complete-original verification remains pending at this checkpoint.
+
+The legacy canonical comparison tool accepts at most 8,500 verified sources. The current cohort has 16,675 parsed sources. Simply raising its source limit would still allow an oversized monolithic export. Read-only PostgreSQL relation statistics on November22 estimate 1.83 million positions, 1.08 million changes and 457,871 activities across all periods. Those are relation estimates, not exact selected counts or capacity proof.
+
+The local candidate adds a version2 scope containing one source reporting quarter, the complete source inventory and a digest of the complete source-derived scope. Every job still qualifies every source's exact content hash, parsed status and metadata. Existing comparison policy retains the following quarter, all filings and holders, and all institutional event identities. No source or CUSIP is silently dropped. A pure local planner checks exact closure of all periods and identities and rejects omissions, duplicates, changed CUSIPs, changed parent digests and reordered pieces.
+
+Legacy version1 limits remain 8,500 documents and3MB. Version2 permits at most20,000 source identities and6MB but only one source quarter per request. Each source document remains bounded by the existing original-copy acceptance. Existing per-table limits,2GB decoded/250MB compressed limits,85CPU/480wall seconds,1GB address-space ceiling,750MiB worker stop, read-only transactions, exclusive queue ownership and exact package approval remain unchanged. Installing the code creates no request, schedule or canonical writes.
+
+The local peer/worker suite passes88tests with four Linux-only skips. It includes a real10,001-document SQLite inventory, verification of the final source in that inventory, a20,000-identity scope above the legacy3MB limit, exact legacy canonical-row parity, complete partition closure and unchanged worker guards. CI and the exact current derived scope remain pending.
+
+After the full original receiver finishes, derive every reporting-quarter/CUSIP pair from independent parsing, write one immutable reviewed scope per quarter, and measure selected table counts and work bounds. Production copies and transfers require their own concrete approval. Every returned piece must retain exact receipts; overlapping canonical rows and shared parent/event tables must agree before any union can be accepted. Separate snapshots are not an atomic global snapshot. Cross-snapshot consistency, current consumer/publication rehearsal, ongoing preparation and final source activation remain gates.
+
+The only active production approval is PR842's source-copy window. This candidate is local and undeployed. Prices remain Massive, core fundamentals remain FMP, and institutional publication/prepared readers remain disabled. No customer deliveries are authorized or sent by this work.

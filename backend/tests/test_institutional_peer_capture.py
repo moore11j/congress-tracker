@@ -74,6 +74,77 @@ def test_complete_peers_ambiguity_following_period_and_orphan_identity(case):
     assert [tuple(r) for r in db.execute(select(InstitutionalPosition.id,InstitutionalPosition.shares,InstitutionalPosition.value_usd))]==before
 
 
+def test_quarter_partition_keeps_all_sources_and_legacy_rows(case):
+    db, source = case
+    legacy, _ = capture(db, source)
+    pieces = list(peer.partition_source_scope(source))
+    assert peer.validate_scope_partitions(source, pieces) == pieces
+    assert pieces[0]['source_scope_sha256'] == peer.digest(source)
+    raw, receipt = capture(db, pieces[0])
+    assert raw.splitlines()[1:-1] == legacy.splitlines()[1:-1]
+    accepted = peer.receive_peers(io.BytesIO(raw), io.BytesIO(), pieces[0])
+    assert accepted['counts'] == receipt['counts'] and not accepted['full_cutover_ready']
+
+
+def test_large_inventory_is_complete_not_truncated_by_quarter(case, tmp_path):
+    db, source = case
+    metadata = {'key':'0000000001-26-000001', 'cik':'0000000001'}
+    db.execute(DirectFeedDocument.__table__.insert(), [dict(id=ident, feed='sec_13f',
+        source_key=f'fixture-{ident}', source_url='https://www.sec.gov/source',
+        metadata_json=json.dumps(metadata), content_hash='c'*64, status='parsed')
+        for ident in range(2, 10002)])
+    db.commit()
+    source = {**source, 'documents':[dict(id=ident, content_hash='c'*64,
+        metadata_sha256=peer.digest(metadata)) for ident in range(1, 10002)]}
+    with pytest.raises(ValueError, match='invalid_peer_scope'):
+        peer.validate_scope(source)  # Legacy whole-scope bounds are unchanged.
+    piece = list(peer.partition_source_scope(source))[0]
+    assert len(piece['documents']) == 10001
+    path=tmp_path/'scope.json';path.write_bytes(peer.encode(piece))
+    assert peer.read_scope(path, peer.digest(piece)) == piece
+    raw, receipt = capture(db, piece)
+    assert receipt['counts']['positions'] == 4
+    accepted=peer.receive_peers(io.BytesIO(raw),io.BytesIO(),piece)
+    assert accepted['counts']==receipt['counts']
+    db.get(DirectFeedDocument,10001).metadata_json='{}';db.commit()
+    with pytest.raises(ValueError,match='source_changed'):
+        capture(db,piece)
+
+
+@pytest.mark.parametrize('mutation', ['missing_period','duplicate_period','changed_cusip',
+    'missing_source','changed_parent','reordered','extra_period'])
+def test_partition_closure_rejects_incomplete_or_changed_scope(case, mutation):
+    _, source=case
+    source={**source,'period_cusips':{'2026-03-31':['222222222'],'2026-06-30':['111111111']}}
+    pieces=deepcopy(list(peer.partition_source_scope(source)))
+    if mutation=='missing_period':pieces.pop()
+    elif mutation=='duplicate_period':pieces[1]=deepcopy(pieces[0])
+    elif mutation=='changed_cusip':pieces[0]['period_cusips']['2026-03-31']=['333333333']
+    elif mutation=='missing_source':pieces[0]['documents']=[]
+    elif mutation=='changed_parent':pieces[0]['source_scope_sha256']='f'*64
+    elif mutation=='reordered':pieces.reverse()
+    elif mutation=='extra_period':pieces[0]['period_cusips']['2025-12-31']=['333333333']
+    with pytest.raises(ValueError):peer.validate_scope_partitions(source,pieces)
+
+
+def test_partition_inventory_and_byte_bounds(case, tmp_path):
+    _, source=case
+    source={**source,'documents':[dict(id=i,content_hash='c'*64,metadata_sha256='d'*64)
+        for i in range(1,20001)]}
+    piece=list(peer.partition_source_scope(source))[0]
+    assert len(peer.encode(piece)) > peer.MAX_SCOPE_BYTES
+    assert peer.validate_scope(piece)==piece
+    path=tmp_path/'large-scope.json';path.write_bytes(peer.encode(piece))
+    assert peer.read_scope(path,peer.digest(piece))==piece
+    too_many=deepcopy(source);too_many['documents'].append(dict(id=20001,content_hash='c'*64,metadata_sha256='d'*64))
+    with pytest.raises(ValueError):list(peer.partition_source_scope(too_many))
+    unordered=deepcopy(piece);unordered['documents'].reverse()
+    with pytest.raises(ValueError,match='unordered'):peer.validate_scope(unordered)
+    multi=deepcopy(piece);multi['period_cusips']['2026-03-31']=['222222222']
+    with pytest.raises(ValueError):peer.validate_scope(multi)
+    assert peer.LIMITS['positions']==1000000 and peer.MAX_STREAM_BYTES==2000000000
+
+
 @pytest.mark.parametrize('field,value', [('content_hash','d'*64),('feed','sec_form4'),('status','quarantined'),('metadata_json','{}')])
 def test_changed_source_is_rejected_before_any_output(case,field,value):
     db,scope=case; setattr(db.get(DirectFeedDocument,1),field,value);db.commit()
