@@ -47,6 +47,10 @@ def main(args=None):
     with collector_lock(recover_orphaned=not args.preview) as acquired:
         if not acquired:
             print(dumps({'status': 'busy'})); return
+        if not args.preview:
+            from app.services.institutional_original_window import read_window
+            if read_window() is not None:
+                print(dumps({'status': 'held', 'reason': 'approved_original_copy_window', 'public_writes': 0})); return
         with SessionLocal() as db:
             picked = (pending_prior_documents(db, since=args.since, limit=args.limit,
                       recheck_hours=args.recheck_hours, lookback_days=args.lookback_days) if args.since else None)
