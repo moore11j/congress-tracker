@@ -16,6 +16,7 @@ from app.services.direct_feed_store import DirectFeedDocument
 from app.services.institutional_capture_transport import encode, decode
 
 MAX_SCOPE_BYTES = 3_000_000
+MAX_PARTITION_SCOPE_BYTES = 6_000_000
 MAX_STREAM_BYTES = 2_000_000_000
 MAX_RECORD_BYTES = 5_000_000
 LIMITS = {'filings': 5000, 'holders': 5000, 'positions': 1_000_000,
@@ -30,15 +31,21 @@ def digest(value):
     return hashlib.sha256(encode(value)).hexdigest()
 
 
-def validate_scope(scope):
-    if (not isinstance(scope, dict) or set(scope) != {'version', 'parent_capture_id',
-            'parent_baseline_sha256', 'documents', 'period_cusips'} or
-            type(scope['version']) is not int or scope['version'] != 1 or
+def _validate_scope(scope, *, source_plan=False):
+    partition = isinstance(scope, dict) and type(scope.get('version')) is int and scope['version'] == 2
+    fields = {'version', 'parent_capture_id', 'parent_baseline_sha256', 'documents', 'period_cusips'}
+    if partition:
+        fields.add('source_scope_sha256')
+    large = partition or source_plan
+    if (not isinstance(scope, dict) or set(scope) != fields or
+            type(scope['version']) is not int or scope['version'] not in (1, 2) or
             not re.fullmatch(r'[a-f0-9]{32}', str(scope['parent_capture_id'])) or
             not re.fullmatch(r'[a-f0-9]{64}', str(scope['parent_baseline_sha256'])) or
-            not isinstance(scope['documents'], list) or not 1 <= len(scope['documents']) <= 8500 or
-            not isinstance(scope['period_cusips'], dict) or not 1 <= len(scope['period_cusips']) <= 64 or
-            len(encode(scope)) > MAX_SCOPE_BYTES):
+            not isinstance(scope['documents'], list) or not 1 <= len(scope['documents']) <= (20000 if large else 8500) or
+            not isinstance(scope['period_cusips'], dict) or not 1 <= len(scope['period_cusips']) <= (1 if partition else 64) or
+            len(encode(scope)) > (8_000_000 if source_plan else MAX_PARTITION_SCOPE_BYTES if partition else MAX_SCOPE_BYTES) or
+            partition and (not isinstance(scope['source_scope_sha256'], str) or
+                not re.fullmatch(r'[a-f0-9]{64}', scope['source_scope_sha256']))):
         raise ValueError('invalid_peer_scope')
     identifiers = set()
     for document in scope['documents']:
@@ -47,6 +54,8 @@ def validate_scope(scope):
                 any(not re.fullmatch(r'[a-f0-9]{64}', str(document[k])) for k in ('content_hash', 'metadata_sha256'))):
             raise ValueError('invalid_peer_source_inventory')
         identifiers.add(document['id'])
+    if large and [d['id'] for d in scope['documents']] != sorted(identifiers):
+        raise ValueError('unordered_peer_source_inventory')
     total = 0
     for period, cusips in scope['period_cusips'].items():
         parsed = date.fromisoformat(period)
@@ -56,15 +65,47 @@ def validate_scope(scope):
                 any(not isinstance(c, str) or not re.fullmatch(r'[A-Z0-9*@#.\-]{1,32}', c) for c in cusips)):
             raise ValueError('invalid_peer_period_cusips')
         total += len(cusips)
-    if total > 100000:
+    if total > (500000 if source_plan else 100000):
         raise ValueError('peer_scope_pair_bound')
     return scope
+
+
+def validate_scope(scope):
+    """Legacy limits remain; v2 permits a full source inventory for one quarter."""
+    return _validate_scope(scope)
+
+
+def partition_source_scope(source):
+    """Pure local plan, not export approval or cross-snapshot acceptance.
+
+    Each piece retains every source identity and the complete parent digest.
+    Existing export policy still includes the following quarter and all parent,
+    holder and institutional event rows. Per-job row/byte/work limits are intact.
+    """
+    if not isinstance(source, dict) or source.get('version') != 1:
+        raise ValueError('full_source_scope_required')
+    _validate_scope(source, source_plan=True)
+    parent = digest(source)
+    for period in sorted(source['period_cusips']):
+        yield validate_scope({**source, 'version': 2, 'source_scope_sha256': parent,
+            'period_cusips': {period: source['period_cusips'][period]}})
+
+
+def validate_scope_partitions(source, pieces):
+    """Exact complete closure: no omitted periods, source identities or CUSIPs."""
+    if not isinstance(pieces, list) or not 1 <= len(pieces) <= 64:
+        raise ValueError('invalid_peer_scope_partitions')
+    expected = partition_source_scope(source)
+    for piece, wanted in zip(pieces, expected, strict=True):
+        if validate_scope(piece) != wanted:
+            raise ValueError('incomplete_or_changed_peer_scope_partitions')
+    return pieces
 
 
 def read_scope(path, expected_sha256):
     from pathlib import Path
     path = Path(path)
-    if path.is_symlink() or not 1 <= path.stat().st_size <= MAX_SCOPE_BYTES:
+    if path.is_symlink() or not 1 <= path.stat().st_size <= MAX_PARTITION_SCOPE_BYTES:
         raise ValueError('invalid_peer_scope_file')
     raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != expected_sha256:
