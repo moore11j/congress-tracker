@@ -24,7 +24,10 @@ def package_hash():
     root = Path(__file__).resolve().parents[1]
     files = [Path(__file__), *(root / 'services' / name for name in (
         'institutional_capture_transport.py', 'institutional_capture_file.py',
-        'institutional_capture_export.py', 'institutional_original_segments.py'))]
+        'institutional_capture_export.py', 'institutional_original_segments.py',
+        'institutional_original_window.py')),
+        root / 'jobs' / 'collect_direct_feeds.py', root / 'jobs' / 'collect_direct_13f_priors.py',
+        root / 'jobs' / 'control_institutional_original_window.py']
     digest = hashlib.sha256()
     for path in files:
         digest.update(path.name.encode() + b'\0' + path.read_bytes() + b'\0')
@@ -61,6 +64,13 @@ def read_request(path, *, now=None):
         validate_piece(request.get('original_piece'))
         if not 0 <= now - request['original_piece']['snapshot_at'] <= 3600:
             raise ValueError('expired_original_inventory')
+        if 'source_window_id' in request:
+            from app.services.institutional_original_window import read_window
+            window = read_window(now=now, expected_package=request['package_sha256'])
+            if (window is None or window['window_id'] != request['source_window_id'] or
+                    window['approved_at'] != request['approved_at'] or
+                    window['expires_at'] != request['expires_at']):
+                raise ValueError('missing_exact_original_copy_window')
     return request
 
 

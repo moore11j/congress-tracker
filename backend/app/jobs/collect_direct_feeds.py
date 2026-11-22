@@ -110,9 +110,19 @@ def main(argv=None):
         if not acquired:
             print(dumps({"status": "busy"}))
             return
+        sources = list(args.sources)
+        held_sources = []
+        if 'sec_13f' in sources:
+            from app.services.institutional_original_window import read_window
+            if read_window() is not None:
+                sources.remove('sec_13f')
+                held_sources.append('sec_13f')
+                if not sources:
+                    print(dumps({'status': 'held', 'reason': 'approved_original_copy_window',
+                                 'held_sources': held_sources, 'public_writes': 0}))
+                    return
         ensure_direct_feed_schema(engine)
         backup_enabled = 'senate_ptr' in args.sources and os.getenv('SENATE_BACKUP_COLLECTION_ENABLED','false').strip().lower()=='true'
-        sources = list(args.sources)
         if 'senate_ptr' in sources:
             from app.services.feed_source_control import FeedSourceControl
             from app.services.senate_backup_evidence import PROVIDER
@@ -137,6 +147,8 @@ def main(argv=None):
                                          start=args.start, end=args.end, symbols=args.symbols, limit=args.limit,
                                          recheck_hours=args.recheck_hours, retry_failed=args.retry_failed, issuer_registry=registry, senate_reports=senate,
                                          senate_client=senate_client, recover_senate_window=recover_senate_window)
+            if held_sources:
+                result['held_sources'] = held_sources
             if backup_enabled:
                 from app.jobs.collect_senate_backup import collect
                 years = list(range(args.start.year, args.end.year+1))
