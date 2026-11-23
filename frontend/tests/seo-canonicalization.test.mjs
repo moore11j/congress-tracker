@@ -41,7 +41,7 @@ test("workspace discovery stays public and noindex while marketing redirects pre
   assert.equal(alias.headers.get("location"), `https://app.walnutmarkets.com${path}`);
 });
 
-test("My Stocks preserves login return state and uses the existing protected page guard", async () => {
+test("My Stocks middleware preserves login return state and indexing restrictions", async () => {
   const { NextRequest } = require("next/server");
   const { middleware } = loadModule("middleware.ts");
   const route = "/my-stocks?add=NBIS";
@@ -51,9 +51,6 @@ test("My Stocks preserves login return state and uses the existing protected pag
   assert.equal(location.pathname, "/login");
   assert.equal(location.searchParams.get("return_to"), route);
   assert.equal(response.headers.get("x-robots-tag"), "noindex, follow");
-  const page = fs.readFileSync(path.join(root, "app/my-stocks/page.tsx"), "utf8");
-  assert.match(page, /requirePageAuth\("\/my-stocks"\)/);
-  assert.match(page, /<VerifiedSessionGuard returnTo="\/my-stocks"/);
 });
 
 test("production ticker filters stay crawlable without weakening private or preview exclusions", async () => {

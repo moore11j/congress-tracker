@@ -3,14 +3,17 @@ import Link from "next/link";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { ResearchWorkspaceNav } from "@/components/discover/ResearchWorkspaceNav";
 import { WatchlistsDashboard } from "@/components/watchlists/WatchlistsDashboard";
-import { requirePageAuth } from "@/lib/serverAuth";
+import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 
 export const metadata: Metadata = { title: "My Stocks | Walnut Markets", robots: { index: false, follow: false } };
 
-export default async function MyStocksPage() {
-  const authToken = await requirePageAuth("/my-stocks");
+export default async function MyStocksPage({ searchParams }: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const returnTo = buildReturnTo("/my-stocks", await searchParams);
+  const authToken = await requirePageAuth(returnTo);
   return (
-    <VerifiedSessionGuard returnTo="/my-stocks" initiallyAuthorized={Boolean(authToken)}>
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <div className="mx-auto max-w-6xl space-y-7 py-5 sm:py-8">
         <ResearchWorkspaceNav active="my-stocks" />
         <header>

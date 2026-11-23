@@ -11,6 +11,7 @@ on:
       - 'frontend/components/watchlists/WatchlistsDashboard.tsx'
       - 'frontend/middleware.ts'
       - 'frontend/tests/discover-render.test.mjs'
+      - 'frontend/tests/my-stocks-return.test.mjs'
       - 'frontend/tests/seo-canonicalization.test.mjs'
       - '.github/workflows/walnut-workspace-regression.yml'
 
@@ -32,6 +33,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: node --test tests/discover-render.test.mjs
+      - run: node --test tests/discover-render.test.mjs tests/my-stocks-return.test.mjs
       - run: node --test --test-name-pattern='workspace discovery|My Stocks' tests/seo-canonicalization.test.mjs
       - run: npx tsc --noEmit --incremental false
