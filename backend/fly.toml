@@ -150,7 +150,7 @@ processes = ["app"]
 
 [[vm]]
   processes = ["app"]
-  memory = '4gb'
+  memory = '3gb'
   cpus = 2
-  memory_mb = 4096
+  memory_mb = 3072
   cpu_kind = 'shared'
