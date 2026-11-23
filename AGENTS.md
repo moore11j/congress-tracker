@@ -633,3 +633,8 @@ October 9 activation audit: consumer release 0062b161/PR491 deployed; public pro
 ## October 9 institutional prior review checkpoint
 
 October 9 renewed review: updated the existing PR485 branch against current main 3133ed42, preserving both documentation histories and unrelated local TypeScript build metadata. The owner now requests continued exact-release preparation and actual scheduled observation across the migration. No institutional publication or source switch is included. The same bounded five-minute prior-source staging package passes all 93 focused checks on Python 3.14.2 after adapting isolated digest fixtures to the deployed three-field calendar contract and using a fresh workspace test directory because the Windows default temp root was inaccessible. No production staging schedule has been activated by this update. The earlier automatic-review rejection remains historical; deployment still depends on review of this refreshed concrete release.
+
+
+## November 23 shell continuation
+
+2026-11-23: Local shell continuation adds default-off NEXT_PUBLIC_WALNUT_WORKSPACE_ENABLED navigation entries for Discover/My Stocks. Flag-on/off render matrix and TypeScript pass; six Discover renders pass. Existing profile/auth suites28pass/12fail; exact12failures reproduce from unchangedHEAD. No release, default-route change, provider/model calls, delivery, or production flag activation. Full build/browser/route/access checks and remaining Walnut2 capabilities stay pending. Root report: docs/walnut-2-shell-2026-11-23.md. Institutional approved copy continues independently in root workspace.

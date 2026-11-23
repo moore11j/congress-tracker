@@ -28,6 +28,34 @@ const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const sitemap = fs.readFileSync(path.join(root, "public/sitemap.xml"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
 
+test("workspace discovery stays public and noindex while marketing redirects preserve query state", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  const path = "/discover?q=NBIS";
+  const response = await middleware(new NextRequest(`https://app.walnutmarkets.com${path}`, { headers: { host: "app.walnutmarkets.com", "user-agent": "Googlebot" } }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("location"), null);
+  assert.equal(response.headers.get("x-robots-tag"), "noindex, follow");
+  const alias = await middleware(new NextRequest(`https://walnutmarkets.com${path}`, { headers: { host: "walnutmarkets.com" } }));
+  assert.equal(alias.status, 307);
+  assert.equal(alias.headers.get("location"), `https://app.walnutmarkets.com${path}`);
+});
+
+test("My Stocks preserves login return state and uses the existing protected page guard", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  const route = "/my-stocks?add=NBIS";
+  const response = await middleware(new NextRequest(`https://app.walnutmarkets.com${route}`, { headers: { host: "app.walnutmarkets.com" } }));
+  assert.equal(response.status, 307);
+  const location = new URL(response.headers.get("location"));
+  assert.equal(location.pathname, "/login");
+  assert.equal(location.searchParams.get("return_to"), route);
+  assert.equal(response.headers.get("x-robots-tag"), "noindex, follow");
+  const page = fs.readFileSync(path.join(root, "app/my-stocks/page.tsx"), "utf8");
+  assert.match(page, /requirePageAuth\("\/my-stocks"\)/);
+  assert.match(page, /<VerifiedSessionGuard returnTo="\/my-stocks"/);
+});
+
 test("production ticker filters stay crawlable without weakening private or preview exclusions", async () => {
   const { NextRequest } = require("next/server");
   const { middleware } = loadModule("middleware.ts");

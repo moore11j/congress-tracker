@@ -6,6 +6,10 @@ import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent 
 import { HorizontalScrollIndicators, useHorizontalScrollAffordance } from "@/components/ui/HorizontalScrollAffordance";
 
 const topNavLinks = [
+  ...(process.env.NEXT_PUBLIC_WALNUT_WORKSPACE_ENABLED === "1" ? [
+    { href: "/discover", label: "Discover" },
+    { href: "/my-stocks", label: "My Stocks" },
+  ] : []),
   { href: "/?mode=all", label: "Feed" },
   { href: "/insights", label: "Insights" },
   { href: "/signals", label: "Signals" },

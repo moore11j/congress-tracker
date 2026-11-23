@@ -9,7 +9,7 @@ const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
 const anonymousPublicRenderHeaderName = "x-walnut-anonymous-public-render";
 const publicTickerEdgeCacheControl = "public, s-maxage=60, stale-while-revalidate=300";
-const protectedPrefixes = ["/admin", "/account", "/backtesting", "/signal-mixer", "/watchlists", "/monitoring"];
+const protectedPrefixes = ["/admin", "/account", "/backtesting", "/signal-mixer", "/watchlists", "/my-stocks", "/monitoring"];
 const publicStaticPaths = new Set([
   "/retirement-calculator",
   "/options-calculator",
@@ -57,6 +57,8 @@ const robotsDisallowPaths = [
 ];
 const noindexAppRoutePrefixes = [
   "/",
+  "/discover",
+  "/my-stocks",
   "/login",
   "/reset-password",
   "/signals",

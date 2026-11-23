@@ -1295,3 +1295,6 @@ Request: continue migration. Changes: nine adapters, verified source receipt hel
 
 Implemented shared source-qualified domestic comparative revenue zeros and integrated bounded acquisition, calculation, cache validation and MNOV retry version. Complete original/consumer tests recover MNOV growth and margin expansion with preserved values, repeat and alert history; BFRG remains held on newly checked hidden nil facts. All49retained outputs/requests preserve exact parity. No release, activation, spending or sends. Linux CI and release review remain. See [report](domestic-comparative-revenue-zeros-2026-11-18.md).
 
+
+
+2026-11-23: Local shell continuation adds default-off NEXT_PUBLIC_WALNUT_WORKSPACE_ENABLED navigation entries for Discover/My Stocks. Flag-on/off render matrix and TypeScript pass; six Discover renders pass. Existing profile/auth suites28pass/12fail; exact12failures reproduce from unchangedHEAD. No release, default-route change, provider/model calls, delivery, or production flag activation. Full build/browser/route/access checks and remaining Walnut2 capabilities stay pending. Root report: docs/walnut-2-shell-2026-11-23.md. Institutional approved copy continues independently in root workspace.
