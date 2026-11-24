@@ -121,7 +121,7 @@ test("research renders accessible filters, safe empty/loading/error and disabled
 });
 
 test("compact Overview preserves entitlement checks and calibration inspection", () => {
-  const page = fs.readFileSync("app/ticker/[symbol]/page.tsx", "utf8");
+  const page = fs.readFileSync("components/ticker/TickerPageRenderer.tsx", "utf8");
   assert.match(page, /Confirmation and source alignment/);
   assert.match(page, /divergenceLocked \?/);
   assert.match(page, /confirmationLocked && confirmationGate/);
@@ -190,7 +190,7 @@ test("every blurred decision section has an accessible common upgrade CTA", () =
   assert.match(html, /Understand the risks/);
   assert.match(html, /See what changed/);
   assert.doesNotMatch(render(TickerDecisionPanels, { layer, locked: false }), /Unlock with Premium/);
-  assert.match(fs.readFileSync("app/ticker/[symbol]/page.tsx", "utf8"), /divergenceLocked \? <ContextualUpgrade/);
+  assert.match(fs.readFileSync("components/ticker/TickerPageRenderer.tsx", "utf8"), /divergenceLocked \? <ContextualUpgrade/);
 });
 
 test("Premium fetches wait for access and direct Research routes include the gate", () => {

@@ -6,10 +6,12 @@ Schema installation is explicit and belongs in an isolated sandbox before releas
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import re
 from typing import Any
 
 from sqlalchemy import (Boolean, Column, Integer, JSON, MetaData, String, Table,
-                        CheckConstraint, select, update)
+                        CheckConstraint, delete, select, update)
 
 metadata = MetaData()
 wallets = Table("research_credit_wallets", metadata,
@@ -29,7 +31,13 @@ jobs = Table("research_credit_jobs", metadata,
     Column("user_id", String(80), nullable=False, index=True),
     Column("credits", Integer, nullable=False),
     Column("state", String(20), nullable=False),
+    Column("parent_job_id", String(180)),
+    Column("evidence_key", String(64)),
+    Column("question_hash", String(64)),
     Column("allocations", JSON, nullable=False))
+clarifications = Table("research_credit_clarifications", metadata,
+    Column("parent_job_id", String(180), primary_key=True),
+    Column("job_id", String(180), nullable=False, unique=True))
 orders = Table("research_credit_orders", metadata,
     Column("order_id", String(80), primary_key=True),
     Column("user_id", String(80), nullable=False, index=True),
@@ -45,7 +53,8 @@ payments = Table("research_credit_payment_locks", metadata,
     Column("payment_intent", String(180), primary_key=True),
     Column("version", Integer, nullable=False))
 
-MONTHLY_ALLOWANCE = {"free": 100, "premium": 1500, "pro": 4000}
+MONTHLY_ALLOWANCE = {"free": 100, "premium": 2000, "pro": 4000}
+FREE_FIRST_MONTH = 250
 TASK_PRICES = {"answer": 25, "analysis": 100, "report": 400}
 PURCHASE_CENTS_PER_CREDIT = 2
 
@@ -109,10 +118,11 @@ class CreditStore:
         conn.execute(grants.insert().values(source=source, remaining=credits, **expected))
         return True
 
-    def grant_month(self, user_id, tier, cycle_start, cycle_end, *, now=None):
+    def grant_month(self, user_id, tier, cycle_start, cycle_end, *, now=None, account_created_at=None):
         """Internal only. Caller must prove paid coverage for this exact month.
 
         A unique user/month source prevents reset exploits through plan switching.
+        account_created_at must come from the verified account, never a request body.
         Annual scheduling and invoice qualification are not implemented here.
         """
         now = now_seconds() if now is None else now
@@ -120,10 +130,18 @@ class CreditStore:
             raise CreditError("Invalid current grant cycle")
         if cycle_end - cycle_start > 32 * 86400:
             raise CreditError("Grant must cover one month, not an annual prepayment")
+        if account_created_at is not None and (type(account_created_at) is not int or not 0 < account_created_at <= now):
+            raise CreditError("Invalid account creation date")
         with self.engine.begin() as conn:
             self._lock(conn, user_id)
-            return self._grant(conn, user_id, f"monthly:{user_id}:{cycle_start}",
-                               MONTHLY_ALLOWANCE[tier], "monthly", cycle_end)
+            added = self._grant(conn, user_id, f"monthly:{user_id}:{cycle_start}",
+                                MONTHLY_ALLOWANCE[tier], "monthly", cycle_end)
+            if tier == "free" and account_created_at == cycle_start:
+                # One permanent source identity prevents cancel/rejoin bonus resets.
+                bonus = self._grant(conn, user_id, f"welcome:{user_id}",
+                                    FREE_FIRST_MONTH - MONTHLY_ALLOWANCE["free"], "monthly", cycle_end)
+                added = bonus or added
+            return added
 
     def balance(self, user_id, *, now=None):
         now = now_seconds() if now is None else now
@@ -168,23 +186,67 @@ class CreditStore:
                          state="reserved", allocations=allocations))
             return "reserved"
 
-    def finish(self, user_id, job_id, *, success):
+    def reserve_clarification(self, user_id, parent_job_id, job_id, evidence_key, question, *, access_allowed=False):
+        """Internal ledger claim only; caller must reauthorize the bound evidence.
+
+        A future answer runner must use only that evidence, no new tools/retrieval,
+        and keep this brief response inside the parent's total provider budget.
+        No model runner or public clarification endpoint exists here.
+        """
+        if access_allowed is not True:
+            raise CreditError("Evidence access required")
+        if not isinstance(evidence_key, str) or not re.fullmatch(r"[0-9a-f]{64}", evidence_key):
+            raise CreditError("Invalid evidence binding")
+        if not isinstance(question, str) or not question.strip() or len(question) > 600:
+            raise CreditError("Clarification must be brief")
+        question_hash = hashlib.sha256(question.strip().encode()).hexdigest()
+        with self.engine.begin() as conn:
+            wallet = self._lock(conn, user_id)
+            if wallet["billing_hold"]:
+                raise CreditError("Billing review required")
+            parent = conn.execute(select(jobs).where(jobs.c.job_id == parent_job_id)).mappings().first()
+            if not parent or parent["user_id"] != user_id or parent["state"] != "spent" or parent["credits"] <= 0:
+                raise CreditError("A completed paid answer is required")
+            if parent["evidence_key"] != evidence_key:
+                raise CreditError("Clarification requires the original evidence")
+            old = conn.execute(select(jobs).where(jobs.c.job_id == job_id)).mappings().first()
+            if old:
+                if (old["user_id"] != user_id or old["parent_job_id"] != parent_job_id
+                        or old["evidence_key"] != evidence_key or old["question_hash"] != question_hash):
+                    raise CreditError("Clarification identity conflict")
+                return old["state"]
+            if conn.execute(select(clarifications).where(clarifications.c.parent_job_id == parent_job_id)).first():
+                raise CreditError("Included clarification already used or reserved")
+            conn.execute(jobs.insert().values(job_id=job_id, user_id=user_id, credits=0, state="reserved",
+                         parent_job_id=parent_job_id, evidence_key=evidence_key, question_hash=question_hash, allocations=[]))
+            conn.execute(clarifications.insert().values(parent_job_id=parent_job_id, job_id=job_id))
+            return "reserved"
+
+    def finish(self, user_id, job_id, *, success, evidence_key=None):
+        if evidence_key is not None and (not isinstance(evidence_key, str) or not re.fullmatch(r"[0-9a-f]{64}", evidence_key)):
+            raise CreditError("Invalid evidence binding")
         with self.engine.begin() as conn:
             self._lock(conn, user_id)
             job = conn.execute(select(jobs).where(jobs.c.job_id == job_id)).mappings().first()
             if not job or job["user_id"] != user_id:
                 raise CreditError("Unknown job")
+            if evidence_key is not None and job["evidence_key"] not in {None, evidence_key}:
+                raise CreditError("Answer evidence identity conflict")
             target = "spent" if success else "released"
             if job["state"] != "reserved":
                 if job["state"] != target:
                     raise CreditError("Job already finalized")
+                if evidence_key is not None and job["evidence_key"] != evidence_key:
+                    raise CreditError("Finalized answer evidence cannot change")
                 return target
             if not success:
                 for allocation in job["allocations"]:
                     # Restore original grant: release must not extend its expiry.
                     conn.execute(update(grants).where(grants.c.source == allocation["source"])
                                  .values(remaining=grants.c.remaining + allocation["credits"]))
-            conn.execute(update(jobs).where(jobs.c.job_id == job_id).values(state=target))
+                conn.execute(delete(clarifications).where(clarifications.c.job_id == job_id))
+            conn.execute(update(jobs).where(jobs.c.job_id == job_id)
+                         .values(state=target, evidence_key=evidence_key or job["evidence_key"]))
             return target
 
     def create_order(self, user_id, order_id, amount_cents):

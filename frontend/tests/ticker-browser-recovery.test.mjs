@@ -119,7 +119,7 @@ test("persistent failure is bounded and offers a working manual retry", async ()
 });
 
 test("ticker renders partial data without the premature page-wide warning", () => {
-  const page = fs.readFileSync("app/ticker/[symbol]/page.tsx", "utf8");
+  const page = fs.readFileSync("components/ticker/TickerPageRenderer.tsx", "utf8");
   assert.doesNotMatch(page, /\{shellFallbackMessage\s*\?\s*\(/);
   assert.match(page, /!hasResolvedTickerProfile\(profile\) && !userAgentLooksInteractiveBrowser/);
 });

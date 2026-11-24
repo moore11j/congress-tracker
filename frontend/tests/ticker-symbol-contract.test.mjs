@@ -32,7 +32,7 @@ test("frontend ticker API calls normalize and encode route symbols", () => {
 });
 
 test("ticker page uses base event rows and filters missing header metadata", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(page, /enrich_prices:\s*0/);
   assert.match(page, /function cleanTickerHeaderMetadata/);

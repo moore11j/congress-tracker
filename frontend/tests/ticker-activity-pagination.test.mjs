@@ -10,7 +10,7 @@ function read(path) {
 }
 
 test("ticker activity sections use shared paginated footers", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(page, /const ACTIVITY_PAGE_SIZE = 20/);
   assert.match(page, /const ACTIVITY_FETCH_SIZE = ACTIVITY_PAGE_SIZE \+ 1/);
@@ -39,7 +39,7 @@ test("ticker activity sections use shared paginated footers", () => {
 
 test("activity footer preserves scroll and anchors back to the section", () => {
   const footer = read("components/ticker/TickerActivityPaginationFooter.tsx");
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(footer, /event\.preventDefault\(\)/);
   assert.match(footer, /router\.push\(nextUrl,\s*\{ scroll: false \}\)/);
@@ -71,7 +71,7 @@ test("activity footer renders showing range and show-more controls", () => {
 });
 
 test("insider activity tables render one filed-price-first price", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
   const tradeDisplay = read("lib/tradeDisplay.ts");
 
   assert.match(tradeDisplay, /const displayPrice = reported\.price \?\? price/);
@@ -83,7 +83,7 @@ test("insider activity tables render one filed-price-first price", () => {
 });
 
 test("ticker trade activity tables disclose price and preserve participant summaries", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
   const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
   const signalClient = read("components/ticker/TickerSignalActivityClient.tsx");
   const participantLeaderboards = read("components/ticker/TickerParticipantLeaderboards.tsx");
@@ -132,7 +132,7 @@ test("ticker trade activity tables disclose price and preserve participant summa
 });
 
 test("ticker activity stats and participant rankings use the rendered tape rows", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
   const headerStats = read("components/ticker/TickerActivityHeaderStatsClient.tsx");
 
   assert.match(page, /const congressBuys = congressEvents\.filter/);

@@ -10,6 +10,8 @@ import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { searchSuggest, type SearchSuggestResult } from "@/lib/api";
 import { chatIntent, chatResearchHref, type ChatSection } from "@/lib/chatNavigation";
 import { tickerHref, tickerRouteSymbol } from "@/lib/ticker";
+import { ResearchCreditQuote } from "@/components/chat/ResearchCreditQuote";
+import type { ResearchMode } from "@/lib/researchCredits";
 
 type Turn = { role: "user" | "walnut"; text: string };
 const tools = [
@@ -25,6 +27,7 @@ const sources = [
 export function WalnutChatWorkspace({ symbol, rankings, children }: { symbol: string | null; rankings: boolean; children: ReactNode }) {
   const router = useRouter();
   const [input, setInput] = useState("");
+  const [mode, setMode] = useState<ResearchMode>("browse");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [choices, setChoices] = useState<SearchSuggestResult[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
@@ -63,9 +66,11 @@ export function WalnutChatWorkspace({ symbol, rankings, children }: { symbol: st
     // Native hashchange is consumed by the existing ticker tab component.
     document.querySelector("[data-chat-research]")?.scrollIntoView({ block: "start" });
   }
-  async function submitText(raw: string) {
+  async function submitText(raw: string, navigationOnly = false) {
     const value = raw.trim().slice(0, 600);
     if (!value || searching || pending) return;
+    if (mode !== "browse" && !navigationOnly) return; // No paid request without a connected, authorized AI runner.
+    if (navigationOnly) setMode("browse");
     setInput(""); setChoices([]);
     setTurns(previous => [...previous, { role: "user", text: value }]);
     const intent = chatIntent(value, Boolean(symbol));
@@ -101,7 +106,7 @@ export function WalnutChatWorkspace({ symbol, rankings, children }: { symbol: st
   }
   function newChat() {
     requestId.current++; controller.current?.abort(); controller.current = null;
-    setInput(""); setTurns([]); setChoices([]); setSearching(false); drawer.current?.close();
+    setInput(""); setMode("browse"); setTurns([]); setChoices([]); setSearching(false); drawer.current?.close();
     startTransition(() => router.push("/ask", { scroll: false }));
     inputRef.current?.focus();
   }
@@ -140,7 +145,7 @@ export function WalnutChatWorkspace({ symbol, rankings, children }: { symbol: st
             <WalnutBrandMark className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.04]" svgClassName="h-7 w-7" />
             <h1 className="mt-6 text-center text-[28px] font-medium tracking-tight text-white sm:text-4xl">What are we researching?</h1>
             <p className="mx-auto mt-3 max-w-md text-center text-sm leading-6 text-slate-400">Start with a company. Explore the evidence.<br className="hidden sm:block" /> Keep your next question in the same conversation.</p>
-            <div className="mx-auto mt-9 grid max-w-xl gap-2 sm:grid-cols-2">{["Research NBIS", "Research NVDA", "Show ranked stocks", "Research Microsoft"].map(prompt => <button key={prompt} type="button" onClick={() => void submitText(prompt)} disabled={searching || pending} className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-4 text-left text-sm text-slate-300 transition hover:border-white/20 hover:bg-white/[0.035] disabled:opacity-50">{prompt}<ArrowUpRight className="h-4 w-4 text-slate-500" /></button>)}</div>
+            <div className="mx-auto mt-9 grid max-w-xl gap-2 sm:grid-cols-2">{["Research NBIS", "Research NVDA", "Show ranked stocks", "Research Microsoft"].map(prompt => <button key={prompt} type="button" onClick={() => void submitText(prompt, true)} disabled={searching || pending} className="flex items-center justify-between rounded-xl border border-white/10 px-4 py-4 text-left text-sm text-slate-300 transition hover:border-white/20 hover:bg-white/[0.035] disabled:opacity-50">{prompt}<ArrowUpRight className="h-4 w-4 text-slate-500" /></button>)}</div>
           </div> : <div className="py-5 sm:py-8">
             <div className="mx-auto max-w-3xl space-y-6">{turns.map((turn, index) => <div key={index} className={turn.role === "user" ? "ml-auto w-fit max-w-[90%] rounded-2xl bg-white/[0.07] px-4 py-3 text-sm leading-6 text-white" : "flex gap-3 text-sm leading-6 text-slate-300"}>{turn.role === "walnut" && <WalnutBrandMark className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center text-emerald-300" svgClassName="h-5 w-5" />}<p className="min-w-0 whitespace-pre-wrap break-words">{turn.text}</p></div>)}</div>
             <div ref={replyAnchor} />
@@ -150,15 +155,16 @@ export function WalnutChatWorkspace({ symbol, rankings, children }: { symbol: st
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3"><span className="text-xs font-medium text-slate-400">{symbol ? `${symbol} · Ticker research` : "Walnut · Ranked stocks"}</span><Link href={symbol ? tickerHref(symbol)! : "/leaderboards"} prefetch={false} className="inline-flex items-center gap-1 text-xs text-emerald-200">Open full page <ArrowUpRight className="h-3.5 w-3.5" /></Link></div>
               <div className="min-w-0 p-3 sm:p-5">{rankings ? <DiscoveryStocks onResearch={navigateTicker} /> : children}</div>
             </section>}
-            {symbol && <div className="mt-4 flex flex-wrap gap-2">{["Show financials", "Show the chart", "Show news", "What are the risks?"].map(prompt => <button key={prompt} type="button" onClick={() => void submitText(prompt)} disabled={searching || pending} className="rounded-full border border-white/10 px-3 py-2 text-xs text-slate-400 hover:border-emerald-300/30 hover:text-emerald-200 disabled:opacity-50">{prompt}</button>)}</div>}
+            {symbol && <div className="mt-4 flex flex-wrap gap-2">{["Show financials", "Show the chart", "Show news", "What are the risks?"].map(prompt => <button key={prompt} type="button" onClick={() => void submitText(prompt, true)} disabled={searching || pending} className="rounded-full border border-white/10 px-3 py-2 text-xs text-slate-400 hover:border-emerald-300/30 hover:text-emerald-200 disabled:opacity-50">{prompt}</button>)}</div>}
           </div>}
         </div>
       </div>
       <footer className="shrink-0 px-4 pb-3 pt-3 sm:px-6 sm:pb-4">
         <form onSubmit={submit} className="mx-auto max-w-3xl rounded-2xl border border-white/15 bg-[#202a33] p-3 shadow-lg shadow-black/10 focus-within:border-emerald-300/30">
+          <ResearchCreditQuote mode={mode} onModeChange={setMode} />
           <label htmlFor="walnut-question" className="sr-only">Ask Walnut or search a company</label>
           <textarea ref={inputRef} id="walnut-question" value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submitText(input); } }} maxLength={600} rows={2} placeholder={symbol ? `Ask about ${symbol}, or research another company…` : "Ask Walnut or search a company…"} className="block max-h-40 min-h-[56px] w-full resize-none bg-transparent px-1 py-1 text-base text-white placeholder:text-slate-500 focus:outline-none" />
-          <div className="mt-1 flex items-center justify-between gap-3"><span className="truncate text-[11px] text-slate-500">{symbol ? `Researching ${symbol}` : "Company research & tools"}</span><button type="submit" aria-label="Send question" disabled={!input.trim() || searching || pending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-300 text-slate-950 transition hover:bg-emerald-200 disabled:bg-white/10 disabled:text-slate-500"><ArrowUp className="h-4 w-4" /></button></div>
+          <div className="mt-1 flex items-center justify-between gap-3"><span className="truncate text-[11px] text-slate-500">{symbol ? `Researching ${symbol}` : "Company research & tools"}</span><button type="submit" aria-label="Send question" disabled={mode !== "browse" || !input.trim() || searching || pending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-300 text-slate-950 transition hover:bg-emerald-200 disabled:bg-white/10 disabled:text-slate-500"><ArrowUp className="h-4 w-4" /></button></div>
         </form>
         <p className="mx-auto mt-2 max-w-3xl text-center text-[10px] leading-4 text-slate-500">Preview: company research and section navigation work. Open-ended AI answers are coming next. Premium and Pro access still applies.</p>
       </footer>

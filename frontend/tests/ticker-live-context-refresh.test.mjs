@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 test("ticker page uses a bounded server budget and background live refresh", () => {
-  const page = readFileSync(join(process.cwd(), "app/ticker/[symbol]/page.tsx"), "utf8");
+  const page = readFileSync(join(process.cwd(), "components/ticker/TickerPageRenderer.tsx"), "utf8");
   const refresh = readFileSync(join(process.cwd(), "components/ticker/TickerLiveContextRefresh.tsx"), "utf8");
 
   assert.match(page, /const TICKER_CONTEXT_SSR_TIMEOUT_MS = 2500/);

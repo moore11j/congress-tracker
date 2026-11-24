@@ -49,7 +49,7 @@ test("events and auth helpers coalesce identical short-lived requests", () => {
 });
 
 test("ticker reuses server signals summary for source cards and defers chart bundle pressure", () => {
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
   const signalActivity = read("components/ticker/TickerSignalActivityClient.tsx");
   const signalCard = read("components/ticker/TickerSignalsSourceCardClient.tsx");
   const institutionalCard = read("components/ticker/TickerInstitutionalSourceCardClient.tsx");

@@ -5,7 +5,7 @@ import test from "node:test";
 
 const root = process.cwd();
 const apiSource = fs.readFileSync(path.join(root, "lib/api.ts"), "utf8");
-const tickerPage = fs.readFileSync(path.join(root, "app/ticker/[symbol]/page.tsx"), "utf8");
+const tickerPage = fs.readFileSync(path.join(root, "components/ticker/TickerPageRenderer.tsx"), "utf8");
 const comparePage = fs.readFileSync(path.join(root, "app/compare/[left]/[right]/page.tsx"), "utf8");
 const compareLoading = fs.readFileSync(path.join(root, "app/compare/[left]/[right]/loading.tsx"), "utf8");
 const globalStyles = fs.readFileSync(path.join(root, "app/globals.css"), "utf8");

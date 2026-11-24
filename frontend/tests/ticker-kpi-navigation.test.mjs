@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const tickerPage = fs.readFileSync(path.join(root, "app/ticker/[symbol]/page.tsx"), "utf8");
+const tickerPage = fs.readFileSync(path.join(root, "components/ticker/TickerPageRenderer.tsx"), "utf8");
 const activityHeaderStats = fs.readFileSync(path.join(root, "components/ticker/TickerActivityHeaderStatsClient.tsx"), "utf8");
 
 test("ticker removes KPI tile row and moves buy/sell counts into activity headers", () => {

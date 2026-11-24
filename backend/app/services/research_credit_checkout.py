@@ -12,7 +12,7 @@ import requests
 
 from app.services.research_credits import CreditError, CreditStore, PURCHASE_CENTS_PER_CREDIT, purchased_credits
 
-CATALOG_VERSION = "walnut_research_v2"
+CATALOG_VERSION = "walnut_research_v3"
 API_VERSION = "2026-11-18.endive"
 
 

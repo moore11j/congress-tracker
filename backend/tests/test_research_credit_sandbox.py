@@ -133,6 +133,109 @@ def test_month_grants_reject_annual_period_and_plan_switch_regrant(store):
         store.grant_month("u", "pro", 10, 100, now=20)
 
 
+def test_free_first_month_is_250_total_then_100_and_cannot_reset(store):
+    assert store.grant_month("u", "free", 10, 100, now=20, account_created_at=10)
+    assert not store.grant_month("u", "free", 10, 100, now=20, account_created_at=10)
+    assert store.balance("u", now=20)["available"] == 250
+    # A changed account date must not mint another bonus or even commit the base grant.
+    with pytest.raises(CreditError):
+        store.grant_month("u", "free", 100, 200, now=110, account_created_at=100)
+    assert store.balance("u", now=110)["available"] == 0
+    assert store.grant_month("u", "free", 100, 200, now=110, account_created_at=10)
+    assert store.balance("u", now=110)["available"] == 100
+
+
+def test_first_month_concurrent_retries_grant_once(store):
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(lambda _: store.grant_month("u", "free", 10, 100, now=20, account_created_at=10), range(10)))
+    assert results.count(True) == 1
+    assert store.balance("u", now=20)["available"] == 250
+
+
+def test_approved_premium_allowance_and_paid_first_month(store):
+    store.grant_month("u", "premium", 10, 100, now=20, account_created_at=10)
+    assert store.balance("u", now=20)["available"] == 2000
+    store.grant_month("u", "free", 100, 200, now=110, account_created_at=10)
+    assert store.balance("u", now=110)["available"] == 100
+
+
+EVIDENCE = "a" * 64
+
+
+def paid_answer(store):
+    purchase(store)
+    store.reserve("u", "answer", 25)
+    store.finish("u", "answer", success=True, evidence_key=EVIDENCE)
+
+
+def clarify(store, job="clarify", **overrides):
+    args = dict(user_id="u", parent_job_id="answer", job_id=job, evidence_key=EVIDENCE,
+                question="Explain the last point", access_allowed=True)
+    args.update(overrides)
+    return store.reserve_clarification(**args)
+
+
+def test_included_clarification_spends_no_credits_and_cannot_chain(store):
+    paid_answer(store)
+    assert clarify(store) == "reserved"
+    assert clarify(store) == "reserved"
+    assert store.balance("u")["available"] == 475
+    store.finish("u", "clarify", success=True)
+    assert clarify(store) == "spent"
+    with pytest.raises(CreditError, match="already used"):
+        clarify(store, "second")
+    with pytest.raises(CreditError, match="paid answer"):
+        clarify(store, "chain", parent_job_id="clarify")
+    assert store.balance("u")["available"] == 475
+
+
+@pytest.mark.parametrize("overrides", [{"user_id": "other"}, {"access_allowed": False},
+    {"evidence_key": "b" * 64}, {"evidence_key": None}, {"question": ""}, {"question": "x" * 601}])
+def test_clarification_rejects_wrong_owner_denied_access_changed_evidence_or_unbounded_question(store, overrides):
+    paid_answer(store)
+    with pytest.raises(CreditError):
+        clarify(store, **overrides)
+    assert clarify(store) == "reserved"
+
+
+def test_clarification_failure_releases_slot_but_never_rewrites_question_or_evidence(store):
+    paid_answer(store)
+    clarify(store)
+    with pytest.raises(CreditError, match="identity"):
+        clarify(store, question="A different question")
+    with pytest.raises(CreditError):
+        store.finish("u", "answer", success=True, evidence_key="b" * 64)
+    store.finish("u", "clarify", success=False)
+    assert clarify(store) == "released"
+    assert clarify(store, "retry") == "reserved"
+    store.finish("u", "retry", success=True)
+    with pytest.raises(CreditError):
+        clarify(store, "third")
+
+
+def test_concurrent_clarifications_claim_only_one_slot(store):
+    paid_answer(store)
+    def claim(number):
+        try:
+            return clarify(store, f"clarify{number}")
+        except CreditError:
+            return "unavailable"
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(claim, range(10)))
+    assert results.count("reserved") == 1
+    assert results.count("unavailable") == 9
+
+
+def test_incomplete_or_unbound_answer_cannot_offer_clarification(store):
+    purchase(store)
+    store.reserve("u", "answer", 25)
+    with pytest.raises(CreditError):
+        clarify(store)
+    store.finish("u", "answer", success=True)
+    with pytest.raises(CreditError):
+        clarify(store)
+
+
 PRICE = dict(id="price_credit", livemode=False, active=True, currency="usd", unit_amount=2,
              type="one_time", billing_scheme="per_unit", metadata={"walnut_catalog": CATALOG_VERSION})
 SESSION = dict(id="cs_test_1", livemode=False, mode="payment", payment_status="paid",

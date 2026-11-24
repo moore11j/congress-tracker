@@ -7,7 +7,7 @@ const read = (relative) => fs.readFileSync(path.join(process.cwd(), relative), "
 const workspace = read("components/research-memory/ResearchMemoryWorkspace.tsx");
 const evidencePanel = read("components/research-memory/ResearchEvidencePanel.tsx");
 const monitoring = read("app/monitoring/page.tsx");
-const tickerPage = read("app/ticker/[symbol]/page.tsx");
+const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 const tickerCard = read("components/ticker/TickerResearchMemoryCard.tsx");
 const operationalCard = read("components/ticker/TickerOperationalIntelligenceCard.tsx");
 const operationalProvider = read("components/ticker/TickerOperationalIntelligenceProvider.tsx");

@@ -6,7 +6,7 @@ import test from "node:test";
 const root = process.cwd();
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 
-const page = read("app/ticker/[symbol]/page.tsx");
+const page = read("components/ticker/TickerPageRenderer.tsx");
 const card = read("components/ticker/TickerContextCard.tsx");
 const api = read("lib/api.ts");
 const decisionTrend = read("components/ticker/DecisionTrendChart.tsx");

@@ -73,7 +73,7 @@ test("segmented app sitemaps consume controlled whitelist sources", () => {
 });
 
 test("dynamic entity metadata uses noindex fallbacks for weak or unavailable pages", () => {
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
   const memberPage = read("app/member/[slug]/page.tsx");
   const insiderPage = read("app/insider/[slug]/page.tsx");
   const institutionPage = read("app/institution/[cik]/page.tsx");
@@ -128,7 +128,7 @@ test("shared public metadata supplies complete social tags", () => {
 });
 
 test("public entity pages use real app routes with delayed stale cache", () => {
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
   const memberPage = read("app/member/[slug]/page.tsx");
   const insiderPage = read("app/insider/[slug]/page.tsx");
   const institutionPage = read("app/institution/[cik]/page.tsx");

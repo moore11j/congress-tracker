@@ -16,6 +16,9 @@ on:
       - 'backend/tests/test_research_credit_sandbox.py'
       - 'frontend/app/layout.tsx'
       - 'frontend/components/chat/**'
+      - 'frontend/components/ticker/TickerPageRenderer.tsx'
+      - 'frontend/app/ticker/**'
+      - 'frontend/app/walnut-public/ticker/**'
       - 'frontend/components/RouteChrome.tsx'
       - 'frontend/lib/chatNavigation.ts'
       - 'frontend/lib/upgradeDestination.ts'
@@ -74,4 +77,5 @@ jobs:
       - run: npm ci
       - run: node --test tests/discover-render.test.mjs tests/my-stocks-return.test.mjs tests/workspace-loading.test.mjs tests/preview-login.test.mjs tests/chat-workspace.test.mjs tests/research-credits.test.mjs tests/upgrade-conversion.test.mjs tests/ticker-upgrade-cta.test.mjs
       - run: node --test --test-name-pattern='workspace discovery|My Stocks|chat workspace' tests/seo-canonicalization.test.mjs
+      - run: npx next typegen
       - run: npx tsc --noEmit --incremental false

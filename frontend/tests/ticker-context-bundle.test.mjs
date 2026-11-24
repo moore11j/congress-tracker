@@ -6,7 +6,7 @@ import test from "node:test";
 const root = process.cwd();
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 
-const tickerPage = read("app/ticker/[symbol]/page.tsx");
+const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 const api = read("lib/api.ts");
 
 test("ticker page uses context bundle for above-the-fold ticker context with old-path fallback", () => {

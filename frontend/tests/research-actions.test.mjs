@@ -5,7 +5,7 @@ import test from "node:test";
 
 const root = process.cwd();
 const componentSource = fs.readFileSync(path.join(root, "components/research/ResearchActions.tsx"), "utf8");
-const tickerPage = fs.readFileSync(path.join(root, "app/ticker/[symbol]/page.tsx"), "utf8");
+const tickerPage = fs.readFileSync(path.join(root, "components/ticker/TickerPageRenderer.tsx"), "utf8");
 const comparePage = fs.readFileSync(path.join(root, "app/compare/[left]/[right]/page.tsx"), "utf8");
 
 test("ticker and compare pages expose Create Research actions", () => {

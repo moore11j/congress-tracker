@@ -89,6 +89,7 @@ function harness(search, symbol = null) {
     "@/components/WalnutBrandMark": {WalnutBrandMark:"Brand"},
     "@/lib/api": {searchSuggest: async (...args) => {calls.push(args); return search(...args);}},
     "@/lib/chatNavigation": navigation, "@/lib/ticker": ticker,
+    "@/components/chat/ResearchCreditQuote": {ResearchCreditQuote:"ResearchCreditQuote"},
   }, {setTimeout: fn => {const id=timers.size+1;timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id), window:{location:{hash:""}}, document:{querySelector:()=>null}}).WalnutChatWorkspace;
   const render = () => {cursor=0;return Component({symbol,rankings:false,children:"server research"});};
   return {calls,urls,timers,render, async submit(text) {nodes(render()).find(n=>n.type==="textarea").props.onChange({target:{value:text}}); const form=nodes(render()).find(n=>n.type==="form"); form.props.onSubmit({preventDefault(){}}); for(let i=0;i<15;i++) await Promise.resolve();}};
@@ -104,6 +105,18 @@ test("ambiguous company matches require selection rather than opening a guessed 
   const h=harness(async()=>({items:[{kind:"ticker",symbol:"AAA",label:"Alpha one"},{kind:"ticker",symbol:"BBB",label:"Alpha two"}]}));
   await h.submit("Alpha"); assert.deepEqual(h.urls,[]);
   assert.match(JSON.stringify(h.render()),/Choose the company/);
+});
+test("paid mode cannot send or fall through to navigation; new research restores free mode", async () => {
+  const h=harness(async()=>{throw Error("must not search");});
+  nodes(h.render()).find(n=>n.type==="ResearchCreditQuote").props.onModeChange("report");
+  await h.submit("Research NBIS");
+  assert.equal(h.calls.length,0); assert.deepEqual(h.urls,[]);
+  assert.equal(nodes(h.render()).find(n=>n.type==="button" && n.props["aria-label"]==="Send question").props.disabled,true);
+  const textarea=nodes(h.render()).find(n=>n.type==="textarea");
+  textarea.props.onKeyDown({key:"Enter",shiftKey:false,nativeEvent:{isComposing:false},preventDefault(){}});
+  assert.equal(h.calls.length,0);
+  nodes(h.render()).find(n=>n.type==="button" && JSON.stringify(n.props.children).includes("New research")).props.onClick();
+  assert.equal(nodes(h.render()).find(n=>n.type==="ResearchCreditQuote").props.mode,"browse");
 });
 test("lookup failure preserves the research and supplies a retryable explanation", async () => {
   const h=harness(async()=>{throw Error("offline")},"NBIS"); await h.submit("Research MSFT");

@@ -1,5 +1,7 @@
 # Research credit pricing revision
 
+Historical v2 receipt. Premium allowance, Free introduction and catalog version are superseded by the [approved offer](walnut-credit-approved-offer-2026-11-24.md). Two-cent top-ups and 25/100/400 task costs remain.
+
 November 24, 2026. Owner accepted the layout but rejected the original one-cent top-up economics because they undermined the subscriptions. Owner directed roughly two cents per purchased credit, retained Pro at $39.95/4,000 credits, and requested higher task charges. This revision is implemented in the parallel preview only. The task prices below are the proposed starting prices, not measured willingness to pay or live billing.
 
 ## Current preview prices

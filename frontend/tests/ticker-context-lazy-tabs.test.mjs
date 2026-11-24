@@ -80,7 +80,7 @@ test("ticker lazy tab requests have panel-specific attribution", () => {
 });
 
 test("ticker bottom activity detail fallback fetches on visibility with attribution", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
   const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
 
   assert.match(page, /import \{ TickerActivityDetailClient \}/);
@@ -98,7 +98,7 @@ test("ticker tabs use truthful public empty states", () => {
 });
 
 test("ownership tab is a pro lazy tab", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
   const api = read("lib/api.ts");
   const panel = read("components/ticker/TickerOwnershipPanel.tsx");
 

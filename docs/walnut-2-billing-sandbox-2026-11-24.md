@@ -2,13 +2,15 @@
 
 November 24, 2026. Owner requested a separate Walnut 2.0 build, Stripe product integration and a main-page switch only after testing. The credit proposal is being implemented for preview, not activated as live pricing. Owner deferred signing into Stripe; no catalog objects, credentials, webhooks or subscriptions have been created in the account during this task.
 
+Current approved offer: [November 24 allowance, clarification and quote revision](walnut-credit-approved-offer-2026-11-24.md). Earlier receipts below remain historical.
+
 ## Parallel delivery
 
 Draft PR846 retains the existing homepage and production checkout. `/ask` is the chat workspace; `/ask/credits` adds a Plans & Credits preview. Company research remains the existing permission-aware ticker renderer. The new page explains the proposed credit allowances, displays an actual sandbox balance only when connected, accepts custom dollar amounts and opens only test Checkout sessions. Without the sandbox backend it explicitly disables purchases. No placeholder balance is represented as a real grant.
 
 The frontend preview currently still reads existing research through its established API path. It is not a fully isolated copy of all production services. Credit requests have their own exact Next.js route and an explicit sandbox backend setting, with no fallback to the production API. Vercel production mode rejects this billing proxy. The backend routes are absent unless explicitly enabled and require a nonproduction application environment plus distinct, explicitly named sandbox account and ledger databases. Database naming is an additional misconfiguration guard; deployment still must verify the actual hosts, account isolation and credentials.
 
-The owner revised one-time pricing to two cents per credit and requested higher task prices. Current preview: 25/100/400 credits for answers/analyses/reports, catalog walnut_research_v2. [Revised prices and economics](walnut-credit-pricing-v2-2026-11-24.md). Earlier test receipts describe their historical rate.
+The owner revised one-time pricing to two cents per credit and requested higher task prices. Current preview: 25/100/400 credits for answers/analyses/reports, catalog walnut_research_v3. [Revised prices and economics](walnut-credit-pricing-v2-2026-11-24.md). Earlier test receipts describe their historical rate.
 
 ## Stripe catalog
 
@@ -16,11 +18,11 @@ Use an isolated [Stripe sandbox](https://docs.stripe.com/sandboxes). Existing li
 
 | Product | Price | Included credits |
 |---|---:|---:|
-| Walnut Premium | $24.95 monthly or $249.50 yearly | 1,500 each month |
+| Walnut Premium | $24.95 monthly or $249.50 yearly | 2,000 each month |
 | Walnut Pro | $39.95 monthly or $399.95 yearly | 4,000 each month |
 | Walnut Research Credits | $0.02 per credit, one-time | Purchased quantity |
 
-Free has no paid Stripe product and proposes 100 monthly credits. The catalog installer creates three products and five prices, using stable product identifiers and price lookup keys. It validates existing objects before reuse. Annual billing does not imply an annual upfront credit grant. Subscription checkout and invoice-qualified monthly grants are not connected yet.
+Free has no paid Stripe product: 250 total in its first month, then 100 monthly, once per verified account. The catalog installer creates three products and five prices, using stable product identifiers and price lookup keys. It validates existing objects before reuse. Annual billing does not imply an annual upfront credit grant. Subscription checkout and invoice-qualified monthly grants are not connected yet.
 
 For a $10 purchase, the credit Checkout line item is the two-cent price with quantity 500. Custom amounts are parsed as integer cents, avoiding floating point rounding. Whole credits require $0.02 increments; invalid fractional-credit purchases are rejected. The sandbox accepts $5 to $1,000; that upper bound is a test-stage purchase limit, not an approved final business policy. No automatic refill or negative balance.
 

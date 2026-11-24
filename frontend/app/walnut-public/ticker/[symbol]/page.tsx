@@ -1,5 +1,5 @@
 import { anonymousPublicRequestHeaders } from "@/lib/anonymousPublicRender";
-import { TickerPageRenderer, generateMetadata } from "@/app/ticker/[symbol]/page";
+import { TickerPageRenderer, generateMetadata } from "@/components/ticker/TickerPageRenderer";
 
 type Props = {
   params: Promise<{ symbol: string }>;

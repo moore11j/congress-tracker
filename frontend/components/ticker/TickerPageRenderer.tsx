@@ -1,0 +1,4038 @@
+import { OptionsActivityCard } from "@/components/ticker/OptionsActivityCard";
+import { confirmationLabel } from "@/lib/confirmationLabel";
+import { TickerDiscoveryLink } from "@/components/ticker/TickerDiscoveryLink";
+import { VisibleEvent } from "@/components/analytics/VisibleEvent";
+import { institutionDisplayName } from "@/lib/institution";
+import { ContextualUpgrade } from "@/components/billing/ContextualUpgrade";
+﻿import Link from "next/link";
+import { headers } from "next/headers";
+import type { ReactNode } from "react";
+import { cache, Suspense } from "react";
+import type { Metadata } from "next";
+import { Badge } from "@/components/Badge";
+import { ApiError, getEntitlements, getEvents, getPublicActivity, getGeneratedResearchBriefCards, getSeoSnapshot, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type CrossSourceDivergence, type PublicResearchBriefCard, type SignalItem, type SimilarHistoricalSetups, type TickerContextBundleResponse, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
+import { DecisionTrendChart } from "@/components/ticker/DecisionTrendChart";
+import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
+import { TickerActivityHeaderStatsClient } from "@/components/ticker/TickerActivityHeaderStatsClient";
+import { TickerActivityTable, tickerActivityCellClassName } from "@/components/ticker/TickerActivityTable";
+import {
+  chamberTextClassName,
+  insiderRoleTextClassName,
+  partyTextClassName,
+  signalWeightTextClassName,
+  TickerActivitySignalScore,
+  tradeTypeTextClassName,
+} from "@/components/ticker/TickerActivityText";
+import { TickerContextCard } from "@/components/ticker/TickerContextCard";
+import { TickerPriceHeader } from "@/components/ticker/TickerPriceHeader";
+import { TickerResearchMemoryCard } from "@/components/ticker/TickerResearchMemoryCard";
+import { TickerDecisionPanels } from "@/components/ticker/TickerDecisionPanels";
+import { TickerFundamentalsSnapshot } from "@/components/ticker/TickerFundamentalsSnapshot";
+import { TickerSourceAlignment } from "@/components/ticker/TickerSourceAlignment";
+import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
+import { TickerLiveContextRefresh } from "@/components/ticker/TickerLiveContextRefresh";
+import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
+import { TickerParticipantLeaderboards } from "@/components/ticker/TickerParticipantLeaderboards";
+import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
+import { TickerInstitutionalSourceCardClient } from "@/components/ticker/TickerInstitutionalSourceCardClient";
+import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
+import { TickerSignalsSourceCardClient } from "@/components/ticker/TickerSignalsSourceCardClient";
+import { ShareLinks } from "@/components/member/ShareLinks";
+import { ResearchActions } from "@/components/research/ResearchActions";
+import { TickerFollowButton } from "@/components/ticker/TickerFollowButton";
+import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import { entitlementsFromTierHint, hasEntitlement, isAdminEntitlement, type Entitlements } from "@/lib/entitlements";
+import {
+  cardClassName,
+  compactInteractiveSurfaceClassName,
+  compactInteractiveTitleClassName,
+  ghostButtonClassName,
+  pillClassName,
+} from "@/lib/styles";
+import {
+  chamberBadge,
+  formatCongressAffiliationText,
+  formatCurrency,
+  formatCurrencyRange,
+  formatDateShort,
+  formatTransactionLabel,
+  partyBadge,
+  transactionTone,
+} from "@/lib/format";
+import { memberHref } from "@/lib/memberSlug";
+import { tickerHref } from "@/lib/ticker";
+import { formatCompanyName } from "@/lib/companyName";
+import { departmentHref } from "@/lib/departments";
+import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
+import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
+import { LockedSmartSignalPill, SmartSignalPill } from "@/components/ui/SmartSignalPill";
+import { resolveSmartSignalValue } from "@/lib/smartSignal";
+import {
+  resolveInsiderDisplayPrice,
+} from "@/lib/insiderTradeDisplay";
+import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
+import { optionalPageAuthState, requestMayHavePageAuthState } from "@/lib/serverAuth";
+import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
+import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl, appPageMetadata } from "@/lib/marketingMetadata";
+import { hasResolvedTickerProfile, usablePublicTickerSnapshot, tickerSeoTitle, tickerSeoDescription } from "@/lib/tickerSeo";
+
+type Props = {
+  params: Promise<{ symbol: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+type TickerPageRenderProps = Props & {
+  requestHeaders: HeaderReader;
+};
+
+type Lookback = "1" | "5" | "30" | "90" | "180" | "365";
+type SourceFilter = "all" | "congress" | "insider" | "signals" | "institutional" | "government_contract";
+type SideFilter = "all" | "buy" | "sell";
+const SIGNAL_WINDOW_DAYS = 30;
+const ACTIVITY_PAGE_SIZE = 20;
+const ACTIVITY_FETCH_SIZE = ACTIVITY_PAGE_SIZE + 1;
+const GOVERNMENT_CONTRACTS_PAGE_SIZE = ACTIVITY_PAGE_SIZE;
+const TICKER_CONTEXT_SSR_TIMEOUT_MS = 2500;
+const TICKER_PROFILE_FALLBACK_TIMEOUT_MS = 1000;
+const TICKER_METADATA_DESCRIPTION =
+  "Research public ticker context, Congress trades, insider activity, government contracts, technicals, fundamentals, and confirmation-stack signals in Walnut Markets.";
+
+function contextWindowLabel(days: number): string {
+  return `${days} Day`;
+}
+
+function contextWindowNoun(days: number): string {
+  return `${contextWindowLabel(days)} context window`;
+}
+
+function lastContextWindowLabel(days: number): string {
+  return `last ${days} ${days === 1 ? "Day" : "Days"}`;
+}
+
+function normalizeUpperCardWindowCopy(value: string | null | undefined, days: number): string | null {
+  const text = value?.trim();
+  if (!text) return null;
+  return text
+    .replace(/\bin the selected window\b/gi, `in the ${contextWindowNoun(days)}`)
+    .replace(/\bin selected window\b/gi, `in the ${contextWindowNoun(days)}`)
+    .replace(/\bselected window\b/gi, `the ${contextWindowNoun(days)}`)
+    .replace(/\b(\d+)D\b/g, "$1 Day");
+}
+
+type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
+type TickerContextBundle = TickerContextBundleResponse;
+type EventsResponse = Awaited<ReturnType<typeof getEvents>>;
+type ActivityPageMeta = {
+  page: number;
+  limit: number;
+  total: number | null;
+  hasNext: boolean;
+};
+type SignalGateReason = "auth" | "upgrade" | "unavailable";
+type SignalGateState = {
+  reason: SignalGateReason;
+  message: string;
+};
+type TickerConfirmationGate = {
+  locked: boolean;
+  href: string;
+  label: string;
+  message: string;
+};
+
+function withinTickerLoadBudget<T>(request: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    request,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`Ticker request exceeded ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]);
+}
+
+type ConfirmationSummary = {
+  congress_active_30d: boolean;
+  insider_active_30d: boolean;
+  congress_trade_count_30d: number;
+  insider_trade_count_30d: number;
+  insider_buy_count_30d: number;
+  insider_sell_count_30d: number;
+  cross_source_confirmed_30d: boolean;
+  repeat_congress_30d: boolean;
+  repeat_insider_30d: boolean;
+};
+type ConfirmationScoreBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["confirmation_score_bundle"]>;
+type SignalFreshnessBundle = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["signal_freshness"]>;
+type OptionsFlowSummary = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["options_flow_summary"]>;
+type TechnicalIndicators = NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["technical_indicators"]>;
+type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
+
+type TickerActivityData = {
+  events: Awaited<ReturnType<typeof getEvents>>["items"];
+  signals: SignalItem[];
+  signalsTotal: number | null;
+  priceVolumeContext: TickerSignalsSummaryResponse["price_volume"] | null;
+  fundamentalsContext: TickerFundamentalsSummary;
+  sourceEntitlements: TickerSourceEntitlements | null;
+  confirmationScoreBundle: TickerSignalsSummaryResponse["confirmation_score_bundle"] | null;
+  signalFreshness: TickerSignalsSummaryResponse["signal_freshness"] | null;
+  signalSummaryResolved: boolean;
+  effectiveWindowDays: number | null;
+  summaryInsiders: TickerSignalsSummaryResponse["insiders"] | null;
+  summaryCongress: TickerSignalsSummaryResponse["congress"] | null;
+  signalsUnavailable: SignalGateState | null;
+  congressEvents: EventsResponse["items"];
+  congressEventsTotal: number | null;
+  congressEventsStatus: string;
+  congressEventsPage: number;
+  congressEventsLimit: number;
+  congressEventsHasNext: boolean;
+  insiderEvents: EventsResponse["items"];
+  insiderEventsTotal: number | null;
+  insiderEventsStatus: string;
+  insiderEventsPage: number;
+  insiderEventsLimit: number;
+  insiderEventsHasNext: boolean;
+  institutionalEvents: EventsResponse["items"];
+  institutionalEventsTotal: number | null;
+  institutionalEventsPage: number;
+  institutionalEventsLimit: number;
+  institutionalEventsHasNext: boolean;
+  institutionalEventsStatus: string;
+  governmentContracts: TickerGovernmentContractItem[];
+  governmentContractsTotal: number;
+  governmentContractsPage: number;
+  governmentContractsLimit: number;
+  governmentContractsHasNext: boolean;
+  governmentContractsStatus: string;
+  congressBuys: number;
+  congressSells: number;
+  insiderBuys: number;
+  insiderSells: number;
+  topSignal: SignalItem | undefined;
+};
+
+function MissingTickerSearchFallback({ symbol }: { symbol: string }) {
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="mx-auto flex min-h-screen w-full max-w-4xl items-center px-4 py-12 sm:px-6 lg:px-8">
+        <section className="w-full rounded-lg border border-white/10 bg-slate-900/70 p-6">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Ticker not found</p>
+          <h1 className="mt-3 text-2xl font-semibold text-white">We could not find a ticker for {symbol}.</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+            Search Walnut instead to find likely company, member, insider, or department matches.
+          </p>
+          <div className="mt-6">
+            <Link href={`/search?q=${encodeURIComponent(symbol)}`} className={ghostButtonClassName}>
+              Search for {symbol}
+            </Link>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function fallbackTickerProfile(symbol: string): TickerProfileResponse {
+  return {
+    status: "partial",
+    ticker: {
+      symbol,
+      name: "Company details loading",
+      asset_class: "Equity",
+      sector: null,
+      industry: null,
+      country: null,
+      exchange: null,
+      identity_status: "loading",
+      limited_data_state: null,
+      limited_data_message: null,
+    },
+    top_members: [],
+    trades: [],
+    confirmation_score_bundle: null,
+    options_flow_summary: null,
+    why_now: null,
+    signal_freshness: null,
+    technical_indicators: null,
+  };
+}
+
+function normalizedTickerSymbolForRoute(symbol: string): string {
+  return symbol.trim().toUpperCase();
+}
+
+function canonicalTickerPathForSymbol(symbol: string): string {
+  return tickerHref(symbol) ?? `/ticker/${encodeURIComponent(symbol)}`;
+}
+
+function canonicalTickerUrlForSymbol(symbol: string): string {
+  return appCanonicalUrl(canonicalTickerPathForSymbol(symbol));
+}
+
+// React cache shares the anonymous render result with metadata within this request.
+// The underlying API retains its existing delayed public cache and auth partition.
+const loadTickerPageContext = cache(async (
+  normalizedSymbol: string, side: string, lookbackDays: number,
+  authToken: string | null, activeTickerSsrRequest: boolean, publicStalePageCache: boolean,
+) => withinTickerLoadBudget(getTickerContextBundle(normalizedSymbol, {
+        side,
+        limit: 3,
+        lookback_days: lookbackDays,
+        authToken: authToken ?? undefined,
+        activeUser: activeTickerSsrRequest,
+        stalePageCache: publicStalePageCache,
+        source: "TickerContextBundle",
+        requestSource: "ssr",
+      }), TICKER_CONTEXT_SSR_TIMEOUT_MS)
+        .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
+        .catch((error) => {
+          if (error instanceof ApiError && error.status === 404) return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
+          if (publicStalePageCache && error instanceof ApiError && error.detail === "public_context_cache_miss") {
+            return { bundle: null as TickerContextBundle | null, profile: fallbackTickerProfile(normalizedSymbol), fallbackMessage: "Showing the available public research snapshot." };
+          }
+          if (isRecoverableTickerProfileError(error)) {
+            console.error("[ticker-context-bundle] shell fallback", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return withinTickerLoadBudget(
+              getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback", stalePageCache: publicStalePageCache }),
+              TICKER_PROFILE_FALLBACK_TIMEOUT_MS,
+            )
+              .then((profile) => ({
+                bundle: null as TickerContextBundle | null,
+                profile,
+                fallbackMessage: "Some current research data is temporarily unavailable. Showing available ticker data.",
+              }))
+              .catch((profileError) => {
+                if (profileError instanceof ApiError && profileError.status === 404) {
+                  return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
+                }
+                return {
+                  bundle: null as TickerContextBundle | null,
+                  profile: fallbackTickerProfile(normalizedSymbol),
+                  fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
+                };
+              });
+          }
+          throw error;
+        }));
+
+const loadPublicTickerSnapshot = cache(async (symbol: string) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TICKER_CONTEXT_SSR_TIMEOUT_MS);
+  try {
+    const response = await getSeoSnapshot("ticker", symbol, {
+      source: "TickerMetadataSnapshot",
+      stalePageCache: true,
+      signal: controller.signal,
+    });
+    return response.snapshot;
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) {
+      console.error("[ticker-metadata-snapshot] unavailable", {
+        symbol,
+        status: error instanceof ApiError ? error.status : null,
+        name: error instanceof Error ? error.name : "unknown",
+      });
+    }
+    // The snapshot is optional. Preserve the ticker shell and canonical/index
+    // policy when this cache read fails; never turn an outage into missing facts.
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
+  const { symbol } = await params;
+  const sp = (await searchParams) ?? {};
+  const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
+  const canonicalPath = canonicalTickerPathForSymbol(normalizedSymbol);
+  const [snapshot, context] = await Promise.all([
+    loadPublicTickerSnapshot(normalizedSymbol),
+    loadTickerPageContext(normalizedSymbol, clampSide(one(sp, "side")), Number(clampLookback(one(sp, "lookback"))), null, false, true),
+  ]);
+  const resolved = hasResolvedTickerProfile(context.profile);
+  const snapshotOnly = !resolved && Boolean(context.profile) && usablePublicTickerSnapshot(snapshot, normalizedSymbol);
+  const companyName = resolved
+    ? tickerCompanyName(context.profile!.ticker, context.bundle?.identity)
+    : typeof snapshot?.payload.company_name === "string" ? snapshot.payload.company_name : null;
+  return appPageMetadata(canonicalPath, {
+    title: resolved || snapshotOnly ? tickerSeoTitle(normalizedSymbol, snapshotOnly) : `${normalizedSymbol} Stock Research Unavailable | Walnut`,
+    description: resolved || snapshotOnly
+      ? tickerSeoDescription(normalizedSymbol, companyName, snapshotOnly)
+      : `Stock research for ${normalizedSymbol} is currently unavailable. Try again later or search for another ticker on Walnut Markets.`,
+    // Public ticker indexing must not fluctuate with snapshot availability,
+    // cache warmth, module coverage, or the selected tab/filter. Query variants
+    // consolidate through the clean ticker canonical supplied above.
+    robots: { index: true, follow: true },
+  });
+}
+
+function isRecoverableTickerProfileError(error: unknown): boolean {
+  if (error instanceof ApiError) return error.status === 503 || error.status >= 500;
+  return error instanceof Error;
+}
+
+function one(sp: Record<string, string | string[] | undefined>, key: string): string {
+  const value = sp[key];
+  return typeof value === "string" ? value : "";
+}
+
+type HeaderReader = Pick<Headers, "get">;
+
+function headerIncludes(headersList: HeaderReader, name: string, expected: string): boolean {
+  return (headersList.get(name) ?? "").toLowerCase().includes(expected);
+}
+
+function userAgentLooksInteractiveBrowser(userAgent: string | null): boolean {
+  const ua = (userAgent ?? "").toLowerCase();
+  if (!ua) return false;
+  if (/googlebot|google-inspectiontool|adsbot-google|bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
+  return /mozilla|chrome|safari|firefox|edg\//.test(ua);
+}
+
+function shouldDeferAnonymousTickerActivityDetails({
+  requestHeaders,
+  authToken,
+  hasAuthHint,
+  activityDetailsRequested,
+}: {
+  requestHeaders: HeaderReader;
+  authToken: string | null | undefined;
+  hasAuthHint: boolean;
+  activityDetailsRequested: boolean;
+}): boolean {
+  if (authToken || hasAuthHint || activityDetailsRequested) return false;
+  if (requestHeaders.get("next-router-prefetch") === "1") return true;
+  if (requestHeaders.get("x-middleware-prefetch") === "1") return true;
+  if (headerIncludes(requestHeaders, "purpose", "prefetch")) return true;
+  if (headerIncludes(requestHeaders, "sec-purpose", "prefetch")) return true;
+  return !userAgentLooksInteractiveBrowser(requestHeaders.get("user-agent"));
+}
+
+function shouldUseAnonymousTickerSsrShell({
+  requestHeaders,
+  authToken,
+  hasAuthHint,
+  activityDetailsRequested,
+}: {
+  requestHeaders: HeaderReader;
+  authToken: string | null | undefined;
+  hasAuthHint: boolean;
+  activityDetailsRequested: boolean;
+}): boolean {
+  if (authToken || hasAuthHint || activityDetailsRequested) return false;
+  if (requestHeaders.get("next-router-prefetch") === "1") return true;
+  if (requestHeaders.get("x-middleware-prefetch") === "1") return true;
+  if (headerIncludes(requestHeaders, "purpose", "prefetch")) return true;
+  if (headerIncludes(requestHeaders, "sec-purpose", "prefetch")) return true;
+  return false;
+}
+
+function clampLookback(v: string): Lookback {
+  return v === "1" || v === "5" || v === "30" || v === "90" || v === "180" || v === "365" ? v : "365";
+}
+
+function clampSource(v: string): SourceFilter {
+  return v === "congress" || v === "insider" || v === "signals" || v === "institutional" || v === "government_contract" || v === "all" ? v : "all";
+}
+
+function clampSide(v: string): SideFilter {
+  return v === "buy" || v === "sell" || v === "all" ? v : "all";
+}
+
+function clampPage(v: string): number {
+  const parsed = Number(v);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+function sideToTradeType(side: SideFilter): "purchase" | "sale" | null {
+  if (side === "buy") return "purchase";
+  if (side === "sell") return "sale";
+  return null;
+}
+
+function emptyEventsResponse(page = 0, limit = ACTIVITY_PAGE_SIZE): EventsResponse {
+  return {
+    items: [],
+    total: null,
+    has_more: false,
+    limit,
+    offset: Math.max(page, 0) * Math.max(limit, 1),
+    item_count: 0,
+    status: "ok",
+  };
+}
+
+function activityPageMeta(response: EventsResponse, fallbackPage = 0, fallbackLimit = ACTIVITY_PAGE_SIZE): ActivityPageMeta {
+  const rawLimit = typeof response.limit === "number" && response.limit > 0 ? response.limit : fallbackLimit;
+  const limit = Math.min(rawLimit, fallbackLimit);
+  const offset = typeof response.offset === "number" && response.offset >= 0 ? response.offset : fallbackPage * limit;
+  const page = Math.max(Math.floor(offset / Math.max(limit, 1)), 0);
+  const visibleCount = Math.min(response.items.length, limit);
+  const inferredHasNext = response.items.length > limit;
+  const total: number | null = typeof response.total === "number" && response.total >= 0 ? response.total : null;
+  const hasExactTotal = total !== null;
+  const hasMore = typeof response.has_more === "boolean" ? response.has_more : inferredHasNext;
+  return {
+    page,
+    limit,
+    total,
+    hasNext: hasExactTotal
+      ? offset + visibleCount < total
+      : hasMore,
+  };
+}
+
+function visibleActivityItems(response: EventsResponse, limit = ACTIVITY_PAGE_SIZE) {
+  return (response.items ?? []).slice(0, limit);
+}
+
+function formatActivityPrice(value: number | null): string {
+  if (value === null || Number.isNaN(value)) return "-";
+  const hasDecimals = !Number.isInteger(value);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: hasDecimals ? 2 : 0,
+  }).format(value);
+}
+
+function titleCase(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isTickerSignalKind(value: string | null | undefined): boolean {
+  const kind = canonicalize(value);
+  return kind === "congress" || kind === "insider";
+}
+
+function isInstitutionalActivityEventType(value?: string | null): boolean {
+  const normalized = canonicalize(value);
+  return normalized === "institutional_buy" || (INSTITUTIONAL_ACTIVITY_EVENT_TYPES as readonly string[]).includes(normalized);
+}
+
+function eventPayload(event: EventsResponse["items"][number]): Record<string, unknown> {
+  return event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : {};
+}
+
+function payloadString(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function payloadNumber(payload: Record<string, unknown>, key: string): number | null {
+  const value = payload[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function institutionalHolderName(event: EventsResponse["items"][number]): string {
+  const payload = eventPayload(event);
+  return institutionDisplayName(event.member_name?.trim()
+    || payloadString(payload, "holder_name")
+    || payloadString(payload, "institution_name")
+    || "Institution") || "Institution";
+}
+
+function institutionalActionLabel(event: EventsResponse["items"][number]): string {
+  const payload = eventPayload(event);
+  const eventType = canonicalize(event.event_type);
+  const action = payloadString(payload, "action") || event.trade_type || payloadString(payload, "direction");
+  if (eventType === "new_institutional_position") return "New Position";
+  if (eventType === "major_holder_exit") return "Exit";
+  if (eventType === "major_holder_reduction" || eventType === "institutional_distribution" || eventType === "cluster_distribution") return "Reduced";
+  if (eventType === "institutional_accumulation" || eventType === "institutional_buy" || eventType === "cluster_accumulation" || eventType === "contrarian_accumulation") return "Increased";
+  return titleCase(action) || "Reported";
+}
+
+function institutionalTone(event: EventsResponse["items"][number]): "pos" | "neg" | "neutral" {
+  const payload = eventPayload(event);
+  const direction = canonicalize(payloadString(payload, "direction") || event.trade_type || event.event_type);
+  if (direction.includes("bearish") || direction.includes("distribution") || direction.includes("reduction") || direction.includes("exit") || direction.includes("reduced")) return "neg";
+  if (direction.includes("bullish") || direction.includes("accumulation") || direction.includes("buy") || direction.includes("new") || direction.includes("increased")) return "pos";
+  return "neutral";
+}
+
+function institutionalValue(event: EventsResponse["items"][number]): number | null {
+  const payload = eventPayload(event);
+  const candidates = [
+    event.amount_max,
+    event.amount_min,
+    payloadNumber(payload, "reported_value_usd"),
+    payloadNumber(payload, "value_delta_usd"),
+    payloadNumber(payload, "current_value_usd"),
+  ];
+  return candidates.find((value) => typeof value === "number" && Number.isFinite(value) && value > 0) ?? null;
+}
+
+function institutionalDate(event: EventsResponse["items"][number]): string | null {
+  const payload = eventPayload(event);
+  return payloadString(payload, "filing_date") || event.ts || null;
+}
+
+function institutionalReportPeriod(event: EventsResponse["items"][number]): string | null {
+  const payload = eventPayload(event);
+  const reportPeriod = payloadString(payload, "report_period");
+  if (reportPeriod) return reportPeriod;
+  const year = payloadNumber(payload, "report_year");
+  const quarter = payloadNumber(payload, "report_quarter");
+  if (year && quarter) return `Q${quarter} ${year}`;
+  return null;
+}
+
+function activityCountLabel(total: number | null | undefined, itemCount: number, noun: string, unavailable = false): string {
+  if (unavailable) return "unavailable";
+  const count = total ?? itemCount;
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
+  const t = (value ?? "").trim().toLowerCase();
+  if (!t) return null;
+  if (t.includes("buy") || t.includes("purchase") || t.startsWith("p-")) return "buy";
+  if (t.includes("sell") || t.includes("sale") || t.startsWith("s-")) return "sell";
+  return null;
+}
+
+function isGovernmentContractEventType(value?: string | null): boolean {
+  const normalized = canonicalize(value);
+  return normalized === "government_contract"
+    || normalized === "government_contract_award"
+    || normalized === "contract_award"
+    || normalized === "government_exposure";
+}
+
+function toDateKey(value?: string | null): string | null {
+  const raw = (value ?? "").trim();
+  if (!raw) return null;
+  const day = raw.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned ? cleaned : null;
+}
+
+function canonicalize(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function cleanTickerHeaderMetadata(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  if (!cleaned) return null;
+  if (["n/a", "na", "none", "null", "unknown", "-", "--"].includes(cleaned.toLowerCase())) return null;
+  return cleaned;
+}
+
+function normalizedAmountLabel(min?: number | null, max?: number | null): string {
+  const minValue = Number.isFinite(min) ? Number(min) : null;
+  const maxValue = Number.isFinite(max) ? Number(max) : null;
+  return `${minValue ?? ""}-${maxValue ?? ""}`;
+}
+
+function tickerHeaderMetadata(ticker: Awaited<ReturnType<typeof getTickerProfile>>["ticker"]): string[] {
+  const industry = ticker.classification === "SEC SIC" && ticker.industry ? `SEC SIC: ${ticker.industry}` : ticker.industry;
+  return [ticker.sector, industry, ticker.country, ticker.exchange_short_name ?? ticker.exchange]
+    .map(cleanTickerHeaderMetadata)
+    .filter((value): value is string => Boolean(value));
+}
+
+function tickerCompanyName(
+  ticker: Awaited<ReturnType<typeof getTickerProfile>>["ticker"],
+  identity?: TickerContextBundle["identity"] | null,
+): string | null {
+  // The context bundle carries the same canonical identity as the profile. Keep
+  // the header complete if a partial profile response omits its display name.
+  return cleanTickerHeaderMetadata(ticker.name) ?? cleanTickerHeaderMetadata(identity?.company_name);
+}
+
+function payloadDateKey(payload: any): string {
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  return (
+    toDateKey(asTrimmedString(payload?.transaction_date)) ??
+    toDateKey(asTrimmedString(payload?.trade_date)) ??
+    toDateKey(asTrimmedString(raw?.transactionDate)) ??
+    toDateKey(asTrimmedString(raw?.tradeDate)) ??
+    ""
+  );
+}
+
+function dedupeByKey<T>(items: T[], keyFor: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = keyFor(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function stableEventIdentity(event: { event_type?: string | null; source?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const transaction = payload?.transaction && typeof payload.transaction === "object" ? payload.transaction : null;
+
+  const stableId =
+    asTrimmedString(payload?.event_id) ??
+    asTrimmedString(payload?.external_id) ??
+    asTrimmedString(payload?.transaction_id) ??
+    asTrimmedString(payload?.transactionId) ??
+    asTrimmedString(transaction?.id) ??
+    asTrimmedString(payload?.filing_id) ??
+    asTrimmedString(payload?.filingId) ??
+    asTrimmedString(payload?.disclosure_id) ??
+    asTrimmedString(payload?.disclosureId) ??
+    asTrimmedString(raw?.id) ??
+    asTrimmedString(raw?.transaction_id) ??
+    asTrimmedString(raw?.transactionId) ??
+    asTrimmedString(raw?.filing_id) ??
+    asTrimmedString(raw?.filingId) ??
+    asTrimmedString(raw?.disclosure_id) ??
+    asTrimmedString(raw?.disclosureId);
+
+  if (!stableId) return null;
+  return [canonicalize(event.event_type), canonicalize(event.source), canonicalize(stableId)].join("|");
+}
+
+function readNumeric(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[$,]/g, "").trim();
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function resolveInsiderName(event: { member_name?: string | null; payload?: any }): string {
+  const payload = event.payload;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const insider = payload?.insider && typeof payload.insider === "object" ? payload.insider : null;
+
+  return (
+    getInsiderDisplayName(
+      asTrimmedString(payload?.insider_name),
+      asTrimmedString(insider?.name),
+      asTrimmedString(raw?.reportingName),
+      asTrimmedString(raw?.reportingOwnerName),
+      asTrimmedString(raw?.ownerName),
+      asTrimmedString(raw?.insiderName),
+      asTrimmedString(event.member_name),
+    ) ?? "Unknown Insider"
+  );
+}
+
+
+
+function resolveInsiderReportingCik(event: { payload?: any }): string | null {
+  const payload = event.payload;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  return (
+    asTrimmedString(payload?.reporting_cik) ??
+    asTrimmedString(payload?.reportingCik) ??
+    asTrimmedString(raw?.reportingCik) ??
+    asTrimmedString(raw?.reportingCIK) ??
+    null
+  );
+}
+
+function resolveInsiderRole(event: { payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const insider = payload?.insider && typeof payload.insider === "object" ? payload.insider : null;
+
+  return (
+    asTrimmedString(payload?.role) ??
+    asTrimmedString(payload?.typeOfOwner) ??
+    asTrimmedString(payload?.position) ??
+    asTrimmedString(payload?.officer_title) ??
+    asTrimmedString(payload?.officerTitle) ??
+    asTrimmedString(insider?.role) ??
+    asTrimmedString(insider?.position) ??
+    asTrimmedString(raw?.typeOfOwner) ??
+    asTrimmedString(raw?.officerTitle) ??
+    asTrimmedString(raw?.insiderRole) ??
+    asTrimmedString(raw?.position) ??
+    null
+  );
+}
+
+function resolveCongressPayloadMember(event: { payload?: any }) {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return payload?.member && typeof payload.member === "object" ? payload.member : null;
+}
+
+function resolveCongressChamber(event: { chamber?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const memberPayload = resolveCongressPayloadMember(event);
+  return (
+    asTrimmedString(memberPayload?.chamber) ??
+    asTrimmedString(payload?.chamber) ??
+    asTrimmedString(payload?.raw?.chamber) ??
+    asTrimmedString(event.chamber) ??
+    null
+  );
+}
+
+function resolveCongressParty(event: { party?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const memberPayload = resolveCongressPayloadMember(event);
+  return (
+    asTrimmedString(memberPayload?.party) ??
+    asTrimmedString(payload?.party) ??
+    asTrimmedString(payload?.raw?.party) ??
+    asTrimmedString(event.party) ??
+    null
+  );
+}
+
+function resolveCongressState(event: { state?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const memberPayload = resolveCongressPayloadMember(event);
+  return (
+    asTrimmedString(memberPayload?.state) ??
+    asTrimmedString(payload?.state) ??
+    asTrimmedString(payload?.raw?.state) ??
+    asTrimmedString(event.state) ??
+    null
+  );
+}
+
+function formatCongressIdentity(event: { member_name?: string | null; party?: string | null; payload?: any }): string {
+  const memberName = event.member_name?.trim() || "An unknown Congress member";
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const memberPayload = payload?.member && typeof payload.member === "object" ? payload.member : null;
+  const party = partyBadge(
+    asTrimmedString(memberPayload?.party) ??
+    asTrimmedString(payload?.party) ??
+    event.party ??
+    null,
+  ).label;
+  const state =
+    asTrimmedString(memberPayload?.state) ??
+    asTrimmedString(payload?.state) ??
+    asTrimmedString(payload?.raw?.state) ??
+    null;
+  const suffix = [party !== "Ã¢â‚¬â€" ? party : null, state ? state.toUpperCase() : null].filter(Boolean).join("-");
+  return suffix ? `${memberName} (${suffix})` : memberName;
+}
+
+function formatInsiderIdentity(event: { member_name?: string | null; payload?: any }): string {
+  const insiderName = resolveInsiderName(event);
+  const role = resolveInsiderRole(event);
+  return role ? `${insiderName} (${role})` : insiderName;
+}
+
+function resolveCongressTradeDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    asTrimmedString(payload?.trade_date) ??
+    asTrimmedString(payload?.transaction_date) ??
+    asTrimmedString(payload?.raw?.tradeDate) ??
+    asTrimmedString(payload?.raw?.transactionDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveCongressReportDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    asTrimmedString(payload?.report_date) ??
+    asTrimmedString(payload?.filing_date) ??
+    asTrimmedString(payload?.raw?.reportDate) ??
+    asTrimmedString(payload?.raw?.filingDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveCongressTradePrice(event: { estimated_price?: number | null; payload?: any }): number | null {
+  return resolveCongressActivityPrice(event as Record<string, unknown>);
+}
+
+function resolveInsiderTradeDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    asTrimmedString(payload?.transaction_date) ??
+    asTrimmedString(payload?.trade_date) ??
+    asTrimmedString(payload?.raw?.transactionDate) ??
+    asTrimmedString(payload?.raw?.tradeDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveInsiderFilingDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  return (
+    asTrimmedString(payload?.filing_date) ??
+    asTrimmedString(payload?.raw?.filingDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveInsiderTradePrice(event: { estimated_price?: number | null; payload?: any }): number | null {
+  return resolveInsiderDisplayPrice(event);
+}
+
+function resolveGovernmentContractAgency(event: { source?: string | null; payload?: any }): string {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.awarding_agency) ??
+    asTrimmedString(payload?.awardingAgency) ??
+    asTrimmedString(nestedPayload?.awarding_agency) ??
+    asTrimmedString(nestedPayload?.awardingAgency) ??
+    asTrimmedString(payload?.agency) ??
+    asTrimmedString(nestedPayload?.agency) ??
+    asTrimmedString(raw?.awarding_agency) ??
+    asTrimmedString(raw?.awardingAgency) ??
+    asTrimmedString(raw?.agency) ??
+    asTrimmedString(event.source) ??
+    "Government Contract"
+  );
+}
+
+function resolveGovernmentContractDate(event: { ts?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.award_date) ??
+    asTrimmedString(payload?.awardDate) ??
+    asTrimmedString(nestedPayload?.award_date) ??
+    asTrimmedString(nestedPayload?.awardDate) ??
+    asTrimmedString(raw?.award_date) ??
+    asTrimmedString(raw?.awardDate) ??
+    asTrimmedString(payload?.period_start) ??
+    asTrimmedString(payload?.periodStart) ??
+    asTrimmedString(nestedPayload?.period_start) ??
+    asTrimmedString(nestedPayload?.periodStart) ??
+    asTrimmedString(raw?.period_start) ??
+    asTrimmedString(raw?.periodStart) ??
+    asTrimmedString(payload?.report_date) ??
+    asTrimmedString(payload?.reportDate) ??
+    asTrimmedString(nestedPayload?.report_date) ??
+    asTrimmedString(nestedPayload?.reportDate) ??
+    asTrimmedString(raw?.report_date) ??
+    asTrimmedString(raw?.reportDate) ??
+    asTrimmedString(event.ts) ??
+    null
+  );
+}
+
+function resolveGovernmentContractAmount(event: { amount_max?: number | null; amount_min?: number | null; payload?: any }): number | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    readNumeric(payload?.award_amount) ??
+    readNumeric(payload?.awardAmount) ??
+    readNumeric(nestedPayload?.award_amount) ??
+    readNumeric(nestedPayload?.awardAmount) ??
+    readNumeric(payload?.amount) ??
+    readNumeric(nestedPayload?.amount) ??
+    readNumeric(raw?.award_amount) ??
+    readNumeric(raw?.awardAmount) ??
+    readNumeric(raw?.amount) ??
+    readNumeric(event.amount_max) ??
+    readNumeric(event.amount_min) ??
+    null
+  );
+}
+
+function resolveGovernmentContractDescription(event: { payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.description) ??
+    asTrimmedString(nestedPayload?.description) ??
+    asTrimmedString(payload?.summary) ??
+    asTrimmedString(nestedPayload?.summary) ??
+    asTrimmedString(payload?.title) ??
+    asTrimmedString(nestedPayload?.title) ??
+    asTrimmedString(raw?.description) ??
+    asTrimmedString(raw?.summary) ??
+    asTrimmedString(raw?.title) ??
+    null
+  );
+}
+
+function resolveGovernmentContractRecipient(event: { member_name?: string | null; payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.recipient_name) ??
+    asTrimmedString(payload?.recipientName) ??
+    asTrimmedString(payload?.raw_recipient_name) ??
+    asTrimmedString(payload?.rawRecipientName) ??
+    asTrimmedString(nestedPayload?.recipient_name) ??
+    asTrimmedString(nestedPayload?.recipientName) ??
+    asTrimmedString(nestedPayload?.raw_recipient_name) ??
+    asTrimmedString(nestedPayload?.rawRecipientName) ??
+    asTrimmedString(raw?.recipient_name) ??
+    asTrimmedString(raw?.recipientName) ??
+    asTrimmedString(raw?.["Recipient Name"]) ??
+    asTrimmedString(event.member_name) ??
+    null
+  );
+}
+
+function resolveGovernmentContractSourceUrl(event: { payload?: any }): string | null {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  const raw = payload?.raw && typeof payload.raw === "object" ? payload.raw : null;
+  const nestedPayload = payload?.payload && typeof payload.payload === "object" ? payload.payload : null;
+  return (
+    asTrimmedString(payload?.source_url) ??
+    asTrimmedString(payload?.sourceUrl) ??
+    asTrimmedString(nestedPayload?.source_url) ??
+    asTrimmedString(nestedPayload?.sourceUrl) ??
+    asTrimmedString(raw?.source_url) ??
+    asTrimmedString(raw?.sourceUrl) ??
+    null
+  );
+}
+
+function latestEvent<T extends { ts?: string | null }>(events: T[]): T | null {
+  if (events.length === 0) return null;
+  return [...events].sort((a, b) => {
+    const aTime = Date.parse(a.ts ?? "");
+    const bTime = Date.parse(b.ts ?? "");
+    if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) return bTime - aTime;
+    if (!Number.isNaN(aTime)) return -1;
+    if (!Number.isNaN(bTime)) return 1;
+    return 0;
+  })[0] ?? null;
+}
+
+function buildCrossSourceSummary({
+  confirmation,
+  congressEvents,
+  insiderEvents,
+}: {
+  confirmation: ConfirmationSummary | null;
+  congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+  insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+}): string {
+  const congressEvent = latestEvent(congressEvents);
+  const insiderEvent = latestEvent(insiderEvents);
+
+  if (!congressEvent && !insiderEvent) {
+    return confirmation?.cross_source_confirmed_30d
+      ? "Congress and insider activity are both flagged in the recent activity window, but detailed trade records are not available in the current filter."
+      : "No matching Congress or insider trade details are available in the current filter.";
+  }
+
+  const parts: string[] = [];
+
+  if (congressEvent) {
+    const memberName = formatCongressIdentity(congressEvent);
+    const side = formatTransactionLabel(congressEvent.trade_type).toLowerCase();
+    const price = resolveCongressTradePrice(congressEvent);
+    const tradeDate = formatDateShort(resolveCongressTradeDate(congressEvent));
+    const reportDate = formatDateShort(resolveCongressReportDate(congressEvent));
+    parts.push(
+      `${memberName} ${side} at ${price !== null ? formatCurrency(price) : "an undisclosed price"} on ${tradeDate} (reported ${reportDate}).`,
+    );
+  }
+
+  if (insiderEvent) {
+    const insiderName = formatInsiderIdentity(insiderEvent);
+    const side = formatTransactionLabel(insiderEvent.trade_type).toLowerCase();
+    const price = resolveInsiderTradePrice(insiderEvent);
+    const tradeDate = formatDateShort(resolveInsiderTradeDate(insiderEvent));
+    const filingDate = formatDateShort(resolveInsiderFilingDate(insiderEvent));
+    parts.push(
+      `${insiderName} ${side} at ${price !== null ? formatCurrency(price) : "an undisclosed price"} on ${tradeDate} (filed ${filingDate}).`,
+    );
+  }
+
+  return parts.join(" ");
+}
+
+function formatPnl(value: number): string {
+  const marker = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${marker} ${Math.abs(value).toFixed(1)}%`;
+}
+
+function pnlClass(value: number): string {
+  if (value > 0) return "text-emerald-300";
+  if (value < 0) return "text-rose-300";
+  return "text-slate-300";
+}
+
+function formatSignalStrengthText(band?: string | null): string {
+  const cleaned = (band ?? "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "Signal";
+  const label = cleaned.replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return `${label} signal`;
+}
+
+function signalGateForAuthenticatedFreeUser(): SignalGateState {
+  return { reason: "upgrade", message: "Subscribe to premium to unlock signal activity." };
+}
+
+function signalGateForUnauthenticatedUser(): SignalGateState {
+  return { reason: "auth", message: "Create an account and subscribe to premium to unlock signal activity." };
+}
+
+function canUseSignalActivity(entitlements: Entitlements | null): boolean {
+  if (entitlements?.status === "temporarily_unavailable") return true;
+  return entitlements ? hasEntitlement(entitlements, "signals") : true;
+}
+
+function canUseTickerConfirmation(entitlements: Entitlements | null): boolean {
+  if (entitlements?.status === "temporarily_unavailable") return true;
+  return entitlements ? hasEntitlement(entitlements, "ticker_confirmation") : true;
+}
+
+function canUseProTickerContext(entitlements: Entitlements | null): boolean {
+  if (entitlements?.status === "temporarily_unavailable") return true;
+  if (!entitlements) return true;
+  return (
+    entitlements.tier === "pro"
+    || entitlements.tier === "admin"
+    || entitlements.effective_tier === "pro"
+    || entitlements.effective_tier === "admin"
+    || Boolean(entitlements.is_admin || entitlements.user?.is_admin)
+  );
+}
+
+function tickerContextSourceEntitlements(entitlements: Entitlements | null, authenticated: boolean): TickerSourceEntitlements {
+  const signalsLocked = !canUseSignalActivity(entitlements);
+  const proLocked = !canUseProTickerContext(entitlements);
+  const meta = (
+    source: ConfirmationSourceKey,
+    requiredPlan: TickerSourceEntitlement["required_plan"],
+    locked: boolean,
+    lockState?: TickerSourceEntitlement["lock_state"],
+  ): TickerSourceEntitlement => ({
+    source,
+    required_plan: requiredPlan,
+    lock_state: locked ? lockState ?? (requiredPlan === "pro" ? "pro_locked" : requiredPlan === "premium" ? "premium_locked" : "requires_login") : "available",
+    locked,
+    available: !locked,
+  });
+
+  if (!authenticated) {
+    return {
+      price_volume: meta("price_volume", null, false),
+      fundamentals: meta("fundamentals", null, false),
+      insiders: meta("insiders", null, false),
+      congress: meta("congress", null, false),
+      government_contracts: meta("government_contracts", null, false),
+      signals: meta("signals", "premium", true, "premium_locked"),
+      institutional_activity: meta("institutional_activity", "pro", true, "pro_locked"),
+      options_flow: meta("options_flow", "pro", true, "pro_locked"),
+      macro_positioning: meta("macro_positioning", "pro", true, "pro_locked"),
+    };
+  }
+
+  return {
+    price_volume: meta("price_volume", null, false),
+    fundamentals: meta("fundamentals", null, false),
+    analysts: meta("analysts", null, false),
+    insiders: meta("insiders", null, false),
+    congress: meta("congress", null, false),
+    government_contracts: meta("government_contracts", null, false),
+    signals: meta("signals", "premium", signalsLocked, "premium_locked"),
+    institutional_activity: meta("institutional_activity", "pro", proLocked, "pro_locked"),
+    options_flow: meta("options_flow", "pro", proLocked, "pro_locked"),
+    macro_positioning: meta("macro_positioning", "pro", proLocked, "pro_locked"),
+  };
+}
+
+function insiderBiasLabel(confirmation: ConfirmationSummary | null): { label: string; tone: "pos" | "neg" | "neutral" } {
+  if (!confirmation || !confirmation.insider_active_30d) return { label: "No insider side signal", tone: "neutral" };
+  if (confirmation.insider_buy_count_30d > confirmation.insider_sell_count_30d) return { label: "Insider buy-skewed", tone: "pos" };
+  if (confirmation.insider_sell_count_30d > confirmation.insider_buy_count_30d) return { label: "Insider sell-skewed", tone: "neg" };
+  return { label: "Insider mixed", tone: "neutral" };
+}
+
+function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): ConfirmationScoreBundle {
+  return {
+    ticker,
+    lookback_days: lookbackDays,
+    score: 0,
+    band: "inactive",
+    direction: "neutral",
+    status: "Inactive",
+    explanation: "Congress, insider, signal conviction, and price confirmation sources are inactive for this lookback.",
+    sources: {
+      congress: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
+      insiders: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
+      signals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No current signal conviction" },
+      analysts: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Analysts unavailable" },
+      price_volume: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No price confirmation" },
+      fundamentals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Fundamentals unavailable", status: "unavailable" },
+      options_flow: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Options flow not confirming" },
+      government_contracts: {
+        present: false,
+        direction: "neutral",
+        strength: 0,
+        quality: 0,
+        freshness_days: null,
+        label: "Government Contracts",
+        score_contribution: 0,
+        detail: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
+        summary: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
+      },
+      institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No recent institutional activity" },
+      macro_positioning: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No macro positioning signal" },
+    },
+    drivers: ["Congress inactive", "Insiders inactive", "No current signal conviction"],
+    active_sources: [],
+    source_details: {},
+  };
+}
+
+function fallbackDecisionLayer(bundle: ConfirmationScoreBundle): TickerDecisionLayer {
+  const label = confirmationSignalLabel(bundle.band, bundle.direction, bundle.score);
+  const activeItems = confirmationSourceOrder
+    .filter((key) => bundle.sources[key].present)
+    .map((key) => ({
+      category: key,
+      title: confirmationSourceLabels[key],
+      description: bundle.sources[key].detail ?? bundle.sources[key].summary ?? bundle.sources[key].label,
+      freshness: typeof bundle.sources[key].freshness_days === "number" ? `${bundle.sources[key].freshness_days}d ago` : null,
+    }));
+  return {
+    symbol: bundle.ticker,
+    freshness_window: `${bundle.lookback_days}d`,
+    confirmation: {
+      score: bundle.score,
+      label,
+      direction: bundle.direction,
+      band: bundle.band,
+      history: [],
+    },
+    summary: bundle.explanation,
+    what_changed: [],
+    catalysts: activeItems.filter((item) => bundle.sources[item.category as ConfirmationSourceKey]?.direction === "bullish").slice(0, 4),
+    risks: activeItems.filter((item) => bundle.sources[item.category as ConfirmationSourceKey]?.direction === "bearish").slice(0, 4),
+    watch_items: [
+      { category: "price_volume", title: "Tape confirmation", description: "Watch whether price and volume confirm or fade." },
+      { category: "fundamentals", title: "Fundamental update", description: "Watch the next reported fundamental refresh." },
+    ],
+    missing_data_notes: [],
+  };
+}
+
+function decisionToneClass(direction?: string | null): string {
+  if (direction === "bullish") return "text-emerald-300";
+  if (direction === "bearish") return "text-rose-300";
+  if (direction === "mixed") return "text-amber-300";
+  return "text-slate-400";
+}
+
+
+
+function TickerInterpretationPremiumLock({ title, description }: { title: string; description: string }) {
+  return (
+    <section className="mt-5 rounded-lg border border-emerald-300/20 bg-slate-950/40 px-5 py-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p>
+      <Link href="/pricing" className="mt-3 inline-flex items-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20">
+        Unlock with Premium
+      </Link>
+    </section>
+  );
+}
+
+function historicalPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function SimilarHistoricalSetupsCard({ setups, symbol }: { setups?: SimilarHistoricalSetups | null; symbol: string }) {
+  if (!setups) return null;
+  const sevenDay = setups.horizons?.["7D"];
+  const thirtyDay = setups.horizons?.["30D"];
+  const building = setups.status === "building" || setups.status === "unavailable";
+  const locked = Boolean(setups.access?.locked);
+  const hasMatches = !locked && (setups.top_matches?.length ?? 0) > 0;
+  return (
+    <section className="mt-5 border-t border-white/10 pt-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">Similar Historical Setups</p>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            {setups.status === "unavailable"
+              ? "Similar setups need at least two active directional sources in the current evidence profile."
+              : building
+              ? "Building historical coverage from live, point-in-time confirmation events. Results will appear automatically once enough comparable outcomes mature."
+              : `Walnut found ${setups.match_count} prior confirmation event${setups.match_count === 1 ? "" : "s"} with a similar evidence profile.`}
+          </p>
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${building ? "border-violet-300/30 bg-violet-300/10 text-violet-100" : setups.status === "limited" ? "border-amber-300/30 bg-amber-300/10 text-amber-100" : "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"}`}>
+          {building ? "Building" : setups.status === "limited" ? "Early sample" : "Historical evidence"}
+        </span>
+      </div>
+      <div className={`mt-3 grid gap-4 ${hasMatches ? "xl:grid-cols-[minmax(19rem,0.9fr)_minmax(0,1.35fr)] xl:items-start" : "max-w-2xl"}`}>
+        <div>
+          {setups.current_setup ? (
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 py-2 text-xs text-slate-400">
+              <span className="font-semibold uppercase tracking-[0.12em] text-slate-500">Current profile</span>
+              <span>Score <strong className="text-slate-100">{setups.current_setup.score}</strong></span>
+              <span className="text-emerald-300">● {setups.current_setup.direction}</span>
+              <span className="text-emerald-300">● {setups.current_setup.divergence ?? "Divergence unavailable"}</span>
+              <span>{setups.current_setup.active_source_count} active sources</span>
+            </div>
+          ) : null}
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {(["7D", "30D"] as const).map((horizon) => {
+              const metrics = horizon === "30D" ? thirtyDay : sevenDay;
+              return (
+                <div key={horizon} className="border-l border-white/10 py-1 pl-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{horizon} outcome</p>
+                  {metrics?.status === "building" ? (
+                    <p className="mt-2 text-xs leading-5 text-slate-400"><strong className="text-xl font-semibold tabular-nums text-slate-100">{metrics.sample_size}</strong> matured comparable outcome{metrics.sample_size === 1 ? "" : "s"}.</p>
+                  ) : (
+                    <div className="mt-2 space-y-1 text-xs leading-5 text-slate-300">
+                      <p>Directional <span className="font-semibold text-white">{metrics?.directional_accuracy_pct === null || metrics?.directional_accuracy_pct === undefined ? "--" : `${metrics.directional_accuracy_pct}%`}</span></p>
+                      {!locked ? <p>Median return <span className="font-semibold text-white">{historicalPercent(metrics?.median_directional_return_pct)}</span></p> : null}
+                      {!locked ? <p>Excess vs SPY <span className="font-semibold text-white">{historicalPercent(metrics?.median_directional_excess_vs_spy_pct)}</span></p> : null}
+                      <p className="text-[11px] text-slate-500">Sample: {metrics?.sample_size ?? 0} events</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {setups.sample_warning ? <p className="mt-2 text-xs leading-5 text-amber-200/80">{setups.sample_warning}</p> : null}
+          {locked && !building ? <Link href="/pricing" className="mt-3 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">Unlock the full historical setup analysis</Link> : null}
+        </div>
+        {hasMatches ? (
+          <div className="min-w-0 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Most similar events</p>
+            <div className="mt-2 grid gap-1.5">
+              {(setups.top_matches ?? []).slice(0, 3).map((match) => {
+                const outcome = match.outcomes?.["30D"] ?? match.outcomes?.["7D"];
+                return <div key={`${match.ticker}-${match.market_date}`} className="grid min-w-0 gap-x-3 gap-y-1 border-t border-white/10 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <p className="font-semibold text-slate-100"><span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded bg-violet-400/15 text-[9px] text-violet-200">⌁</span>{match.ticker}</p>
+                    <span className="text-slate-500">{formatDateShort(match.market_date)}</span>
+                    <TickerDiscoveryLink compact ticker={symbol} href={`/outcomes?ticker=${encodeURIComponent(match.ticker)}`} destinationType="outcome" destinationId={match.ticker}>Outcome history</TickerDiscoveryLink>
+                  </div>
+                  <p className="font-medium text-slate-300 sm:text-right">Score <span className="text-emerald-300">{match.score}</span> · {match.direction} · {outcome?.status === "matured" ? historicalPercent(outcome.directional_return_pct) : "Pending"}</p>
+                  {match.reasons?.length ? <details className="min-w-0 text-xs leading-5 text-slate-400 sm:col-span-2"><summary className="w-fit cursor-pointer rounded py-1 text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300">Comparison details</summary><p>Similar: {match.reasons.join(" · ")}</p></details> : null}
+                </div>;
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <p className="mt-3 text-xs text-slate-500">{setups.methodology_version} · Live prospective snapshots only · 7D and 30D outcomes</p>
+    </section>
+  );
+}
+
+function TickerOverviewPanel({
+  fundamentals,
+  confirmationBundle,
+  sourceDisplayBundle = confirmationBundle,
+  decisionLayer,
+  confirmationGate,
+  divergence,
+  similarHistoricalSetups,
+  symbol,
+}: {
+  fundamentals: TickerFundamentalsSummary;
+  confirmationBundle: ConfirmationScoreBundle;
+  sourceDisplayBundle?: ConfirmationScoreBundle;
+  decisionLayer?: TickerDecisionLayer | null;
+  confirmationGate?: TickerConfirmationGate | null;
+  divergence?: CrossSourceDivergence | null;
+  similarHistoricalSetups?: SimilarHistoricalSetups | null;
+  symbol: string;
+}) {
+  const displayBundle = sourceDisplayBundle;
+  const confirmationLocked = Boolean(confirmationGate?.locked);
+  const divergenceLocked = Boolean(divergence?.access?.locked);
+  const similarHistoricalSetupsLocked = Boolean(similarHistoricalSetups?.access?.locked);
+  const layer = decisionLayer ?? fallbackDecisionLayer(displayBundle);
+  const confirmation = layer.confirmation ?? {};
+  const score = typeof confirmation.score === "number" ? Math.round(confirmation.score) : null;
+  const direction = confirmation.direction ?? displayBundle.direction;
+  const label = confirmation.label ?? overviewScoreLine(displayBundle).split(" / 100 · ").pop() ?? "Unavailable";
+  const updated = confirmation.updated_at ? `Last updated ${formatDateShort(confirmation.updated_at)}` : "Last updated unavailable";
+
+  return (
+    <div className="relative">
+      <section aria-label="Confirmation and source alignment" className="grid min-w-0 gap-5 rounded-lg border border-white/10 bg-slate-950/25 p-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,0.9fr)] lg:gap-5">
+        <div className="relative min-w-0">
+          <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined} inert={confirmationLocked}>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">30-DAY CONFIRMATION</p>
+            <VisibleEvent name="confirmation_score_viewed" properties={{ ticker: symbol }} enabled={!confirmationLocked && score !== null}>
+              <p className={`mt-2 text-4xl font-semibold tabular-nums ${decisionToneClass(direction)}`}>{score === null ? "--" : score} <span className="text-2xl text-slate-500">/ 100</span></p>
+              <p className={`mt-1 text-base font-semibold ${decisionToneClass(direction)}`}>{label}</p>
+            </VisibleEvent>
+            <p className="mt-2 text-xs text-slate-400">{updated}</p>
+            <details className="mt-1 text-xs leading-5 text-slate-400"><summary className="w-fit cursor-pointer rounded py-1 text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300">Confirmation interpretation</summary><p>{layer.summary ?? displayBundle.explanation}</p></details>
+          </div>
+          {confirmationLocked && confirmationGate ? <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-slate-950/80 p-2"><ContextualUpgrade title="Understand the ranking" body={confirmationGate.message} feature="ticker_confirmation" compact /></div> : null}
+        </div>
+        <div className="min-w-0 border-t border-white/10 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+          {divergenceLocked ? <ContextualUpgrade title="Cross-Source Divergence" body="Compare how Walnut’s confirmation sources align or diverge with Premium." feature="cross_source_divergence" compact /> : <TickerSourceAlignment divergence={divergence} />}
+        </div>
+        <div className="min-w-0 border-t border-white/10 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+          <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined} inert={confirmationLocked}>
+            <p className="mb-1 text-xs text-slate-400">Confirmation trend · 30D</p>
+            <DecisionTrendChart history={confirmation.history} direction={direction} />
+          </div>
+        </div>
+      </section>
+
+      <TickerFundamentalsSnapshot summary={fundamentals} />
+      <TickerDecisionPanels layer={layer} locked={confirmationLocked} />
+      <Link href="/signal-mixer" className="mt-4 inline-flex rounded-lg border border-sky-300/20 bg-sky-300/5 px-3 py-2 text-xs font-semibold text-sky-300 hover:bg-sky-300/10">Explore signal combinations →</Link>
+      {similarHistoricalSetupsLocked ? (
+        <TickerInterpretationPremiumLock title="Similar Historical Setups" description="Explore comparable confirmation setups and historical outcomes with Premium." />
+      ) : (
+        <SimilarHistoricalSetupsCard setups={similarHistoricalSetups} symbol={symbol} />
+      )}
+      <TickerResearchMemoryCard symbol={symbol} />
+    </div>
+  );
+}
+
+function inactiveTechnicalIndicators(): TechnicalIndicators {
+  return {
+    source: "daily_close_history",
+    asof: null,
+    price_points: 0,
+    rsi: {
+      status: "unavailable",
+      signal: "unavailable",
+      message: "RSI temporarily unavailable",
+      reason: "provider_error",
+      value: null,
+      period: 14,
+    },
+    macd: {
+      status: "unavailable",
+      signal: "unavailable",
+      message: "MACD temporarily unavailable",
+      reason: "provider_error",
+      value: null,
+    },
+    ema_trend: {
+      status: "unavailable",
+      signal: "unavailable",
+      message: "EMA trend temporarily unavailable",
+      reason: "provider_error",
+      value: null,
+    },
+  };
+}
+
+function inactiveOptionsFlowSummary(ticker: string): OptionsFlowSummary {
+  return {
+    ticker,
+    lookback_days: 30,
+    state: "unavailable",
+    label: "Options flow unavailable",
+    is_active: false,
+    confidence: "low",
+    freshness_days: null,
+    summary: "Options flow unavailable.",
+    signals: ["Options flow unavailable"],
+    metrics: {
+      put_call_premium_ratio: null,
+      net_premium_skew: 0,
+      recent_contract_volume: 0,
+      observed_contracts: 0,
+      freshness_days: null,
+    },
+    can_confirm: false,
+    provider: "options",
+  };
+}
+
+function inactiveSignalFreshnessBundle(ticker: string, lookbackDays = 30): SignalFreshnessBundle {
+  return {
+    ticker,
+    lookback_days: lookbackDays,
+    freshness_score: 0,
+    freshness_state: "inactive",
+    freshness_label: "No active setup",
+    explanation: "No active directional confirmation sources are present in this lookback.",
+    timing: {
+      freshest_source_days: null,
+      stalest_active_source_days: null,
+      active_source_count: 0,
+      overlap_window_days: null,
+    },
+  };
+}
+
+function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | undefined, ticker: string, lookbackDays = 30): ConfirmationScoreBundle {
+  const fallback = inactiveConfirmationBundle(ticker, lookbackDays);
+  if (!bundle) return fallback;
+  const effectiveLookback = Number.isFinite(bundle.lookback_days) ? bundle.lookback_days : lookbackDays;
+  return {
+    ...fallback,
+    ...bundle,
+    ticker: bundle.ticker || ticker,
+    lookback_days: effectiveLookback,
+    sources: {
+      congress: { ...fallback.sources.congress, ...(bundle.sources?.congress ?? {}) },
+      insiders: { ...fallback.sources.insiders, ...(bundle.sources?.insiders ?? {}) },
+      signals: { ...fallback.sources.signals, ...(bundle.sources?.signals ?? {}) },
+      analysts: { ...fallback.sources.analysts, ...(bundle.sources?.analysts ?? {}) },
+      price_volume: { ...fallback.sources.price_volume, ...(bundle.sources?.price_volume ?? {}) },
+      fundamentals: { ...fallback.sources.fundamentals, ...(bundle.sources?.fundamentals ?? {}) },
+      options_flow: { ...fallback.sources.options_flow, ...(bundle.sources?.options_flow ?? {}) },
+      government_contracts: { ...fallback.sources.government_contracts, ...(bundle.sources?.government_contracts ?? {}) },
+      institutional_activity: { ...fallback.sources.institutional_activity, ...(bundle.sources?.institutional_activity ?? {}) },
+      macro_positioning: { ...fallback.sources.macro_positioning, ...(bundle.sources?.macro_positioning ?? {}) },
+    },
+    drivers: Array.isArray(bundle.drivers) && bundle.drivers.length > 0 ? bundle.drivers.slice(0, 4) : fallback.drivers,
+  };
+}
+
+function normalizeOptionsFlowSummary(bundle: OptionsFlowSummary | null | undefined, ticker: string, lookbackDays = 30): OptionsFlowSummary {
+  const fallback = { ...inactiveOptionsFlowSummary(ticker), lookback_days: lookbackDays };
+  if (!bundle) return fallback;
+  const effectiveLookback = Number.isFinite(bundle.lookback_days) ? bundle.lookback_days : lookbackDays;
+  return {
+    ...fallback,
+    ...bundle,
+    ticker: bundle.ticker || ticker,
+    lookback_days: effectiveLookback,
+    signals: Array.isArray(bundle.signals) && bundle.signals.length > 0 ? bundle.signals.slice(0, 4) : fallback.signals,
+    metrics: {
+      ...fallback.metrics,
+      ...(bundle.metrics ?? {}),
+    },
+  };
+}
+
+function normalizeSignalFreshness(bundle: SignalFreshnessBundle | null | undefined, ticker: string, lookbackDays = 30): SignalFreshnessBundle {
+  const fallback = inactiveSignalFreshnessBundle(ticker, lookbackDays);
+  if (!bundle) return fallback;
+  const effectiveLookback = Number.isFinite(bundle.lookback_days) ? bundle.lookback_days : lookbackDays;
+  return {
+    ...fallback,
+    ...bundle,
+    ticker: bundle.ticker || ticker,
+    lookback_days: effectiveLookback,
+    timing: {
+      ...fallback.timing,
+      ...(bundle.timing ?? {}),
+    },
+  };
+}
+
+function normalizeTechnicalIndicators(bundle: TechnicalIndicators | null | undefined): TechnicalIndicators {
+  const fallback = inactiveTechnicalIndicators();
+  if (!bundle) return fallback;
+  return {
+    ...fallback,
+    ...bundle,
+    rsi: { ...fallback.rsi, ...(bundle.rsi ?? {}) },
+    macd: { ...fallback.macd, ...(bundle.macd ?? {}) },
+    ema_trend: { ...fallback.ema_trend, ...(bundle.ema_trend ?? {}) },
+  };
+}
+
+const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
+  congress: "Congress",
+  insiders: "Insiders",
+  signals: "Signals",
+  analysts: "Analysts",
+  price_volume: "Price / Volume",
+  fundamentals: "Fundamentals",
+  options_flow: "Options Flow",
+  government_contracts: "Government Contracts",
+  institutional_activity: "Institutional Activity",
+  macro_positioning: "Macro Positioning",
+};
+
+const confirmationSourceOrder: ConfirmationSourceKey[] = [
+  "congress",
+  "insiders",
+  "signals",
+  "analysts",
+  "price_volume",
+  "fundamentals",
+  "options_flow",
+  "government_contracts",
+  "institutional_activity",
+  "macro_positioning",
+];
+
+function sourceStateClass(direction: ConfirmationScoreBundle["direction"] | "inactive"): string {
+  if (direction === "bullish") return "text-emerald-300";
+  if (direction === "bearish") return "text-rose-300";
+  if (direction === "mixed") return "text-amber-300";
+  return "text-slate-400";
+}
+
+function technicalToneClass(tone: "bullish" | "bearish" | "mixed" | "inactive" | "unavailable"): string {
+  if (tone === "bullish") return "text-emerald-300";
+  if (tone === "bearish") return "text-rose-300";
+  if (tone === "mixed") return "text-amber-300";
+  if (tone === "unavailable") return "text-slate-500";
+  return "text-slate-400";
+}
+
+function sourceUnavailable(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): boolean {
+  const status = (source.status ?? "").toLowerCase();
+  return !source.present && ["unavailable", "not_configured", "disabled", "provider_error", "error"].includes(status);
+}
+
+function sourceStateLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  if (sourceUnavailable(source)) return "UNAVAILABLE";
+  return source.present ? source.direction.toUpperCase() : "INACTIVE";
+}
+
+function formatConfirmationSourceList(keys: ConfirmationSourceKey[]): string {
+  if (keys.length === 0) return "No active sources";
+  return keys.map((key) => confirmationSourceLabels[key]).join(" + ");
+}
+
+function alignedConfirmationSources(bundle: ConfirmationScoreBundle): ConfirmationSourceKey[] {
+  if (bundle.direction === "neutral" || bundle.direction === "mixed") {
+    return confirmationSourceOrder.filter((key) => bundle.sources[key].present);
+  }
+  return confirmationSourceOrder.filter((key) => {
+    const source = bundle.sources[key];
+    return source.present && source.direction === bundle.direction;
+  });
+}
+
+function sourceEntitlement(entitlements: TickerSourceEntitlements | null | undefined, source: ConfirmationSourceKey): TickerSourceEntitlement | null {
+  return entitlements?.[source] ?? null;
+}
+
+function sourceIsLocked(entitlements: TickerSourceEntitlements | null | undefined, source: ConfirmationSourceKey): boolean {
+  return Boolean(sourceEntitlement(entitlements, source)?.locked);
+}
+
+function displaySourceEntitlementsForTickerContext(
+  activityEntitlements: TickerSourceEntitlements | null | undefined,
+  fallbackEntitlements: TickerSourceEntitlements,
+  allowAuthHintOverride: boolean,
+): TickerSourceEntitlements {
+  if (!activityEntitlements) return fallbackEntitlements;
+  if (!allowAuthHintOverride) return activityEntitlements;
+  const merged = { ...activityEntitlements };
+  for (const source of confirmationSourceOrder) {
+    const activityMeta = activityEntitlements[source];
+    const fallbackMeta = fallbackEntitlements[source];
+    if (activityMeta?.locked && fallbackMeta?.locked === false) {
+      merged[source] = fallbackMeta;
+    }
+  }
+  return merged;
+}
+
+function lockFeatureLabel(requiredPlan?: TickerSourceEntitlement["required_plan"]): string {
+  if (requiredPlan === "free") return "Create a free account";
+  return requiredPlan === "pro" ? "Pro feature" : "Premium feature";
+}
+
+function displayConfirmationBundleForEntitlements(
+  bundle: ConfirmationScoreBundle,
+  entitlements: TickerSourceEntitlements | null | undefined,
+): ConfirmationScoreBundle {
+  const lockedSources = confirmationSourceOrder.filter((source) => sourceIsLocked(entitlements, source));
+  if (lockedSources.length === 0) return bundle;
+  const sources = { ...bundle.sources };
+  const lockedActiveSources = lockedSources.filter((source) => bundle.sources[source].present);
+  for (const source of lockedSources) {
+    const meta = sourceEntitlement(entitlements, source);
+    sources[source] = {
+      ...sources[source],
+      present: false,
+      direction: "neutral",
+      strength: 0,
+      quality: 0,
+      freshness_days: null,
+      label: lockFeatureLabel(meta?.required_plan),
+    };
+  }
+  const visibleActiveSources = confirmationSourceOrder.filter((source) => sources[source].present);
+  if (visibleActiveSources.length === 0 && lockedActiveSources.length > 0) {
+    return {
+      ...bundle,
+      score: 0,
+      band: "inactive",
+      direction: "neutral",
+      status: "Locked source context",
+      explanation: "Additional Premium/Pro context is locked for this ticker.",
+      sources,
+      drivers: ["Additional Premium/Pro context locked"],
+      active_sources: [],
+      source_details: {},
+    };
+  }
+  if (lockedActiveSources.length === 0) return { ...bundle, sources };
+  // Scores must come from the server's canonical entitlement projection.
+  // A legacy unprojected response cannot be safely rescored in the browser.
+  return {
+    ...bundle, score: 0, band: "inactive", direction: "neutral",
+    status: "Confirmation refreshing",
+    explanation: "Confirmation is refreshing for your available sources.",
+    sources, active_sources: visibleActiveSources,
+    conflict_adjustment: undefined, score_calculation: undefined,
+  };
+}
+
+function inactiveOrUnalignedSourceLine(bundle: ConfirmationScoreBundle, alignedSources: ConfirmationSourceKey[]): string {
+  const aligned = new Set(alignedSources);
+  const parts = confirmationSourceOrder
+    .filter((key) => !aligned.has(key))
+    .map((key) => {
+      const source = bundle.sources[key];
+      if (!source.present) return `${confirmationSourceLabels[key]} inactive`;
+      return `${confirmationSourceLabels[key]} ${source.direction}`;
+    });
+  return parts.length > 0 ? parts.join(" · ") : "All tracked sources aligned";
+}
+
+function setupTimingLabel(freshness: SignalFreshnessBundle): string {
+  if (freshness.timing.active_source_count <= 0) return "Timing inactive";
+  if (freshness.timing.freshest_source_days === null && freshness.timing.stalest_active_source_days === null) return "Timing limited";
+  if (freshness.freshness_state === "stale") return "Older setup";
+  if (freshness.freshness_state === "maturing") return "Maturing setup";
+  return "Fresh setup";
+}
+
+function timingDetailLine(freshness: SignalFreshnessBundle): string {
+  const timing = freshness.timing;
+  if (timing.active_source_count > 0 && timing.freshest_source_days === null && timing.stalest_active_source_days === null) {
+    return `${timing.active_source_count} active source${timing.active_source_count === 1 ? "" : "s"} · dates limited`;
+  }
+  const freshest = timing.freshest_source_days === null ? "--" : `${timing.freshest_source_days}d`;
+  const oldest = timing.stalest_active_source_days === null ? "--" : `${timing.stalest_active_source_days}d`;
+  const overlap = timing.overlap_window_days === null ? "--" : `${timing.overlap_window_days}d`;
+  return `${freshest} freshest · ${oldest} oldest · ${overlap} overlap`;
+}
+
+function overviewTimestamp(freshness: SignalFreshnessBundle): string {
+  const freshest = freshness.timing.freshest_source_days;
+  if (freshest === null || freshest === undefined) return "Updated --";
+  if (freshest === 0) return "Updated today";
+  return `Updated ${freshest}d ago`;
+}
+
+function overviewHeadline(bundle: ConfirmationScoreBundle): string {
+  if (bundle.direction === "bearish") return "Bearish confirmation";
+  if (bundle.direction === "bullish") return "Bullish confirmation";
+  if (bundle.direction === "mixed") return "Conflicted confirmation";
+  if (bundle.sources.government_contracts.present) return "Positive support building";
+  return "No active confirmation";
+}
+
+function overviewSubheadline(alignedSources: ConfirmationSourceKey[]): string {
+  if (alignedSources.length <= 0) return "No active sources aligned.";
+  return `${alignedSources.length} of ${confirmationSourceOrder.length} sources visibly aligned. The score uses the full weighted source model.`;
+}
+
+function capitalizeWord(value: string): string {
+  if (!value) return value;
+  return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+function confirmationDirectionDisplay(value: string): string {
+  return value === "mixed" ? "Conflicted" : capitalizeWord(value);
+}
+
+function confirmationSignalLabel(
+  band: ConfirmationScoreBundle["band"],
+  direction: ConfirmationScoreBundle["direction"],
+  score: number | null | undefined,
+): string {
+  return confirmationLabel(score, direction, band);
+}
+
+function overviewScoreLine(bundle: ConfirmationScoreBundle): string {
+  return `${Math.round(bundle.score)} / 100 · ${confirmationSignalLabel(bundle.band, bundle.direction, bundle.score)}`;
+}
+
+function overviewBullets({
+  confirmationBundle,
+  alignedSources,
+}: {
+  confirmationBundle: ConfirmationScoreBundle;
+  alignedSources: ConfirmationSourceKey[];
+}): string[] {
+  const bullets = new Set<string>();
+  const activeLabels = Array.from(new Set(alignedSources.map((key) => confirmationSourceLabels[key])));
+  if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" · ")}`);
+  if (confirmationBundle.sources.government_contracts.present) {
+    const governmentSummary = normalizeUpperCardWindowCopy(
+      confirmationBundle.sources.government_contracts.detail ?? confirmationBundle.sources.government_contracts.summary,
+      confirmationBundle.lookback_days,
+    ) ?? `Government contracts are active in the ${contextWindowNoun(confirmationBundle.lookback_days)}.`;
+    if (confirmationBundle.direction === "bearish") {
+      bullets.add("Government contracts add positive support, while other sources remain bearish.");
+    } else {
+      bullets.add(governmentSummary);
+    }
+  }
+  if (confirmationBundle.sources.insiders.present) {
+    if (confirmationBundle.sources.insiders.direction === "bearish") bullets.add("Insider activity: active / sell-skewed");
+    else if (confirmationBundle.sources.insiders.direction === "bullish") bullets.add("Insider activity: active / buy-skewed");
+    else bullets.add("Insider activity: active / balanced");
+  }
+  if (confirmationBundle.sources.signals.present) {
+    if (confirmationBundle.sources.signals.direction === "bearish") bullets.add("Signals: confirmed bearish");
+    else if (confirmationBundle.sources.signals.direction === "bullish") bullets.add("Signals: confirmed bullish");
+    else bullets.add("Signals: mixed");
+  }
+  if (confirmationBundle.sources.analysts.present) {
+    if (confirmationBundle.sources.analysts.direction === "bearish") bullets.add("Analysts: bearish consensus");
+    else if (confirmationBundle.sources.analysts.direction === "bullish") bullets.add("Analysts: bullish consensus");
+    else bullets.add("Analysts: mixed");
+  }
+  if (confirmationBundle.sources.price_volume.present) {
+    if (confirmationBundle.sources.price_volume.direction === "bearish") bullets.add("Price / Volume: bearish tape");
+    else if (confirmationBundle.sources.price_volume.direction === "bullish") bullets.add("Price / Volume: bullish tape");
+    else bullets.add("Price / Volume: mixed tape");
+  }
+  if (confirmationBundle.sources.institutional_activity.present) {
+    if (confirmationBundle.sources.institutional_activity.direction === "bearish") bullets.add("Institutional Activity: active / reduction");
+    else if (confirmationBundle.sources.institutional_activity.direction === "bullish") bullets.add("Institutional Activity: active / accumulation");
+    else bullets.add("Institutional Activity: active / mixed");
+  }
+  if (confirmationBundle.sources.macro_positioning.present) {
+    const summary = confirmationBundle.sources.macro_positioning.summary ?? confirmationBundle.sources.macro_positioning.detail;
+    if (summary) bullets.add(`Macro Positioning: ${summary}`);
+    else if (confirmationBundle.sources.macro_positioning.direction === "bearish") bullets.add("Macro Positioning: Macro headwinds.");
+    else if (confirmationBundle.sources.macro_positioning.direction === "bullish") bullets.add("Macro Positioning: Bullish backdrop.");
+    else bullets.add("Macro Positioning: Neutral macro backdrop.");
+  }
+  if (confirmationBundle.sources.fundamentals.present) {
+    if (confirmationBundle.sources.fundamentals.direction === "bearish") bullets.add("Fundamentals: pressure");
+    else if (confirmationBundle.sources.fundamentals.direction === "bullish") bullets.add("Fundamentals: strength");
+    else bullets.add("Fundamentals: mixed");
+  }
+  if (confirmationBundle.sources.congress.present) {
+    if (confirmationBundle.sources.congress.direction === "bearish") bullets.add("Congress activity: active / sell-skewed");
+    else if (confirmationBundle.sources.congress.direction === "bullish") bullets.add("Congress activity: active / buy-skewed");
+    else bullets.add("Congress activity: active / mixed");
+  }
+  return Array.from(bullets).slice(0, 5);
+}
+
+function overviewMutedLine(bundle: ConfirmationScoreBundle): string | null {
+  if (bundle.sources.government_contracts.present && bundle.direction === "neutral") {
+    return "Government contracts are active, but broader directional confirmation is still limited.";
+  }
+  if (!bundle.sources.price_volume.present && !bundle.sources.fundamentals.present && !bundle.sources.analysts.present && !bundle.sources.options_flow.present) {
+    return "Price / volume, fundamentals, analysts, and options flow are inactive.";
+  }
+  return null;
+}
+
+function overviewCaveat(bundle: ConfirmationScoreBundle): string {
+  if (bundle.status === "Visible context") {
+    return "Additional Premium/Pro context is available behind locked source cards.";
+  }
+  if (bundle.direction === "bearish" && bundle.sources.government_contracts.present) {
+    return "Government contracts add bullish support, but broader sources still lean bearish.";
+  }
+  if (!bundle.sources.signals.present) return "Signal activity is not active in this window.";
+  return "Signal activity is active in this window.";
+}
+
+function priceVolumeSummary(
+  source: ConfirmationScoreBundle["sources"]["price_volume"],
+  technicalIndicators: TechnicalIndicators,
+  context?: TickerSignalsSummaryResponse["price_volume"] | null,
+  lookbackDays = SIGNAL_WINDOW_DAYS,
+): { state: string; summary: string; diagnostics: string[]; tone: "bullish" | "bearish" | "mixed" | "inactive" | "unavailable" } {
+  const diagnostics = [
+    technicalIndicators.rsi.message,
+    technicalIndicators.macd.message,
+    technicalIndicators.ema_trend.message,
+  ];
+  const contextStatus = typeof context?.status === "string" ? context.status.toLowerCase() : null;
+  const contextDirection = typeof context?.direction === "string" ? context.direction.toLowerCase() : null;
+  const contextSummary = normalizeUpperCardWindowCopy(context?.summary ?? context?.title, lookbackDays) ?? "";
+  const priceVolumeRows = compactPriceVolumeRows(context, technicalIndicators);
+  const inactiveSummary = `No strong price/volume signal in the ${lastContextWindowLabel(lookbackDays)}.`;
+  if (contextStatus === "active") {
+    const direction = contextDirection === "bullish" || contextDirection === "bearish" || contextDirection === "mixed"
+      ? contextDirection
+      : null;
+    return {
+      state: direction === "bullish" || direction === "bearish" ? direction.toUpperCase() : direction === "mixed" ? "MIXED" : "ACTIVE",
+      summary: contextSummary || "Tape confirmation is active",
+      diagnostics: priceVolumeRows,
+      tone: direction ?? "mixed",
+    };
+  }
+  if (contextStatus === "inactive") {
+    return {
+      state: "INACTIVE",
+      summary: inactiveSummary,
+      diagnostics: priceVolumeRows,
+      tone: "inactive",
+    };
+  }
+  if (contextStatus === "limited") {
+    const summary = contextSummary || "Limited price history.";
+    return {
+      state: "LIMITED",
+      summary,
+      diagnostics: priceVolumeRows,
+      tone: "unavailable",
+    };
+  }
+  if (contextStatus === "loading") {
+    const summary = contextSummary || "Loading price and volume data.";
+    return {
+      state: "LOADING",
+      summary,
+      diagnostics: priceVolumeRows,
+      tone: "unavailable",
+    };
+  }
+  if (contextStatus === "unavailable") {
+    const summary = contextSummary || "Price and volume unavailable.";
+    return {
+      state: "UNAVAILABLE",
+      summary,
+      diagnostics: priceVolumeRows,
+      tone: "unavailable",
+    };
+  }
+  const indicatorsUnavailable = diagnostics.every((item) => item.toLowerCase().includes("unavailable"));
+  const hasTechnicalInputs = Number(technicalIndicators.price_points ?? 0) > 0;
+  if (!source.present && indicatorsUnavailable) {
+    const insufficientHistory = [technicalIndicators.rsi, technicalIndicators.macd, technicalIndicators.ema_trend].some(
+      (item) => item.reason === "insufficient_price_history",
+    );
+    if (hasTechnicalInputs) {
+      const summary = insufficientHistory || technicalIndicators.price_points < 35 ? "Limited price history." : inactiveSummary;
+      return {
+        state: insufficientHistory || technicalIndicators.price_points < 35 ? "LIMITED" : "INACTIVE",
+        summary,
+        diagnostics: priceVolumeRows,
+        tone: insufficientHistory || technicalIndicators.price_points < 35 ? "unavailable" : "inactive",
+      };
+    }
+    const summary = insufficientHistory ? "Limited price history." : "Loading price and volume data.";
+    return {
+      state: "UNAVAILABLE",
+      summary,
+      diagnostics: priceVolumeRows,
+      tone: "unavailable",
+    };
+  }
+  if (!source.present) {
+    return {
+      state: "INACTIVE",
+      summary: inactiveSummary,
+      diagnostics: priceVolumeRows,
+      tone: "inactive",
+    };
+  }
+  if (source.direction === "bearish") {
+    return {
+      state: "BEARISH",
+      summary: "Bearish days with elevated volume",
+      diagnostics: priceVolumeRows,
+      tone: "bearish",
+    };
+  }
+  if (source.direction === "bullish") {
+    return {
+      state: "BULLISH",
+      summary: "Bullish days with elevated volume",
+      diagnostics: priceVolumeRows,
+      tone: "bullish",
+    };
+  }
+  return {
+    state: "MIXED",
+    summary: "Tape confirmation is mixed",
+    diagnostics: priceVolumeRows,
+    tone: "mixed",
+  };
+}
+
+function formatUpperCardPrice(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "\u2014";
+}
+
+function formatUpperCardSignedPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "\u2014";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+function formatUpperCardMultiple(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}x` : "\u2014";
+}
+
+type UpperCardTechnicalReading = TechnicalIndicators["rsi"] | NonNullable<NonNullable<TickerSignalsSummaryResponse["price_volume"]>["rsi"]>;
+
+function formatUpperCardRsi(reading: UpperCardTechnicalReading | null | undefined): string {
+  return typeof reading?.value === "number" && Number.isFinite(reading.value) ? reading.value.toFixed(1) : "\u2014";
+}
+
+function formatUpperCardMacd(reading: UpperCardTechnicalReading | null | undefined): string {
+  const signal = typeof reading?.signal === "string" ? reading.signal.toLowerCase() : "";
+  if (signal === "bullish") return "MACD bullish";
+  if (signal === "bearish") return "MACD bearish";
+  if (signal === "neutral" || signal === "flat" || signal === "mixed") return "MACD neutral";
+  return "MACD \u2014";
+}
+
+function compactPriceVolumeRows(
+  context: TickerSignalsSummaryResponse["price_volume"] | null | undefined,
+  technicalIndicators: TechnicalIndicators,
+): string[] {
+  const rsi = context?.rsi ?? technicalIndicators.rsi;
+  const macd = context?.macd ?? technicalIndicators.macd;
+  return [
+    `Latest close ${formatUpperCardPrice(context?.latest_close)}`,
+    `1D change ${formatUpperCardSignedPercent(context?.change_pct_1d)}`,
+    `Vol vs 30D ${formatUpperCardMultiple(context?.volume_vs_avg)}`,
+    `RSI ${formatUpperCardRsi(rsi)}`,
+    formatUpperCardMacd(macd),
+  ];
+}
+
+const FUNDAMENTALS_METRICS = [
+  {
+    key: "revenue_growth",
+    label: "Revenue Growth",
+    tooltip: "Measures reported revenue growth. This is not acquisition-adjusted organic growth unless specifically stated.",
+  },
+  {
+    key: "return_on_equity",
+    label: "ROE",
+    tooltip: "Measures net income as a percentage of shareholders' equity. Higher and rising ROE can indicate efficient capital deployment.",
+  },
+  {
+    key: "ev_to_ebitda",
+    label: "EV/EBITDA",
+    tooltip: "Compares enterprise value to EBITDA. Lower values relative to peers can suggest cheaper valuation; higher values can suggest expensive expectations.",
+  },
+  {
+    key: "operating_margin_expansion",
+    label: "Op Margin \u0394",
+    tooltip: "Measures whether operating margins are improving or contracting over time.",
+  },
+  {
+    key: "net_debt_to_ebitda",
+    label: "Net Debt / EBITDA",
+    tooltip: "Measures leverage against operating earnings. Lower values usually indicate a stronger balance sheet.",
+  },
+] as const;
+
+function fundamentalsToneClass(status: string | null | undefined): string {
+  if (status === "bullish") return "text-emerald-300";
+  if (status === "bearish") return "text-rose-300";
+  if (status === "mixed") return "text-amber-300";
+  return "text-slate-500";
+}
+
+function fundamentalsStateLabel(status: string | null | undefined): string {
+  if (status === "bullish") return "BULLISH";
+  if (status === "bearish") return "BEARISH";
+  if (status === "mixed") return "MIXED";
+  return "UNAVAILABLE";
+}
+
+function fundamentalsHeadline(summary: TickerFundamentalsSummary): string {
+  const headline = typeof summary?.headline === "string" && summary.headline.trim() ? summary.headline.trim() : null;
+  if (headline) return headline;
+  const status = summary?.status;
+  if (status === "bullish") return "Fundamental strength";
+  if (status === "bearish") return "Fundamental pressure";
+  if (status === "mixed") return "Mixed fundamental profile";
+  return "Fundamentals unavailable";
+}
+
+function FundamentalsCard({ summary }: { summary: TickerFundamentalsSummary }) {
+  const status = typeof summary?.status === "string" ? summary.status.toLowerCase() : "unavailable";
+  const metrics = summary?.metrics ?? {};
+  return (
+    <div className={`${cardClassName} h-full !rounded-lg p-4`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className={fundamentalsToneClass(status)}>
+            <IntelligenceIcon kind="fundamentals" />
+          </span>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Fundamentals</p>
+        </div>
+        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${fundamentalsToneClass(status)}`}>
+          {fundamentalsStateLabel(status)}
+        </p>
+      </div>
+      <p className="mt-3 text-sm font-semibold text-slate-100">{fundamentalsHeadline(summary)}</p>
+      <div className="mt-3 grid gap-1.5">
+        {FUNDAMENTALS_METRICS.map((metric) => {
+          const value = metrics[metric.key];
+          const display = typeof value?.display === "string" && value.display.trim() ? value.display : "\u2014";
+          const state = typeof value?.state === "string" ? value.state : "unavailable";
+          return (
+            <div key={metric.key} title={metric.tooltip} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-xs">
+              <span className="min-w-0 truncate text-slate-400">{metric.label}</span>
+              <span className={`font-semibold tabular-nums ${fundamentalsToneClass(state === "neutral" ? "mixed" : state)}`}>{display}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function sourceCardToneClass(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  return source.present ? sourceStateClass(source.direction) : "text-slate-500";
+}
+
+function sourceCardBorderClass(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  if (!source.present) return "border-white/10 bg-white/[0.025]";
+  if (source.direction === "bearish") return "border-rose-400/20 bg-rose-400/[0.045]";
+  if (source.direction === "bullish") return "border-emerald-400/20 bg-emerald-400/[0.045]";
+  return "border-amber-400/20 bg-amber-400/[0.04]";
+}
+
+function optionsFlowToneClass(state: OptionsFlowSummary["state"]): string {
+  if (state === "bullish") return "text-emerald-300";
+  if (state === "bearish") return "text-rose-300";
+  if (state === "mixed") return "text-amber-300";
+  return "text-slate-500";
+}
+
+function optionsFlowBorderClass(summary: OptionsFlowSummary): string {
+  if (summary.state === "bullish") return "border-emerald-400/20 bg-emerald-400/[0.045]";
+  if (summary.state === "bearish") return "border-rose-400/20 bg-rose-400/[0.045]";
+  if (summary.state === "mixed") return "border-amber-400/20 bg-amber-400/[0.04]";
+  return "border-white/10 bg-white/[0.025]";
+}
+
+function optionsFlowDiagnostics(summary: OptionsFlowSummary): string[] {
+  if (Array.isArray(summary.signals) && summary.signals.length > 0) return summary.signals.slice(0, 4);
+  if (summary.state === "inactive") return [`No notable options flow in the ${lastContextWindowLabel(summary.lookback_days)}.`];
+  if (summary.state === "unavailable") return ["Options flow unavailable"];
+  return [summary.summary || "Options flow is active"];
+}
+
+function insiderSourceBody(buys: number, sells: number, source: ConfirmationScoreBundle["sources"]["insiders"], lookbackDays: number): string {
+  if (!source.present) return `No notable insider activity in the ${lastContextWindowLabel(lookbackDays)}.`;
+  if (sells > buys) return "Active / sell-skewed";
+  if (buys > sells) return "Active / buy-skewed";
+  return "Active / balanced";
+}
+
+function insiderSourceSupport(buys: number, sells: number, lookbackDays: number): string {
+  if (buys + sells <= 0) return `No qualifying insider buys or sells found in the ${contextWindowNoun(lookbackDays)}.`;
+  if (sells > buys) return `${sells - buys} net sells · ${contextWindowLabel(lookbackDays)}`;
+  if (buys > sells) return `${buys - sells} net buys · ${contextWindowLabel(lookbackDays)}`;
+  return `${buys + sells} trades · ${contextWindowLabel(lookbackDays)}`;
+}
+
+function congressSourceSupport(buys: number, sells: number, lookbackDays: number): string {
+  if (buys + sells <= 0) return `No qualifying Congress trades found in the ${contextWindowNoun(lookbackDays)}.`;
+  if (sells > buys) return `${sells - buys} net sells · ${contextWindowLabel(lookbackDays)}`;
+  if (buys > sells) return `${buys - sells} net buys · ${contextWindowLabel(lookbackDays)}`;
+  return `${buys + sells} trades · ${contextWindowLabel(lookbackDays)}`;
+}
+
+function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"], lookbackDays: number): string {
+  if (!source.present) {
+    return key === "congress"
+      ? `No notable Congress activity in the ${lastContextWindowLabel(lookbackDays)}.`
+      : `No active signal stack in the ${lastContextWindowLabel(lookbackDays)}.`;
+  }
+  if (key === "signals") return topSignal ? "Signal conviction active" : "Signal source active";
+  return source.direction === "bearish" ? "Active / sell-skewed" : source.direction === "bullish" ? "Active / buy-skewed" : "Active / mixed";
+}
+
+function analystSourceBody(source: ConfirmationScoreBundle["sources"]["analysts"], lookbackDays: number): string {
+  if (!source.present) return "Analyst consensus inactive";
+  return normalizeUpperCardWindowCopy(source.detail ?? source.summary ?? source.label, lookbackDays) ?? source.label;
+}
+
+function analystSourceSupport(source: ConfirmationScoreBundle["sources"]["analysts"]): string {
+  if (!source.present) return "No directional analyst source in this window.";
+  const points = source.confirmation_contribution ?? source.score_contribution;
+  const contribution = typeof points === "number" ? points : null;
+  return contribution !== null
+    ? `Evidence weight ${contribution > 0 ? "+" : ""}${contribution.toFixed(1)}`
+    : "Directional confirmation input";
+}
+
+function summaryCount(context: TickerSignalsSummaryResponse["insiders"] | TickerSignalsSummaryResponse["congress"] | null, key: "buy_count" | "sell_count"): number {
+  const value = context?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function sourceFromTopSignal(
+  source: ConfirmationScoreBundle["sources"]["signals"],
+  topSignal: TickerActivityData["topSignal"],
+): ConfirmationScoreBundle["sources"]["signals"] {
+  if (!source.present || !topSignal) return source;
+  const side = normalizeTradeSide(topSignal.trade_type);
+  const direction = side === "buy" ? "bullish" : side === "sell" ? "bearish" : source.direction === "neutral" ? "mixed" : source.direction;
+  return {
+    ...source,
+    present: true,
+    direction,
+    label: topSignal.smart_band ? `${topSignal.smart_band} smart signal` : "Signal conviction active",
+  };
+}
+
+type IntelligenceIconKind =
+  | "congress"
+  | "government-contract"
+  | "insider-buy"
+  | "insider-sell"
+  | "signals"
+  | "price-volume"
+  | "fundamentals"
+  | "flow"
+  | "people"
+  | "eye";
+
+function IntelligenceIcon({ kind, className = "h-4 w-4" }: { kind: IntelligenceIconKind; className?: string }) {
+  if (kind === "eye") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+        <circle cx="12" cy="12" r="2.5" />
+      </svg>
+    );
+  }
+  if (kind === "congress") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 9h16" />
+        <path d="M5 19h14" />
+        <path d="M7 9v10" />
+        <path d="M12 9v10" />
+        <path d="M17 9v10" />
+        <path d="M3 21h18" />
+        <path d="M12 3 4 7h16l-8-4Z" />
+      </svg>
+    );
+  }
+  if (kind === "government-contract") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 20h16" />
+        <path d="M6 20V9" />
+        <path d="M12 20V9" />
+        <path d="M18 20V9" />
+        <path d="M3 9h18" />
+        <path d="M12 4 4 8h16l-8-4Z" />
+      </svg>
+    );
+  }
+  if (kind === "signals") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 12h2.5l2-5 3.5 10 3-7 2 2H20" />
+        <path d="M4 19h16" opacity="0.45" />
+      </svg>
+    );
+  }
+  if (kind === "price-volume") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 17 9 12l3 3 7-8" />
+        <path d="M5 21V9" opacity="0.45" />
+        <path d="M11 21v-5" opacity="0.45" />
+        <path d="M17 21V7" opacity="0.45" />
+      </svg>
+    );
+  }
+  if (kind === "fundamentals") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 12h3l2-5 4 10 2.5-5H20" />
+        <path d="M18 4v5" opacity="0.55" />
+        <path d="M15.5 6.5h5" opacity="0.55" />
+      </svg>
+    );
+  }
+  if (kind === "flow") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M7 7h9.5a3.5 3.5 0 0 1 0 7H8" />
+        <path d="m11 4-4 3 4 3" />
+        <path d="M17 17H7.5a3.5 3.5 0 0 1 0-7H16" opacity="0.45" />
+      </svg>
+    );
+  }
+  if (kind === "people") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19" />
+        <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+        <path d="M20 19v-1a3 3 0 0 0-2.2-2.9" opacity="0.55" />
+        <path d="M16 4.4a3 3 0 0 1 0 5.8" opacity="0.55" />
+      </svg>
+    );
+  }
+  const isSell = kind === "insider-sell";
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+      <path d={isSell ? "M18 8v7" : "M18 15V8"} />
+      <path d={isSell ? "m15 12 3 3 3-3" : "m15 11 3-3 3 3"} />
+    </svg>
+  );
+}
+
+function SourceEvidenceCard({
+  title,
+  icon,
+  source,
+  body,
+  support,
+  discovery,
+}: {
+  title: string;
+  icon: IntelligenceIconKind;
+  source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey];
+  body: string;
+  support: string;
+  discovery?: ReactNode;
+}) {
+  return (
+    <div className={`rounded-lg border px-4 py-4 ${sourceCardBorderClass(source)}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`shrink-0 ${sourceCardToneClass(source)}`}>
+            <IntelligenceIcon kind={icon} className="h-3.5 w-3.5" />
+          </span>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{title}</p>
+        </div>
+        <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${sourceCardToneClass(source)}`}>{sourceStateLabel(source)}</p>
+      </div>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
+      {discovery}
+    </div>
+  );
+}
+
+function LockedSourceEvidenceCard({
+  title,
+  icon,
+  requiredPlan,
+  support,
+}: {
+  title: string;
+  icon: IntelligenceIconKind;
+  requiredPlan: "premium" | "pro";
+  support: string;
+}) {
+  const label = lockFeatureLabel(requiredPlan);
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.025] px-4 py-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-slate-500">
+            <IntelligenceIcon kind={icon} className="h-3.5 w-3.5" />
+          </span>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{title}</p>
+        </div>
+        <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">LOCKED</p>
+      </div>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{label}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
+    </div>
+  );
+}
+
+function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
+  const contractCount = summary.metrics.observed_contracts ?? 0;
+  const freshnessDays = summary.metrics.freshness_days;
+  const body = summary.state === "inactive"
+    ? `No notable options flow in the ${lastContextWindowLabel(summary.lookback_days)}.`
+    : normalizeUpperCardWindowCopy(summary.summary, summary.lookback_days) ?? summary.summary;
+  const detail = summary.state === "inactive"
+    ? `Options flow context is based on the fixed ${contextWindowNoun(summary.lookback_days)}.`
+    : summary.state === "unavailable"
+      ? "Flow unavailable"
+      : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? contextWindowLabel(summary.lookback_days) : `${freshnessDays}d fresh`}`;
+  return (
+    <div className={`rounded-lg border px-4 py-4 ${optionsFlowBorderClass(summary)}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`shrink-0 ${optionsFlowToneClass(summary.state)}`}>
+            <IntelligenceIcon kind="flow" className="h-3.5 w-3.5" />
+          </span>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Options Flow</p>
+        </div>
+        <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${optionsFlowToneClass(summary.state)}`}>
+          {summary.state.toUpperCase()}
+        </p>
+      </div>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{detail}</p>
+    </div>
+  );
+}
+
+function GovernmentContractsCard({
+  source,
+  lookbackDays,
+}: {
+  source: ConfirmationScoreBundle["sources"]["government_contracts"];
+  lookbackDays: number;
+}) {
+  const isActive = source.present;
+  const body = isActive ? "Government contracts active" : "No major government contracts";
+  const detail = isActive
+    ? normalizeUpperCardWindowCopy(source.detail ?? source.summary, lookbackDays) ?? `Government contracts are active in the ${contextWindowNoun(lookbackDays)}.`
+    : `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`;
+
+  return (
+    <div className={`rounded-lg border px-4 py-4 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`shrink-0 ${isActive ? "text-sky-300" : "text-slate-500"}`}>
+            <IntelligenceIcon kind="government-contract" className="h-3.5 w-3.5" />
+          </span>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Government Contracts</p>
+        </div>
+        <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${isActive ? "text-sky-300" : "text-slate-500"}`}>
+          {isActive ? "BULLISH SUPPORT" : "INACTIVE"}
+        </p>
+      </div>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{detail}</p>
+    </div>
+  );
+}
+
+function hrefWithFilters(
+  symbol: string,
+  lookback: Lookback,
+  source: SourceFilter,
+  side: SideFilter,
+  extra?: Record<string, string | number | null | undefined>,
+): string {
+  const q = new URLSearchParams();
+  q.set("lookback", lookback);
+  q.set("source", source);
+  q.set("side", side);
+  Object.entries(extra ?? {}).forEach(([key, value]) => {
+    if (value === null || value === undefined) return;
+    q.set(key, String(value));
+  });
+  const base = tickerHref(symbol) ?? `/ticker/${encodeURIComponent(symbol)}`;
+  return `${base}?${q.toString()}`;
+}
+
+function lookbackStartDateKey(days: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - Math.max(days - 1, 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function InlineEmptyState({ message }: { message: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-3">
+      <p className="text-sm text-slate-400">{message}</p>
+    </div>
+  );
+}
+
+function ActivityCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
+      {children}
+    </div>
+  );
+}
+
+function ActivityScrollRegion({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-activity-scroll-region
+      className={[
+        "min-w-0 max-w-full max-h-[35rem] space-y-3 overflow-y-auto pr-1",
+        "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
+        "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.03]",
+        "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60",
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
+
+function InstitutionalActivityRow({
+  event,
+}: {
+  event: EventsResponse["items"][number];
+}) {
+  const payload = eventPayload(event);
+  const holderName = institutionalHolderName(event);
+  const cik = event.member_bioguide_id?.trim() || payloadString(payload, "cik");
+  const holderHref = cik ? `/institution/${encodeURIComponent(cik)}` : null;
+  const action = institutionalActionLabel(event);
+  const value = institutionalValue(event);
+  const valueText = value !== null ? formatCurrency(value) : "Value unavailable";
+  const reportPeriod = institutionalReportPeriod(event);
+  const filingDate = institutionalDate(event);
+  const summary = payloadString(payload, "summary") || payloadString(payload, "title") || null;
+  const metaLine = [filingDate ? `Filed ${formatDateShort(filingDate)}` : null, reportPeriod].filter(Boolean).join(" · ");
+
+  return (
+    <tr className="transition-colors hover:bg-white/[0.035]">
+      <td className={`${tickerActivityCellClassName} min-w-[15rem]`}>
+          {holderHref ? (
+            <Link href={holderHref} prefetch={false} className="block max-w-[20rem] truncate font-semibold text-emerald-200">
+              {holderName}
+            </Link>
+          ) : (
+            <p className="max-w-[20rem] truncate font-semibold text-slate-100">{holderName}</p>
+          )}
+          <p className="mt-1 truncate text-xs text-slate-400">{metaLine || "13F filing"}</p>
+      </td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{valueText}</td>
+      <td className={`${tickerActivityCellClassName} text-slate-300`}>13F holdings</td>
+      <td className={`${tickerActivityCellClassName} max-w-[22rem] text-slate-400`}>
+        {summary ? <span className="block line-clamp-2">{summary}</span> : "—"}
+      </td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] ${institutionalTone(event) === "pos" ? "text-emerald-300" : institutionalTone(event) === "neg" ? "text-rose-300" : "text-slate-300"}`}>{action}</td>
+    </tr>
+  );
+}
+
+function GovernmentContractActivityRow({
+  contract,
+}: {
+  contract: TickerGovernmentContractItem;
+}) {
+  const agency = contract.awarding_agency?.trim() || contract.funding_agency?.trim() || "Government Contract";
+  const agencyHref = departmentHref(agency);
+  const awardDate = contract.period_start ?? contract.award_date ?? null;
+  const recipient = contract.recipient_name?.trim() || contract.raw_recipient_name?.trim() || null;
+  const amount = readNumeric(contract.award_amount);
+  const description = contract.description?.trim() || null;
+  const sourceUrl = contract.source_url?.trim() || null;
+  const contractValue = amount !== null ? formatCurrency(amount) : "Value unavailable";
+  const dateText = awardDate ? `Start Date: ${formatDateShort(awardDate)}` : null;
+  const metaLine = [dateText, recipient].filter((value) => Boolean(value) && value !== "â€”").join(" · ");
+
+  return (
+    <tr className="transition-colors hover:bg-white/[0.035]">
+      <td className={`${tickerActivityCellClassName} min-w-[15rem]`}>
+          {agencyHref ? (
+            <Link href={agencyHref} prefetch={false} className="block max-w-[20rem] truncate font-semibold text-slate-100 hover:text-emerald-200">
+              {agency}
+            </Link>
+          ) : (
+            <p className="max-w-[20rem] truncate font-semibold text-slate-100">{agency}</p>
+          )}
+          <p className="mt-1 truncate text-xs text-slate-400">{metaLine || formatDateShort(awardDate)}</p>
+      </td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{contractValue}</td>
+      <td className={`${tickerActivityCellClassName} max-w-[25rem] text-slate-400`}>
+        {description ? <span className="block line-clamp-2">{description}</span> : "—"}
+      </td>
+      <td className={`${tickerActivityCellClassName} whitespace-nowrap`}>
+        {sourceUrl ? (
+          <Link
+            href={sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            prefetch={false}
+            className="text-xs font-semibold text-emerald-200 underline-offset-4 transition hover:text-emerald-100 hover:underline"
+          >
+            View contract
+          </Link>
+        ) : (
+          <span className="text-xs text-slate-500">Link unavailable</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function ActivityCardGrid({
+  identity,
+  sideBadge,
+  dateLabel,
+  price,
+  priceSubtext,
+  tradeValue,
+  pnl,
+  pnlClassName,
+  signal,
+  showGainLoss = true,
+}: {
+  identity: ReactNode;
+  sideBadge: ReactNode;
+  dateLabel: ReactNode;
+  price: ReactNode;
+  priceSubtext?: ReactNode;
+  tradeValue: ReactNode;
+  pnl: ReactNode;
+  pnlClassName?: string;
+  signal: ReactNode;
+  showGainLoss?: boolean;
+}) {
+  const metricLabelClassName = "text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500";
+  const metricValueClassName = "truncate text-sm font-semibold tabular-nums";
+  const gainLossLabelNode = (
+    <span
+      className="cursor-help whitespace-nowrap"
+      title={tickerGainLossTooltip}
+      aria-label={`${gainLossLabel}: ${tickerGainLossTooltip}`}
+    >
+      {gainLossLabel}
+    </span>
+  );
+
+  return (
+    <div className={[
+      "grid min-w-0 gap-x-3 gap-y-2 sm:items-center",
+      showGainLoss
+        ? "sm:grid-cols-[minmax(150px,1.45fr)_minmax(76px,.7fr)_minmax(104px,.9fr)_minmax(88px,.65fr)_minmax(84px,auto)] lg:grid-cols-[minmax(170px,1.65fr)_minmax(84px,.72fr)_minmax(120px,.95fr)_minmax(92px,.68fr)_minmax(92px,auto)]"
+        : "sm:grid-cols-[minmax(170px,1.6fr)_minmax(92px,.7fr)_minmax(128px,.95fr)_minmax(92px,auto)] lg:grid-cols-[minmax(190px,1.8fr)_minmax(104px,.72fr)_minmax(140px,.95fr)_minmax(100px,auto)]",
+    ].join(" ")}>
+      <div className="min-w-0 sm:col-start-1 sm:row-start-1">{identity}</div>
+      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-2 sm:row-start-1`}>Price</div>
+      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-3 sm:row-start-1`}>Trade value</div>
+      {showGainLoss ? <div className={`${metricLabelClassName} hidden sm:block sm:col-start-4 sm:row-start-1`}>{gainLossLabelNode}</div> : null}
+      <div className={`flex min-w-0 items-center justify-start sm:row-start-1 sm:justify-end ${showGainLoss ? "sm:col-start-5" : "sm:col-start-4"}`}>{sideBadge}</div>
+
+      <div className="text-xs text-slate-400 sm:col-start-1 sm:row-start-2">{dateLabel}</div>
+      <div className="min-w-0 sm:col-start-2 sm:row-start-2">
+        <div className={`${metricLabelClassName} sm:hidden`}>Price</div>
+        <div className={`${metricValueClassName} text-white`}>{price}</div>
+        {priceSubtext ? <div className="mt-0.5 truncate text-[11px] tabular-nums text-slate-500">{priceSubtext}</div> : null}
+      </div>
+      <div className="min-w-0 sm:col-start-3 sm:row-start-2">
+        <div className={`${metricLabelClassName} sm:hidden`}>Trade value</div>
+        <div className={`${metricValueClassName} text-white`}>{tradeValue}</div>
+      </div>
+      {showGainLoss ? (
+        <div className="min-w-0 sm:col-start-4 sm:row-start-2">
+          <div className={`${metricLabelClassName} sm:hidden`}>{gainLossLabelNode}</div>
+          <div className={`${metricValueClassName} ${pnlClassName ?? "text-slate-400"}`}>{pnl}</div>
+        </div>
+      ) : null}
+      <div className={`flex min-w-0 items-center justify-start sm:row-start-2 sm:justify-end ${showGainLoss ? "sm:col-start-5" : "sm:col-start-4"}`}>{signal}</div>
+    </div>
+  );
+}
+
+function CongressDateLabel({ disclosedDate, tradeDate }: { disclosedDate: string | null; tradeDate: string | null }) {
+  return (
+    <div className="space-y-0.5">
+      <div>
+        <span className="text-slate-500">Disclosed</span> {formatDateShort(disclosedDate)}
+      </div>
+      <div>
+        <span className="text-slate-500">Trade</span> {formatDateShort(tradeDate)}
+      </div>
+    </div>
+  );
+}
+
+function DeferredTickerSummarySkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+        {Array.from({ length: 7 }).map((_, idx) => (
+          <div key={idx} className={`${cardClassName} p-4`}>
+            <SkeletonBlock className="h-3 w-28" />
+            <SkeletonBlock className="mt-3 h-7 w-20" />
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className={`${cardClassName} p-4 md:col-span-2 xl:col-span-3`}>
+          <SkeletonBlock className="h-3 w-28" />
+          <div className="mt-3 flex gap-2">
+            {Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-8 w-20 rounded-lg" />)}
+          </div>
+        </div>
+        <div className={`${cardClassName} p-4`}>
+          <SkeletonBlock className="h-3 w-32" />
+          <SkeletonBlock className="mt-3 h-7 w-16" />
+        </div>
+      </div>
+      <section className={`${cardClassName} p-4`}>
+        <SkeletonBlock className="h-3 w-40" />
+        <SkeletonBlock className="mt-3 h-64 w-full" />
+      </section>
+    </div>
+  );
+}
+
+async function resolveTickerActivityData({
+  eventsPromise,
+  congressEventsPromise,
+  insiderEventsPromise,
+  institutionalEventsPromise,
+  governmentContractsPromise,
+  signalSummaryRequest,
+  signalsUnavailable,
+  lookbackStartKey,
+  side,
+}: {
+  eventsPromise?: ReturnType<typeof getEvents>;
+  congressEventsPromise?: ReturnType<typeof getEvents>;
+  insiderEventsPromise?: ReturnType<typeof getEvents>;
+  institutionalEventsPromise?: ReturnType<typeof getEvents>;
+  governmentContractsPromise?: ReturnType<typeof getTickerGovernmentContracts>;
+  signalSummaryRequest?: Promise<TickerSignalsSummaryResponse>;
+  signalsUnavailable?: SignalGateState | null;
+  lookbackStartKey: string;
+  side: SideFilter;
+}): Promise<TickerActivityData> {
+  const [eventsRes, congressEventsRes, insiderEventsRes, institutionalEventsRes, governmentContractsRes, signalsResult] = await Promise.all([
+    eventsPromise ?? Promise.resolve(emptyEventsResponse()),
+    congressEventsPromise ?? Promise.resolve(emptyEventsResponse()),
+    insiderEventsPromise ?? Promise.resolve(emptyEventsResponse()),
+    institutionalEventsPromise ?? Promise.resolve(emptyEventsResponse()),
+    governmentContractsPromise ?? Promise.resolve({
+      symbol: null,
+      status: "ok",
+      source_status: "ok",
+      items: [] as TickerGovernmentContractItem[],
+      total: 0,
+      contract_count: 0,
+      page: 0,
+      limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+      has_next: false,
+    }),
+    signalSummaryRequest
+      ? signalSummaryRequest
+          .then((response) => ({
+            response,
+            resolved: true,
+            unavailable: response.source_entitlements?.signals?.locked
+              ? signalsUnavailable ?? signalGateForAuthenticatedFreeUser()
+              : null,
+          }))
+          .catch(() => ({
+            response: { items: [] as SignalItem[] },
+            resolved: false,
+            unavailable: signalsUnavailable ?? { reason: "unavailable" as const, message: "Ticker signals are temporarily unavailable." },
+          }))
+      : Promise.resolve({
+          response: { items: [] as SignalItem[] },
+          resolved: false,
+          unavailable: signalsUnavailable ?? null,
+        }),
+  ]);
+  const signalsRes = signalsResult.response as TickerSignalsSummaryResponse;
+
+  const events = dedupeByKey(eventsRes.items ?? [], (event) => {
+    const stableIdentity = stableEventIdentity(event);
+    if (stableIdentity) return `stable|${stableIdentity}`;
+
+    const actor =
+      canonicalize(event.member_bioguide_id) ||
+      canonicalize(event.member_name) ||
+      canonicalize(resolveInsiderName(event));
+    const sideValue = normalizeTradeSide(event.trade_type) ?? canonicalize(event.trade_type);
+
+    return [
+      canonicalize(event.event_type),
+      canonicalize(event.source),
+      canonicalize(event.symbol ?? event.ticker),
+      actor,
+      sideValue,
+      toDateKey(event.ts) ?? "",
+      payloadDateKey(event.payload),
+      normalizedAmountLabel(event.amount_min, event.amount_max),
+    ].join("|");
+  });
+
+  const signalActivityRows = (signalsRes.items ?? []).filter((signal) => isTickerSignalKind(signal.kind));
+  const confirmationSignals = dedupeByKey(signalActivityRows, (signal) => [
+    canonicalize(signal.kind),
+    canonicalize(signal.symbol),
+    canonicalize(signal.who),
+    canonicalize(signal.member_bioguide_id),
+    normalizeTradeSide(signal.trade_type) ?? canonicalize(signal.trade_type),
+    toDateKey(signal.ts) ?? "",
+    normalizedAmountLabel(signal.amount_min, signal.amount_max),
+    canonicalize(signal.smart_band),
+    String(signal.smart_score ?? ""),
+    String(signal.unusual_multiple ?? ""),
+  ].join("|"));
+  const signals = dedupeByKey(signalActivityRows, (signal) => [
+    canonicalize(signal.kind),
+    canonicalize(signal.symbol),
+    canonicalize(signal.who),
+    canonicalize(signal.member_bioguide_id),
+    normalizeTradeSide(signal.trade_type) ?? canonicalize(signal.trade_type),
+    toDateKey(signal.ts) ?? "",
+    normalizedAmountLabel(signal.amount_min, signal.amount_max),
+    canonicalize(signal.smart_band),
+    String(signal.smart_score ?? ""),
+    String(signal.unusual_multiple ?? ""),
+  ].join("|")).filter((signal) => {
+    const key = toDateKey(signal.ts);
+    return Boolean(key && key >= lookbackStartKey);
+  }).sort((a, b) => {
+    const left = toDateKey(a.report_date ?? a.ts) ?? "";
+    const right = toDateKey(b.report_date ?? b.ts) ?? "";
+    return right.localeCompare(left) || Number(b.event_id ?? 0) - Number(a.event_id ?? 0);
+  });
+
+  const filteredEvents = side === "all"
+    ? events
+    : events.filter((event) => normalizeTradeSide(event.trade_type) === side);
+
+  const congressEvents = visibleActivityItems(congressEventsRes, ACTIVITY_PAGE_SIZE);
+  const insiderEvents = visibleActivityItems(insiderEventsRes, ACTIVITY_PAGE_SIZE);
+  const institutionalEvents = visibleActivityItems(institutionalEventsRes, ACTIVITY_PAGE_SIZE)
+    .filter((event) => isInstitutionalActivityEventType(event.event_type));
+  const congressActivityPage = activityPageMeta(congressEventsRes, 0, ACTIVITY_PAGE_SIZE);
+  const insiderActivityPage = activityPageMeta(insiderEventsRes, 0, ACTIVITY_PAGE_SIZE);
+  const institutionalActivityPage = activityPageMeta(institutionalEventsRes, 0, ACTIVITY_PAGE_SIZE);
+  const institutionalEventsAvailability = institutionalEventsRes as EventsResponse & { availability_status?: string | null };
+  const institutionalEventsStatus = institutionalEventsAvailability.status ?? institutionalEventsAvailability.availability_status ?? "ok";
+  const governmentContracts = governmentContractsRes.items ?? [];
+  const governmentContractsTotal = typeof governmentContractsRes.total === "number"
+    ? governmentContractsRes.total
+    : typeof governmentContractsRes.contract_count === "number"
+      ? governmentContractsRes.contract_count
+      : governmentContracts.length;
+  const governmentContractsPage = typeof governmentContractsRes.page === "number" ? governmentContractsRes.page : 0;
+  const governmentContractsLimit = typeof governmentContractsRes.limit === "number" ? governmentContractsRes.limit : GOVERNMENT_CONTRACTS_PAGE_SIZE;
+  const governmentContractsHasNext = Boolean(governmentContractsRes.has_next);
+  const governmentContractsStatus = governmentContractsRes.status ?? governmentContractsRes.source_status ?? "ok";
+  // Use the same tape-specific rows that power the rendered tables.  The generic
+  // events response can be intentionally omitted during deferred page loading.
+  const congressBuys = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
+  const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+  const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
+  const insiderSells = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+  const topSignal = [...confirmationSignals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
+  return {
+    events: filteredEvents,
+    signals,
+    signalsTotal: signals.length,
+    signalsUnavailable: signalsResult.unavailable,
+    congressEvents,
+    congressEventsTotal: congressActivityPage.total,
+    congressEventsStatus: congressEventsRes.status ?? "ok",
+    congressEventsPage: congressActivityPage.page,
+    congressEventsLimit: congressActivityPage.limit,
+    congressEventsHasNext: congressActivityPage.hasNext,
+    insiderEvents,
+    insiderEventsTotal: insiderActivityPage.total,
+    insiderEventsStatus: insiderEventsRes.status ?? "ok",
+    insiderEventsPage: insiderActivityPage.page,
+    insiderEventsLimit: insiderActivityPage.limit,
+    insiderEventsHasNext: insiderActivityPage.hasNext,
+    institutionalEvents,
+    institutionalEventsTotal: institutionalActivityPage.total,
+    institutionalEventsPage: institutionalActivityPage.page,
+    institutionalEventsLimit: institutionalActivityPage.limit,
+    institutionalEventsHasNext: institutionalActivityPage.hasNext,
+    institutionalEventsStatus,
+    governmentContracts,
+    governmentContractsTotal,
+    governmentContractsPage,
+    governmentContractsLimit,
+    governmentContractsHasNext,
+    governmentContractsStatus,
+    priceVolumeContext: signalsRes.price_volume ?? null,
+    fundamentalsContext: signalsRes.fundamentals ?? null,
+    sourceEntitlements: signalsRes.source_entitlements ?? null,
+    confirmationScoreBundle: signalsRes.confirmation_score_bundle ?? null,
+    signalFreshness: signalsRes.signal_freshness ?? null,
+    signalSummaryResolved: signalsResult.resolved,
+    effectiveWindowDays: typeof signalsRes.effective_window_days === "number"
+      ? signalsRes.effective_window_days
+      : typeof signalsRes.lookback_days === "number"
+        ? signalsRes.lookback_days
+        : null,
+    summaryInsiders: signalsRes.insiders ?? null,
+    summaryCongress: signalsRes.congress ?? null,
+    congressBuys,
+    congressSells,
+    insiderBuys,
+    insiderSells,
+    topSignal,
+  };
+}
+
+async function DeferredTickerContent({
+  activityPromise,
+  normalizedSymbol,
+  initialQuote,
+  decisionLayer,
+  lookback,
+  source,
+  side,
+  activityDetailsDeferred,
+  signalsAuthPending,
+  confirmationScoreBundle,
+  crossSourceDivergence,
+  similarHistoricalSetups,
+  optionsFlowSummary,
+  technicalIndicators,
+  relatedResearch,
+  fallbackSourceEntitlements,
+  allowAuthHintEntitlementOverride,
+  canViewProTickerContext,
+  hasAuthForEntitlementDisplay,
+  canViewPremiumMetrics,
+  tickerConfirmationGate,
+  deferHeavyTickerLoads,
+}: {
+  activityPromise: Promise<TickerActivityData>;
+  normalizedSymbol: string;
+  initialQuote?: TickerContextBundleResponse["quote"];
+  decisionLayer?: TickerDecisionLayer | null;
+  lookback: Lookback;
+  source: SourceFilter;
+  side: SideFilter;
+  activityDetailsDeferred: boolean;
+  signalsAuthPending: boolean;
+  confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
+  crossSourceDivergence?: CrossSourceDivergence | null;
+  similarHistoricalSetups?: SimilarHistoricalSetups | null;
+  optionsFlowSummary: OptionsFlowSummary | null | undefined;
+  technicalIndicators: TechnicalIndicators | null | undefined;
+  relatedResearch: PublicResearchBriefCard[];
+  fallbackSourceEntitlements: TickerSourceEntitlements;
+  allowAuthHintEntitlementOverride: boolean;
+  canViewProTickerContext: boolean;
+  hasAuthForEntitlementDisplay: boolean;
+  canViewPremiumMetrics: boolean;
+  tickerConfirmationGate?: TickerConfirmationGate | null;
+  /** The live context refresh owns the network until the primary shell is ready. */
+  deferHeavyTickerLoads: boolean;
+}) {
+  const {
+    events,
+    signals,
+    signalsTotal,
+    signalsUnavailable,
+    congressEvents,
+    congressEventsTotal,
+    congressEventsStatus,
+    congressEventsPage,
+    congressEventsLimit,
+    congressEventsHasNext,
+    insiderEvents,
+    insiderEventsTotal,
+    insiderEventsStatus,
+    insiderEventsPage,
+    insiderEventsLimit,
+    insiderEventsHasNext,
+    institutionalEvents,
+    institutionalEventsTotal,
+    institutionalEventsPage,
+    institutionalEventsLimit,
+    institutionalEventsHasNext,
+    institutionalEventsStatus,
+    governmentContracts,
+    governmentContractsTotal,
+    governmentContractsPage,
+    governmentContractsLimit,
+    governmentContractsHasNext,
+    governmentContractsStatus,
+    congressBuys,
+    congressSells,
+    insiderBuys,
+    insiderSells,
+    topSignal,
+    priceVolumeContext,
+    fundamentalsContext,
+    sourceEntitlements: activitySourceEntitlements,
+    confirmationScoreBundle: activityConfirmationScoreBundle,
+    signalSummaryResolved,
+    effectiveWindowDays,
+    summaryInsiders,
+    summaryCongress,
+  } = await activityPromise;
+  const selectedLookbackDays = Number(lookback);
+  const effectiveLookbackDays = effectiveWindowDays ?? SIGNAL_WINDOW_DAYS;
+  let confirmationBundle = normalizeConfirmationBundle(
+    activityConfirmationScoreBundle ?? confirmationScoreBundle,
+    normalizedSymbol,
+    effectiveLookbackDays,
+  );
+  if (!activityConfirmationScoreBundle && confirmationBundle.lookback_days !== effectiveLookbackDays) {
+    confirmationBundle = { ...confirmationBundle, lookback_days: effectiveLookbackDays };
+  }
+  let optionsFlow = normalizeOptionsFlowSummary(optionsFlowSummary, normalizedSymbol, effectiveLookbackDays);
+  if (optionsFlow.lookback_days !== effectiveLookbackDays) {
+    optionsFlow = { ...optionsFlow, lookback_days: effectiveLookbackDays };
+  }
+  const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
+  const sourceEntitlements = displaySourceEntitlementsForTickerContext(
+    activitySourceEntitlements,
+    fallbackSourceEntitlements,
+    allowAuthHintEntitlementOverride,
+  );
+  const visibleConfirmationBundle = displayConfirmationBundleForEntitlements(confirmationBundle, sourceEntitlements);
+  const signalsCardLocked = sourceIsLocked(sourceEntitlements, "signals");
+  const institutionalCardLocked = !canViewProTickerContext && sourceIsLocked(sourceEntitlements, "institutional_activity");
+  const optionsFlowCardLocked = !canViewProTickerContext && sourceIsLocked(sourceEntitlements, "options_flow");
+  const showCongress = source === "all" || source === "congress";
+  const showInsider = source === "all" || source === "insider";
+  const showSignals = source === "all" || source === "signals";
+  const showInstitutional = source === "all" || source === "institutional";
+  const showGovernmentContracts = source === "all" || source === "government_contract";
+  const institutionalEventsUnavailable = institutionalEventsStatus === "unavailable";
+  const governmentContractsUnavailable = governmentContractsStatus === "unavailable";
+  const signalSourceEvents = events.filter((event) => event.event_type === "congress_trade" || event.event_type === "insider_trade");
+  const activityPnlByEventId = new Map<number, number | null>(
+    [...signalSourceEvents, ...congressEvents, ...insiderEvents].map((event) => [event.id, readNumeric(event.pnl_pct)]),
+  );
+  const activityEventById = new Map<number, (typeof congressEvents)[number] | (typeof insiderEvents)[number]>(
+    [...signalSourceEvents, ...congressEvents, ...insiderEvents].map((event) => [event.id, event]),
+  );
+  const tickerReturnTo = tickerHref(normalizedSymbol) ?? `/ticker/${normalizedSymbol}`;
+  const signalGateHref = signalsUnavailable?.reason === "unavailable"
+    ? tickerReturnTo
+    : "/pricing";
+  const signalGateLabel = "View Premium";
+  const signalGateTitle = "Signal activity requires premium";
+  const institutionalGateMessage = hasAuthForEntitlementDisplay
+    ? "Subscribe to pro to review 13F holder activity for this ticker."
+    : "Create an account and subscribe to pro to review 13F holder activity for this ticker.";
+  const confirmationLookbackDays = confirmationBundle.lookback_days;
+  const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending;
+  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
+  const closeDate = formatDateShort(priceVolumeContext?.latest_date ?? null);
+  const closeObservation = closeDate === "—" ? "Daily close date unavailable" : `Daily close as of ${closeDate}`;
+  const priceVolumeChange = typeof priceVolumeContext?.change_pct_1d === "number" ? priceVolumeContext.change_pct_1d : null;
+  const priceVolumeChangeTone = priceVolumeChange === null
+    ? "text-slate-500"
+    : priceVolumeChange < 0
+      ? "text-rose-300"
+      : priceVolumeChange > 0
+        ? "text-emerald-300"
+        : "text-slate-400";
+  const insiderCardSource = confirmationBundle.sources.insiders;
+  const congressCardSource = confirmationBundle.sources.congress;
+  const signalsCardSource = sourceFromTopSignal(confirmationBundle.sources.signals, topSignal);
+  const summaryInsiderBuys = summaryCount(summaryInsiders, "buy_count");
+  const summaryInsiderSells = summaryCount(summaryInsiders, "sell_count");
+  const summaryCongressBuys = summaryCount(summaryCongress, "buy_count");
+  const summaryCongressSells = summaryCount(summaryCongress, "sell_count");
+  const tickerResearch = relatedResearch
+    .filter((item) => item.tickers.map((ticker) => ticker.toUpperCase()).includes(normalizedSymbol))
+    .slice(0, 3);
+
+  const congressActivity = (
+<>
+{showCongress ? (
+            <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
+              <VisibleEvent name="congress_trades_viewed" properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
+              <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                <h2 className="text-lg font-semibold text-white">Congress activity</h2>
+                <TickerActivityHeaderStatsClient
+                  symbol={normalizedSymbol}
+                  lookback={lookback}
+                  source="congress"
+                  side={side}
+                  buys={congressBuys}
+                  sells={congressSells}
+                />
+                <span id="congress-activity-status" className="text-xs text-slate-400">
+                  {activityCountLabel(congressEventsTotal, congressEvents.length, "event")}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {congressEvents.length === 0 ? (
+                  hasAuthForEntitlementDisplay ? <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="congress-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} /> : <p className="text-sm text-slate-400">{congressEventsStatus === "unavailable" ? "Congress activity is temporarily unavailable." : "No congress trades in the selected window."}</p>
+                ) : (
+                  <>
+                    <TickerActivityTable ariaLabel="Congress activity" minWidthClassName="min-w-[74rem]" headers={["Trader", "Chamber", "Party", "Signal weight", "Dates", "Price", "Trade value", "Side", "Score"]}>
+                      {congressEvents.map((event) => {
+                        const memberName = event.member_name ?? "Unknown";
+                        const memberLink = memberName.trim() && memberName !== "Unknown"
+                          ? memberHref({ name: memberName, memberId: event.member_bioguide_id ?? undefined })
+                          : null;
+                        const chamberValue = resolveCongressChamber(event);
+                        const chamber = chamberBadge(chamberValue);
+                        const partyValue = resolveCongressParty(event);
+                        const party = partyBadge(partyValue);
+                        const signal = resolveSmartSignalValue(event as Record<string, unknown>);
+                        const strengthLabel = signal.band ? formatSignalStrengthText(signal.band) : "—";
+                        const displayPrice = resolveCongressTradePrice(event);
+                        const pnl = readNumeric(event.pnl_pct);
+
+                        return (
+                          <tr key={event.id} className="transition-colors hover:bg-white/[0.035]">
+                            <td className={`${tickerActivityCellClassName} min-w-[12rem]`}>
+                              {memberLink ? (
+                                <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                  {memberName}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                              )}
+                            </td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase ${chamberTextClassName(chamberValue)}`}>{chamber.label}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-bold ${partyTextClassName(partyValue)}`}>{party.label}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-medium ${signalWeightTextClassName(signal.band)}`}>{strengthLabel}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs text-slate-400`}><CongressDateLabel disclosedDate={resolveCongressReportDate(event)} tradeDate={resolveCongressTradeDate(event)} /></td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{displayPrice !== null ? formatCurrency(displayPrice) : "-"}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] ${tradeTypeTextClassName(event.trade_type)}`}>{formatTransactionLabel(event.trade_type)}</td>
+                            <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><TickerActivitySignalScore score={signal.score} band={signal.band} unlocked={canViewPremiumMetrics} /></td>
+                          </tr>
+                        );
+                      })}
+                    </TickerActivityTable>
+                    <TickerActivityPaginationFooter
+                      sectionId="congress-activity"
+                      pageParam="congress_page"
+                      page={congressEventsPage}
+                      limit={congressEventsLimit}
+                      total={congressEventsTotal}
+                      itemCount={congressEvents.length}
+                      hasNext={congressEventsHasNext}
+                    />
+                  </>
+                )}
+              </div>
+            </section>
+          ) : null}
+<TickerParticipantLeaderboards kind="congress"
+          symbol={normalizedSymbol}
+          lookbackDays={selectedLookbackDays}
+          side={side}
+          initialCongressEvents={congressEvents}
+          initialInsiderEvents={insiderEvents}
+        />
+</>
+  );
+
+  const insiderActivity = (
+<>
+{showInsider ? (
+            <section id="insider-activity" className={`${cardClassName} scroll-mt-6`}>
+              <VisibleEvent name="insider_activity_viewed" properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
+              <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-start">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Insider activity</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
+                  </p>
+                </div>
+                <TickerActivityHeaderStatsClient
+                  symbol={normalizedSymbol}
+                  lookback={lookback}
+                  source="insider"
+                  side={side}
+                  buys={insiderBuys}
+                  sells={insiderSells}
+                />
+                <span id="insider-activity-status" className="text-xs text-slate-400">
+                  {activityCountLabel(insiderEventsTotal, insiderEvents.length, "event")}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {insiderEvents.length === 0 ? (
+                  hasAuthForEntitlementDisplay ? <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="insider-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} /> : <p className="text-sm text-slate-400">{insiderEventsStatus === "unavailable" ? "Insider activity is temporarily unavailable." : "No insider trades in the selected window."}</p>
+                ) : (
+                  <>
+                    <TickerActivityTable ariaLabel="Insider activity" minWidthClassName="min-w-[68rem]" headers={["Insider", "Role", "Signal weight", "Filed", "Price", "Trade value", "Side", "Score"]}>
+                      {insiderEvents.map((event) => {
+                        const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
+                        const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
+                        const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
+                        const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
+                        const strengthLabel = display.signal.band ? formatSignalStrengthText(display.signal.band) : "—";
+
+                        return (
+                        <tr key={event.id} className="transition-colors hover:bg-white/[0.035]">
+                          <td className={`${tickerActivityCellClassName} min-w-[12rem]`}>
+                            {insiderProfileHref ? (
+                              <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                {display.insiderName}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
+                            )}
+                          </td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase ${insiderRoleTextClassName(insiderRoleBadge)}`}>{insiderRoleBadge}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-medium ${signalWeightTextClassName(display.signal.band)}`}>{strengthLabel}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap text-slate-400`}>{formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{formatActivityPrice(display.displayPrice)}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap font-semibold tabular-nums text-white`}>{display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] ${tradeTypeTextClassName(event.trade_type)}`}>{formatTransactionLabel(event.trade_type)}</td>
+                          <td className={`${tickerActivityCellClassName} whitespace-nowrap`}><TickerActivitySignalScore score={display.signal.score} band={display.signal.band} unlocked={canViewPremiumMetrics} /></td>
+                        </tr>
+                        );
+                      })}
+                    </TickerActivityTable>
+                    <TickerActivityPaginationFooter
+                      sectionId="insider-activity"
+                      pageParam="insider_page"
+                      page={insiderEventsPage}
+                      limit={insiderEventsLimit}
+                      total={insiderEventsTotal}
+                      itemCount={insiderEvents.length}
+                      hasNext={insiderEventsHasNext}
+                    />
+                  </>
+                )}
+              </div>
+            </section>
+          ) : null}
+<TickerParticipantLeaderboards kind="insider"
+          symbol={normalizedSymbol}
+          lookbackDays={selectedLookbackDays}
+          side={side}
+          initialCongressEvents={congressEvents}
+          initialInsiderEvents={insiderEvents}
+        />
+</>
+  );
+
+  const signalActivity = (
+showSignals && (signalsAuthPending || !signalsUnavailable) ? (
+            <div id="signals-activity" className="scroll-mt-6">
+              <TickerSignalActivityClient
+                symbol={normalizedSymbol}
+                side={side}
+                lookbackDays={selectedLookbackDays}
+                returnTo={tickerReturnTo}
+                className={cardClassName}
+                initialItems={null}
+                initialTotal={null}
+                initialState={null}
+                deferLoad={deferHeavyTickerLoads}
+              />
+            </div>
+          ) : showSignals ? (
+            <section id="signals-activity" className={`${cardClassName} scroll-mt-6`}>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Signal activity</h2>
+                <span className="text-xs text-slate-400">
+                  {signalsUnavailable ? (signalsUnavailable.reason === "unavailable" ? "unavailable" : "locked") : activityCountLabel(signalsTotal, signals.length, "signal")}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {signalsUnavailable ? (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm font-semibold text-white">{signalGateTitle}</p>
+                    <p className="mt-1 text-sm text-slate-400">{signalsUnavailable.message}</p>
+                    {signalsUnavailable.reason === "unavailable" ? null : (
+                      <Link
+                        href={signalGateHref}
+                        prefetch={false}
+                        className="mt-3 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+                      >
+                        {signalGateLabel}
+                      </Link>
+                    )}
+                  </div>
+                ) : signals.length === 0 ? (
+                  <p className="text-sm text-slate-400">No abnormal signal activity found for this ticker in the selected lookback.</p>
+                ) : (
+                  <>
+                    <ActivityScrollRegion>
+                    {signals.slice(0, 20).map((signal) => {
+                      const isInsiderSignal = signal.kind === "insider";
+                      const isCongressSignal = signal.kind === "congress";
+                      const sourceEvent = activityEventById.get(signal.event_id) ?? null;
+                      const insiderDisplay = sourceEvent && isInsiderSignal
+                        ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>)
+                        : null;
+                      const displayName = isInsiderSignal
+                        ? getInsiderDisplayName(signal.who, insiderDisplay?.insiderName) ?? "Unknown"
+                        : signal.who?.trim() || "Unknown";
+                      const insiderProfileHref = isInsiderSignal
+                        ? insiderHref(displayName, signal.reporting_cik ?? insiderDisplay?.reportingCik ?? null)
+                        : null;
+                      const insiderRoleBadge = isInsiderSignal
+                        ? resolveInsiderRoleBadge(signal.position ?? insiderDisplay?.role ?? null)
+                        : null;
+                      const congressChamberValue = isCongressSignal
+                        ? signal.chamber ?? (sourceEvent ? resolveCongressChamber(sourceEvent) : null)
+                        : null;
+                      const congressPartyValue = isCongressSignal
+                        ? signal.party ?? (sourceEvent ? resolveCongressParty(sourceEvent) : null)
+                        : null;
+                      const congressStateValue = isCongressSignal && sourceEvent ? resolveCongressState(sourceEvent) : null;
+                      const congressChamber = isCongressSignal ? chamberBadge(congressChamberValue) : null;
+                      const congressAffiliation = isCongressSignal ? formatCongressAffiliationText(congressPartyValue, congressStateValue) : null;
+                      const strengthLabel = formatSignalStrengthText(signal.smart_band);
+                      const displayPrice =
+                        sourceEvent && isInsiderSignal
+                          ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>).price
+                          : sourceEvent
+                            ? resolveCongressTradePrice(sourceEvent)
+                            : readNumeric((signal as any).estimated_price) ?? readNumeric((signal as any).price);
+                      const pnl =
+                        activityPnlByEventId.get(signal.event_id) ??
+                        readNumeric((signal as any).pnl_pct) ??
+                        readNumeric((signal as any).pnlPct);
+
+                      return (
+                      <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
+                        <ActivityCardGrid
+                          identity={
+                            <div className="flex flex-wrap items-center gap-2">
+                              {isInsiderSignal && insiderProfileHref ? (
+                                <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                  {displayName}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-slate-100">{displayName}</span>
+                              )}
+                              {isInsiderSignal && insiderRoleBadge ? (
+                                <Badge tone={insiderRoleBadgeTone(insiderRoleBadge)} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
+                              ) : isCongressSignal && congressChamberValue && congressChamber ? (
+                                <Badge tone={congressChamber.tone} className="px-2 py-0.5 text-[10px]">{congressChamber.label}</Badge>
+                              ) : isCongressSignal ? (
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Congress</span>
+                              ) : (
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{signal.kind ?? "Signal"}</span>
+                              )}
+                              {isCongressSignal && congressAffiliation ? (
+                                <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{congressAffiliation}</span>
+                              ) : null}
+                              <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
+                            </div>
+                          }
+                          sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
+                          dateLabel={
+                            isCongressSignal ? (
+                              <CongressDateLabel
+                                disclosedDate={signal.report_date ?? signal.ts}
+                                tradeDate={signal.trade_date ?? signal.transaction_date ?? null}
+                              />
+                            ) : (
+                              formatDateShort(signal.ts)
+                            )
+                          }
+                          price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                          tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
+                          pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                          pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                          showGainLoss={false}
+                          signal={
+                            canViewPremiumMetrics ? (
+                              <SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />
+                            ) : (
+                              <LockedSmartSignalPill band={signal.smart_band ?? null} size="compact" />
+                            )
+                          }
+                        />
+                      </ActivityCard>
+                      );
+                    })}
+                    </ActivityScrollRegion>
+                    <div className="border-t border-white/10 pt-3">
+                      <span className="text-xs text-slate-500">
+                        Showing {signals.length > 0 ? 1 : 0}-{signals.length}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+          ) : null
+  );
+
+  const institutionalActivity = (
+showInstitutional ? (
+            <section id="institutional-activity" className={`${cardClassName} scroll-mt-6`}>
+              <VisibleEvent name="institutional_activity_viewed" enabled={canViewProTickerContext} properties={{ ticker: normalizedSymbol }}><span className="block h-px" aria-hidden="true" /></VisibleEvent>
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Institutional activity</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    13F filings disclose quarter-end holdings and may not reflect real-time trading.
+                  </p>
+                </div>
+                <span className="text-xs text-slate-400">
+                  {activityCountLabel(institutionalEventsTotal, institutionalEvents.length, "event", institutionalEventsUnavailable)}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {institutionalCardLocked ? (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm font-semibold text-white">Institutional activity requires Pro.</p>
+                    <p className="mt-1 text-sm text-slate-400">{institutionalGateMessage}</p>
+                    <Link
+                      href="/pricing"
+                      prefetch={false}
+                      className="mt-3 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+                    >
+                      View Pro
+                    </Link>
+                  </div>
+                ) : institutionalEventsUnavailable ? (
+                  <p className="text-sm text-slate-400">Institutional activity is temporarily unavailable.</p>
+                ) : institutionalEvents.length === 0 ? (
+                  <p className="text-sm text-slate-400">No institutional holder activity found for this ticker in the selected lookback.</p>
+                ) : (
+                  <>
+                    <TickerActivityTable ariaLabel="Institutional activity" headers={["Institution", "Reported value", "Source", "Details", "Action"]} minWidthClassName="min-w-[52rem]">
+                      {institutionalEvents.map((event) => (
+                        <InstitutionalActivityRow key={event.id} event={event} />
+                      ))}
+                    </TickerActivityTable>
+                    <TickerActivityPaginationFooter
+                      sectionId="institutional-activity"
+                      pageParam="institutional_page"
+                      page={institutionalEventsPage}
+                      limit={institutionalEventsLimit}
+                      total={institutionalEventsTotal}
+                      itemCount={institutionalEvents.length}
+                      hasNext={institutionalEventsHasNext}
+                    />
+                  </>
+                )}
+              </div>
+            </section>
+          ) : null
+  );
+
+  const contractsActivity = (
+showGovernmentContracts ? (
+            <section id="government-contracts-activity" className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden scroll-mt-6`}>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Government contracts activity</h2>
+                <span className="text-xs text-slate-400">{governmentContractsTotal} contract{governmentContractsTotal === 1 ? "" : "s"}</span>
+              </div>
+              <div className="min-w-0 space-y-3">
+                {governmentContractsUnavailable ? (
+                  <p className="text-sm text-slate-400">Government contract activity unavailable.</p>
+                ) : governmentContractsTotal === 0 ? (
+                  <p className="text-sm text-slate-400">
+                    {activityDetailsDeferred ? "Loading government contract activity." : "No government contracts in selected window."}
+                  </p>
+                ) : (
+                  <>
+                    <TickerActivityTable ariaLabel="Government contracts activity" headers={["Agency", "Contract value", "Description", "Source"]} minWidthClassName="min-w-[48rem]">
+                      {governmentContracts.map((contract, index) => (
+                        <GovernmentContractActivityRow key={contract.award_id ?? `${contract.period_start}-${index}`} contract={contract} />
+                      ))}
+                    </TickerActivityTable>
+                    <TickerActivityPaginationFooter
+                      sectionId="government-contracts-activity"
+                      pageParam="contracts_page"
+                      page={governmentContractsPage}
+                      limit={governmentContractsLimit}
+                      total={governmentContractsTotal}
+                      itemCount={governmentContracts.length}
+                      hasNext={governmentContractsHasNext}
+                    />
+                  </>
+                )}
+              </div>
+            </section>
+          ) : null
+  );
+
+  return (
+    <>
+      <section className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,366px)]">
+        <div className="min-w-0 space-y-4">
+          <TickerContextCard
+            key={normalizedSymbol}
+            symbol={normalizedSymbol}
+            canViewOwnership={canViewProTickerContext}
+            researchItems={tickerResearch}
+            className="min-w-0 w-full"
+            chart={<TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} deferLoad={deferHeavyTickerLoads} eager />}
+            congressActivity={congressActivity}
+            insiderActivity={insiderActivity}
+            signalActivity={signalActivity}
+            institutionalActivity={institutionalActivity}
+            contractsActivity={contractsActivity}
+            mobileQuote={
+              <div aria-label="Price and volume summary" className="border-b border-white/10 bg-slate-950/40 px-4 py-3">
+                <TickerPriceHeader key={normalizedSymbol} symbol={normalizedSymbol} initialQuote={initialQuote}
+                  daily={{ price: priceVolumeContext?.latest_close, date: priceVolumeContext?.latest_date,
+                    changePercent: priceVolumeChange, relativeVolume: priceVolumeContext?.volume_vs_avg }} />
+              </div>
+            }
+            overview={
+              <TickerOverviewPanel
+                fundamentals={fundamentalsContext}
+                confirmationBundle={confirmationBundle}
+                sourceDisplayBundle={visibleConfirmationBundle}
+                decisionLayer={decisionLayer}
+                confirmationGate={tickerConfirmationGate}
+                divergence={crossSourceDivergence}
+                similarHistoricalSetups={similarHistoricalSetups}
+                symbol={normalizedSymbol}
+              />
+            }
+          />
+        </div>
+
+        <div className="min-w-0 xl:flex xl:min-h-0 xl:h-full">
+          <div className="grid gap-3 xl:h-full xl:w-full xl:auto-rows-min">
+            <div className="grid items-stretch gap-3">
+              <div className={`${cardClassName} h-full !rounded-lg p-5`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className={technicalToneClass(priceVolume.tone)}>
+                      <IntelligenceIcon kind="price-volume" />
+                    </span>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Price / Volume</p>
+                  </div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${technicalToneClass(priceVolume.tone)}`}>
+                    {priceVolume.state}
+                  </p>
+                </div>
+                <div className="mt-3 flex items-end gap-3">
+                  <p className="text-3xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)}</p>
+                  <p className={`pb-1 text-sm font-semibold tabular-nums ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)}</p>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">{closeObservation}</p>
+                <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
+                <div className="mt-3 grid gap-1.5">
+                  {priceVolume.diagnostics.slice(2).map((diagnostic) => (
+                    <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
+                  ))}
+                </div>
+              </div>
+              <FundamentalsCard summary={fundamentalsContext} />
+            </div>
+
+            <div className="grid gap-3 xl:h-full xl:auto-rows-min">
+              <SourceEvidenceCard
+                title="Insiders"
+                icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
+                source={insiderCardSource}
+                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource, confirmationLookbackDays)}
+                support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
+                discovery={insiderCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href="#insider-activity" destinationType="insider_activity">Recent insider activity for {normalizedSymbol}</TickerDiscoveryLink> : null}
+              />
+              <SourceEvidenceCard
+                title="Congress"
+                icon="congress"
+                source={congressCardSource}
+                body={sourceCardBody("congress", congressCardSource, topSignal, confirmationLookbackDays)}
+                support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
+                discovery={congressCardSource.present ? <TickerDiscoveryLink ticker={normalizedSymbol} href="#congress-activity" destinationType="congress_activity">Congress trades involving {normalizedSymbol}</TickerDiscoveryLink> : null}
+              />
+              <SourceEvidenceCard
+                title="Analysts"
+                icon="signals"
+                source={confirmationBundle.sources.analysts}
+                body={analystSourceBody(confirmationBundle.sources.analysts, confirmationLookbackDays)}
+                support={analystSourceSupport(confirmationBundle.sources.analysts)}
+              />
+              {institutionalCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Institutional"
+                  icon="people"
+                  requiredPlan="pro"
+                  support="Institutional activity unlocks with Pro."
+                />
+              ) : (
+                <TickerInstitutionalSourceCardClient
+                  symbol={normalizedSymbol}
+                  side={side}
+                  lookbackDays={confirmationLookbackDays}
+                  initialSource={confirmationBundle.sources.institutional_activity}
+                  canViewInstitutional={canViewProTickerContext}
+                  initialResolved={canReuseSignalSummary}
+                />
+              )}
+              {signalsCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Signals"
+                  icon="signals"
+                  requiredPlan="premium"
+                  support="Signal stack details unlock with Premium."
+                />
+              ) : (
+                <TickerSignalsSourceCardClient
+                  symbol={normalizedSymbol}
+                  side={side}
+                  lookbackDays={confirmationLookbackDays}
+                  lookbackStartKey={lookbackStartDateKey(confirmationLookbackDays)}
+                  initialSource={signalsCardSource}
+                  initialResolved={canReuseSignalSummary}
+                  deferLoad={deferHeavyTickerLoads}
+                  initialTopSignal={
+                    topSignal
+                      ? {
+                          smart_score: topSignal.smart_score ?? null,
+                          smart_band: topSignal.smart_band ?? null,
+                          trade_type: topSignal.trade_type ?? null,
+                        }
+                      : null
+                  }
+                />
+              )}
+              {optionsFlowCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Options Flow"
+                  icon="flow"
+                  requiredPlan="pro"
+                  support="Options flow is coming soon and is not available today."
+                />
+              ) : (
+                <OptionsActivityCard summary={optionsFlow} />
+              )}
+              <GovernmentContractsCard
+                source={confirmationBundle.sources.government_contracts}
+                lookbackDays={confirmationLookbackDays}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+      <TickerDeferredActivityRefresh enabled={activityDetailsDeferred} symbol={normalizedSymbol} />
+
+
+    </>
+  );
+}
+
+export async function TickerPageRenderer({ params, searchParams, requestHeaders }: TickerPageRenderProps) {
+  const { symbol } = await params;
+  const sp = (await searchParams) ?? {};
+  const lookback = clampLookback(one(sp, "lookback"));
+  const source: SourceFilter = "all";
+  const side: SideFilter = "all";
+  const congressPage = clampPage(one(sp, "congress_page"));
+  const insiderPage = clampPage(one(sp, "insider_page"));
+  const institutionalPage = clampPage(one(sp, "institutional_page"));
+  const contractsPage = clampPage(one(sp, "contracts_page"));
+  const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
+  const canonicalTickerUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
+  const activityDetailsRequested = one(sp, "activity_details") === "1";
+  const lookbackDays = Number(lookback);
+  const authState = requestMayHavePageAuthState(requestHeaders)
+    ? await optionalPageAuthState()
+    : { token: null, hasAuthHint: false, entitlementHint: null };
+  const authToken = authState.token;
+  const publicStalePageCache = !authToken && !authState.hasAuthHint;
+  // These public activity panels do not depend on the context bundle. Start them
+  // alongside it so the streamed detail section does not inherit a second wait.
+  const earlyPublicActivityRequests = publicStalePageCache
+    ? (() => {
+        const tradeType = sideToTradeType(side);
+        return {
+          congress:
+            source === "all" || source === "congress"
+              ? getPublicActivity({
+                  symbol: normalizedSymbol,
+                  recent_days: lookbackDays,
+                  limit: ACTIVITY_FETCH_SIZE,
+                  offset: congressPage * ACTIVITY_PAGE_SIZE,
+                  tape: "congress",
+                  ...(tradeType ? { trade_type: tradeType } : {}),
+                }).catch((error) => {
+                  console.error("[ticker-congress-activity] unavailable", {
+                    symbol: normalizedSymbol,
+                    status: error instanceof ApiError ? error.status : null,
+                    name: error instanceof Error ? error.name : "unknown",
+                  });
+                  return { ...emptyEventsResponse(congressPage, ACTIVITY_PAGE_SIZE), status: "unavailable" as const };
+                })
+              : Promise.resolve(undefined),
+          insider:
+            source === "all" || source === "insider"
+              ? getPublicActivity({
+                  symbol: normalizedSymbol,
+                  recent_days: lookbackDays,
+                  limit: ACTIVITY_FETCH_SIZE,
+                  offset: insiderPage * ACTIVITY_PAGE_SIZE,
+                  tape: "insider",
+                  ...(tradeType ? { trade_type: tradeType } : {}),
+                }).catch((error) => {
+                  console.error("[ticker-insider-activity] unavailable", {
+                    symbol: normalizedSymbol,
+                    status: error instanceof ApiError ? error.status : null,
+                    name: error instanceof Error ? error.name : "unknown",
+                  });
+                  return { ...emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE), status: "unavailable" as const };
+                })
+              : Promise.resolve(undefined),
+          government:
+            source === "all" || source === "government_contract"
+              ? getTickerGovernmentContracts(normalizedSymbol, {
+                  lookback_days: lookbackDays,
+                  min_amount: 1_000_000,
+                  limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+                  page: contractsPage,
+                  activeUser: false,
+                  stalePageCache: true,
+                  source: "TickerGovernmentContracts",
+                }).catch((error) => {
+                  console.error("[ticker-government-contracts] unavailable", error);
+                  return {
+                    symbol: normalizedSymbol,
+                    status: "unavailable",
+                    source_status: "unavailable",
+                    items: [],
+                    total: 0,
+                    contract_count: 0,
+                    page: contractsPage,
+                    limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+                    has_next: false,
+                  };
+                })
+              : Promise.resolve(undefined),
+        };
+      })()
+    : null;
+  const entitlementsRequest = authToken
+    ? getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
+    : Promise.resolve(entitlementsFromTierHint(authState.entitlementHint));
+  const relatedResearchRequest = getGeneratedResearchBriefCards()
+    .then((response) => response.items)
+    .catch(() => [] as PublicResearchBriefCard[]);
+  const useAnonymousTickerSsrShell = publicStalePageCache
+    ? false
+    : shouldUseAnonymousTickerSsrShell({
+        requestHeaders,
+        authToken,
+        hasAuthHint: authState.hasAuthHint,
+        activityDetailsRequested,
+      });
+  const activeTickerSsrRequest = Boolean(authToken || authState.hasAuthHint) && !useAnonymousTickerSsrShell;
+
+  const contextBundleResult = useAnonymousTickerSsrShell
+    ? {
+        bundle: null as TickerContextBundle | null,
+        profile: fallbackTickerProfile(normalizedSymbol),
+        fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
+      }
+    : await loadTickerPageContext(normalizedSymbol, side, lookbackDays, authToken, activeTickerSsrRequest, publicStalePageCache);
+  const [entitlements, relatedResearch] = await Promise.all([entitlementsRequest, relatedResearchRequest]);
+  const profile = contextBundleResult.profile;
+  if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
+  if (!useAnonymousTickerSsrShell && !hasResolvedTickerProfile(profile) && !userAgentLooksInteractiveBrowser(requestHeaders.get("user-agent"))) {
+    const snapshot = await loadPublicTickerSnapshot(normalizedSymbol);
+    const available = usablePublicTickerSnapshot(snapshot, normalizedSymbol);
+    return (
+      <div className="space-y-5 py-6">
+        <h1 className="break-words text-2xl font-semibold text-white">{normalizedSymbol} Stock Research</h1>
+        <p className="text-sm text-slate-300">{available ? "Explore the latest saved public research and disclosures for this stock." : "Current ticker research is temporarily unavailable. Please try again shortly."}</p>
+        {available && snapshot ? (
+          <section className={cardClassName}>
+            <h2 className="text-xl font-semibold text-white">{String(snapshot.payload.company_name)}</h2>
+            <p className="mt-2 text-sm text-slate-400">Public data as of {formatDateShort(snapshot.data_as_of!)}. This is a historical snapshot, not a live quote.</p>
+            {snapshot.payload.sections?.filter((section) => section.heading && section.body).map((section) => (
+              <div key={section.heading} className="mt-4">
+                <h3 className="font-semibold text-slate-200">{section.heading}</h3>
+                <p className="mt-1 text-sm text-slate-400">{section.body}</p>
+              </div>
+            ))}
+          </section>
+        ) : <p className="text-sm text-slate-400">No public research snapshot is currently available for this ticker.</p>}
+        <Link href="/screener" className={ghostButtonClassName}>Open Screener</Link>
+      </div>
+    );
+  }
+  const contextBundle = contextBundleResult.bundle;
+  const shellFallbackMessage = contextBundleResult.fallbackMessage;
+
+  const shouldLoadSignals = source === "all" || source === "signals";
+  const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
+  const hasAuthForEntitlementDisplay = Boolean(authToken || authState.hasAuthHint);
+  const canViewSignalActivity = hasAuthForEntitlementDisplay ? canUseSignalActivity(entitlements) : false;
+  const canViewTickerConfirmation = hasAuthForEntitlementDisplay ? canUseTickerConfirmation(entitlements) : false;
+  const canViewPremiumMetrics = hasAuthForEntitlementDisplay && entitlements
+    ? hasEntitlement(entitlements, "premium_feed_metrics")
+    : false;
+  const canViewProContext = hasAuthForEntitlementDisplay && canUseProTickerContext(entitlements);
+  const canCreateResearch = Boolean(authToken) && isAdminEntitlement(entitlements);
+  const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements, hasAuthForEntitlementDisplay);
+  const signalGateState = !shouldLoadSignals || signalActivityAuthPending
+    ? null
+    : !authToken
+      ? signalGateForUnauthenticatedUser()
+      : canViewSignalActivity
+        ? null
+        : signalGateForAuthenticatedFreeUser();
+  const tickerConfirmationGate: TickerConfirmationGate | null = canViewTickerConfirmation
+    ? null
+    : {
+        locked: true,
+        href: "/pricing",
+        label: "Upgrade to Premium",
+        message: "Confirmation score, active-source alignment, and freshness setup are available with Premium or Pro.",
+      };
+  const loadFreshSignalSummary = () => {
+    if (contextBundle?.signals_summary) return Promise.resolve(contextBundle.signals_summary);
+    return getTickerSignalsSummary(normalizedSymbol, {
+      side,
+      limit: 3,
+      lookback_days: lookbackDays,
+      authToken: authToken ?? undefined,
+      activeUser: activeTickerSsrRequest,
+      stalePageCache: publicStalePageCache,
+      source: "TickerSignalsSummary",
+    });
+  };
+  const headerMetadata = tickerHeaderMetadata(profile.ticker);
+  const headerExchange = cleanTickerHeaderMetadata(profile.ticker.exchange_short_name ?? profile.ticker.exchange);
+  const headerCurrency = cleanTickerHeaderMetadata(contextBundle?.identity?.currency);
+  const tickerName = tickerCompanyName(profile.ticker, contextBundle?.identity);
+  const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
+  const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited price history available" : null;
+  // Congress and insider rows also feed the buy/sell counts and participant
+  // rankings. Rendering them from one server response prevents the cards from
+  // appearing later while their summaries remain at zero.
+  const deferTickerActivityDetails = false;
+  const activityPromise = (async () => {
+    if (deferTickerActivityDetails) {
+      return resolveTickerActivityData({
+        signalSummaryRequest: loadFreshSignalSummary(),
+        signalsUnavailable: signalGateState,
+        lookbackStartKey: lookbackStartDateKey(lookbackDays),
+        side,
+      });
+    }
+    const shouldFetchGovernmentContracts = source === "all" || source === "government_contract";
+    const shouldFetchCongressActivity = source === "all" || source === "congress";
+    const shouldFetchInsiderActivity = source === "all" || source === "insider";
+    const shouldFetchInstitutionalActivity = canViewProContext && (source === "all" || source === "institutional");
+    const tradeType = sideToTradeType(side);
+    const congressActivityRequest =
+      earlyPublicActivityRequests?.congress ?? (shouldFetchCongressActivity
+        ? getEvents({
+            symbol: normalizedSymbol,
+            recent_days: lookbackDays,
+            limit: ACTIVITY_FETCH_SIZE,
+            offset: congressPage * ACTIVITY_PAGE_SIZE,
+            enrich_prices: 1,
+            tape: "congress",
+            source: "TickerCongressActivity",
+            requestSource: "ssr",
+            routeFamily: "ticker",
+            stalePageCache: false,
+            ...(tradeType ? { trade_type: tradeType } : {}),
+          }).catch((error) => {
+            console.error("[ticker-congress-activity] unavailable", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return emptyEventsResponse(congressPage, ACTIVITY_PAGE_SIZE);
+          })
+        : Promise.resolve(undefined));
+    const insiderActivityRequest =
+      earlyPublicActivityRequests?.insider ?? (shouldFetchInsiderActivity
+        ? getEvents({
+            symbol: normalizedSymbol,
+            recent_days: lookbackDays,
+            limit: ACTIVITY_FETCH_SIZE,
+            offset: insiderPage * ACTIVITY_PAGE_SIZE,
+            enrich_prices: 1,
+            tape: "insider",
+            source: "TickerInsiderActivity",
+            requestSource: "ssr",
+            routeFamily: "ticker",
+            stalePageCache: false,
+            ...(tradeType ? { trade_type: tradeType } : {}),
+          }).catch((error) => {
+            console.error("[ticker-insider-activity] unavailable", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE);
+          })
+        : Promise.resolve(undefined));
+    const institutionalActivityRequest =
+      shouldFetchInstitutionalActivity
+        ? getEvents({
+            symbol: normalizedSymbol,
+            recent_days: lookbackDays,
+            limit: ACTIVITY_FETCH_SIZE,
+            offset: institutionalPage * ACTIVITY_PAGE_SIZE,
+            enrich_prices: 0,
+            tape: "institutional",
+            authToken: authToken ?? undefined,
+            source: "TickerInstitutionalActivity",
+            requestSource: "ssr",
+            routeFamily: "ticker",
+            stalePageCache: publicStalePageCache,
+          }).catch((error) => {
+            console.error("[ticker-institutional-activity] unavailable", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return emptyEventsResponse(institutionalPage, ACTIVITY_PAGE_SIZE);
+          })
+        : Promise.resolve(undefined);
+    const governmentContractsRequest =
+      earlyPublicActivityRequests?.government ?? (shouldFetchGovernmentContracts
+        ? getTickerGovernmentContracts(normalizedSymbol, {
+            lookback_days: lookbackDays,
+            min_amount: 1_000_000,
+            limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+            page: contractsPage,
+            activeUser: activeTickerSsrRequest,
+            stalePageCache: publicStalePageCache,
+            source: "TickerGovernmentContracts",
+          }).catch((error) => {
+            console.error("[ticker-government-contracts] unavailable", error);
+            return {
+              symbol: normalizedSymbol,
+              status: "unavailable",
+              source_status: "unavailable",
+              items: [],
+              total: 0,
+              contract_count: 0,
+              page: contractsPage,
+              limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+              has_next: false,
+            };
+          })
+        : Promise.resolve(undefined));
+    const [
+      congressActivity,
+      insiderActivity,
+      institutionalActivity,
+      governmentContracts,
+    ] = await Promise.all([
+      congressActivityRequest,
+      insiderActivityRequest,
+      institutionalActivityRequest,
+      governmentContractsRequest,
+    ]);
+    const boundedEvents = [
+      ...((congressActivity?.items ?? []) as EventsResponse["items"]),
+      ...((insiderActivity?.items ?? []) as EventsResponse["items"]),
+    ];
+    return resolveTickerActivityData({
+      eventsPromise: Promise.resolve({
+        ...emptyEventsResponse(),
+        items: boundedEvents,
+        total: boundedEvents.length,
+        item_count: boundedEvents.length,
+      }),
+      congressEventsPromise: congressActivity ? Promise.resolve(congressActivity) : undefined,
+      insiderEventsPromise: insiderActivity ? Promise.resolve(insiderActivity) : undefined,
+      institutionalEventsPromise: institutionalActivity ? Promise.resolve(institutionalActivity) : undefined,
+      governmentContractsPromise: governmentContracts ? Promise.resolve(governmentContracts) : undefined,
+      signalSummaryRequest: loadFreshSignalSummary(),
+      signalsUnavailable: signalGateState,
+      lookbackStartKey: lookbackStartDateKey(lookbackDays),
+      side,
+    });
+  })();
+
+  return (
+    <div className="space-y-6">
+      <EntitlementHintRefresh enabled={!authToken && authState.hasAuthHint} renderedTier={entitlements?.tier ?? null} />
+      <TickerLiveContextRefresh
+        enabled={Boolean(shellFallbackMessage) || !showTickerName}
+        symbol={normalizedSymbol}
+        side={side}
+        lookbackDays={lookbackDays}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0 basis-full max-w-[calc(100vw-2rem)] lg:basis-auto lg:max-w-full">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
+          <h1 className="max-w-full break-words text-2xl font-semibold text-white [overflow-wrap:anywhere] sm:text-3xl">
+            <span>{profile.ticker.symbol}</span>
+            {showTickerName ? <span className="text-slate-400"> - {tickerName}</span> : null}
+            <span className="ml-2 align-middle text-xl font-normal text-slate-500">☆</span>
+          </h1>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {headerExchange ? <span className={pillClassName}>{headerExchange}</span> : null}
+            {headerMetadata.length ? (
+              <p className="min-w-0 rounded-md bg-slate-900/45 px-3 py-1 text-[11px] font-medium tracking-[0.02em] text-slate-400 sm:max-w-[44rem] sm:truncate">
+                {headerMetadata.join(" / ")}
+              </p>
+            ) : null}
+            {headerCurrency ? <span className={pillClassName}>{headerCurrency}</span> : null}
+          </div>
+          {limitedDataMessage ? (
+            <p className="mt-3 text-sm font-medium text-amber-200">{limitedDataMessage}</p>
+          ) : null}
+        </div>
+        <div className="grid w-[calc(100vw-2rem)] flex-none grid-cols-2 gap-2 [&>*]:w-full [&>*>button]:w-full [&>a]:justify-center [&>button]:justify-center sm:flex sm:w-auto sm:flex-initial sm:flex-wrap sm:items-center sm:justify-end sm:[&>*]:w-auto sm:[&>*>button]:w-auto">
+          {canCreateResearch ? (
+            <ResearchActions
+              canCreateResearch={canCreateResearch}
+              subject={{
+                kind: "ticker",
+                symbol: normalizedSymbol,
+                companyName: tickerName,
+                canonicalUrl: canonicalTickerUrl,
+                quote: contextBundle?.quote ?? null,
+                decisionLayer: contextBundle?.decision_layer ?? null,
+                signalsSummary: contextBundle?.signals_summary ?? null,
+              }}
+            />
+          ) : null}
+          <TickerFollowButton key={normalizedSymbol} symbol={normalizedSymbol} />
+          <Link href={`/compare/${encodeURIComponent(normalizedSymbol)}/_`} className={ghostButtonClassName}>Compare</Link>
+          <ShareLinks canonicalUrl={canonicalTickerUrl} />
+          <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
+        </div>
+      </div>
+      <Suspense fallback={<DeferredTickerSummarySkeleton />}>
+        <DeferredTickerContent
+          activityPromise={activityPromise}
+          normalizedSymbol={normalizedSymbol}
+          initialQuote={contextBundle?.quote}
+          decisionLayer={contextBundle?.decision_layer ?? null}
+          lookback={lookback}
+          source={source}
+          side={side}
+          activityDetailsDeferred={deferTickerActivityDetails}
+          signalsAuthPending={signalActivityAuthPending}
+          confirmationScoreBundle={profile.confirmation_score_bundle}
+          crossSourceDivergence={contextBundle?.cross_source_divergence ?? null}
+          similarHistoricalSetups={contextBundle?.similar_historical_setups ?? null}
+          optionsFlowSummary={profile.options_flow_summary}
+          technicalIndicators={profile.technical_indicators}
+          relatedResearch={relatedResearch}
+          fallbackSourceEntitlements={fallbackSourceEntitlements}
+          allowAuthHintEntitlementOverride={authState.hasAuthHint}
+          canViewProTickerContext={canViewProContext}
+          hasAuthForEntitlementDisplay={hasAuthForEntitlementDisplay}
+          canViewPremiumMetrics={canViewPremiumMetrics}
+          tickerConfirmationGate={tickerConfirmationGate}
+          deferHeavyTickerLoads={Boolean(shellFallbackMessage)}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+export default async function TickerPage(props: Props) {
+  return TickerPageRenderer({
+    ...props,
+    requestHeaders: await headers(),
+  });
+}

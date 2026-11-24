@@ -142,7 +142,7 @@ test("Opened sort orders dates both ways, uses deterministic ties, and leaves so
   assert.match(source, /min-h-11 w-full/);
 });
 test("ticker discoveries are backed by activity or actual comparable tickers and preserve gates", () => {
-  const page = fs.readFileSync("app/ticker/[symbol]/page.tsx", "utf8");
+  const page = fs.readFileSync("components/ticker/TickerPageRenderer.tsx", "utf8");
   assert.match(page, /insiderCardSource.present \? <TickerDiscoveryLink/);
   assert.match(page, /congressCardSource.present \? <TickerDiscoveryLink/);
   assert.match(page, /href="#insider-activity"/);
