@@ -36,6 +36,13 @@ test("research navigation only generates validated internal ticker routes and al
   for (const value of ["//outside.example", "NVDA?admin=1", "<script>", "AAPL#news", "https://bad"]) assert.equal(navigation.chatResearchHref(value), null);
   assert.equal(navigation.chatResearchHref("NBIS", "//evil"), null);
 });
+test("upgrade return keeps the chat company and tab but strips auth and campaign parameters", () => {
+  const paths = load("lib/returnPaths.ts");
+  const destination = load("lib/upgradeDestination.ts", { "./returnPaths": paths });
+  const path = destination.upgradeReturnPath("/ask", "?symbol=NBIS&authToken=untrusted&utm_source=test", "#financials");
+  assert.equal(path, "/ask?symbol=NBIS#financials");
+  assert.equal(new URL(destination.upgradePricingHref("Premium", path), "https://app.walnutmarkets.com").searchParams.get("returnTo"), path);
+});
 test("chat-only chrome does not remove legacy navigation from other routes", () => {
   for (const path of ["/ask", "/ticker/NBIS", "/my-stocks", "/admin", "/"]) {
     const { RouteChrome } = load("components/RouteChrome.tsx", { "next/navigation": { usePathname: () => path } });
@@ -78,6 +85,7 @@ function harness(search, symbol = null) {
     "next/navigation": {useRouter: () => ({push: value => urls.push(value)})},
     "lucide-react": new Proxy({}, {get:(_,key)=>String(key)}),
     "@/components/auth/AccountNav": {AccountNav:"AccountNav"},
+    "@/components/discover/DiscoveryStocks": {DiscoveryStocks:"DiscoveryStocks"},
     "@/components/WalnutBrandMark": {WalnutBrandMark:"Brand"},
     "@/lib/api": {searchSuggest: async (...args) => {calls.push(args); return search(...args);}},
     "@/lib/chatNavigation": navigation, "@/lib/ticker": ticker,

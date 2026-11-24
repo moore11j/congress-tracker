@@ -42,6 +42,18 @@ test("paid prepared score uses the shared direction label", () => {
   assert.match(html, /Weak Bearish/);
   assert.match(html, /href="\/ticker\/NBIS"/);
 });
+test("chat ranking links open the validated company inline while modified clicks keep the normal link", () => {
+  const calls = []; let prevented = 0;
+  const walk = element => !element || typeof element !== "object" ? [] : Array.isArray(element) ? element.flatMap(walk) : [element, ...walk(element.props?.children)];
+  const tree = DiscoveryStocksView({snapshot: snapshot([{rank:3,symbol:"NBIS"}]),loading:false,failed:false,onRetry(){},onResearch:value=>calls.push(value)});
+  const links = walk(tree).filter(node=>node.props?.href==="/ticker/NBIS");
+  assert.equal(links.length,2);
+  for (const link of links) {
+    link.props.onClick({button:0,preventDefault(){prevented++;}});
+    link.props.onClick({button:0,ctrlKey:true,preventDefault(){throw Error("modified click blocked");}});
+  }
+  assert.deepEqual(calls,["NBIS","NBIS"]); assert.equal(prevented,2);
+});
 test("missing projection flag does not expose numeric scores", () => {
   assert.doesNotMatch(render(snapshot([{ rank: 1, symbol: "NVDA", confirmation_score: 87.1234 }], { preview: undefined })), /87\.1234/);
 });

@@ -1,7 +1,7 @@
 import { safeAppReturnPath } from "./returnPaths";
 
 const researchParameters = new Set([
-  "tab", "view", "mode", "category", "period", "sort", "selected", "ticker", "timeframe",
+  "tab", "view", "mode", "category", "period", "sort", "selected", "ticker", "symbol", "timeframe",
   "window", "direction", "side", "status", "page", "limit", "filter", "institutional_lookback_days",
   "positions", "holdings_page", "history_page", "reported_page",
 ]);

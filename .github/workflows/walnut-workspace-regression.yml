@@ -11,6 +11,7 @@ on:
       - 'frontend/components/chat/**'
       - 'frontend/components/RouteChrome.tsx'
       - 'frontend/lib/chatNavigation.ts'
+      - 'frontend/lib/upgradeDestination.ts'
       - 'frontend/tests/chat-workspace.test.mjs'
       - 'frontend/components/discover/**'
       - 'frontend/components/AppTopNav.tsx'
@@ -64,6 +65,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: node --test tests/discover-render.test.mjs tests/my-stocks-return.test.mjs tests/workspace-loading.test.mjs tests/preview-login.test.mjs tests/chat-workspace.test.mjs
+      - run: node --test tests/discover-render.test.mjs tests/my-stocks-return.test.mjs tests/workspace-loading.test.mjs tests/preview-login.test.mjs tests/chat-workspace.test.mjs tests/upgrade-conversion.test.mjs tests/ticker-upgrade-cta.test.mjs
       - run: node --test --test-name-pattern='workspace discovery|My Stocks|chat workspace' tests/seo-canonicalization.test.mjs
       - run: npx tsc --noEmit --incremental false

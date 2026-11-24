@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { ArrowUp, ArrowUpRight, BarChart3, ChevronDown, Menu, MessageSquare, Plus, Search, X } from "lucide-react";
 import { AccountNav } from "@/components/auth/AccountNav";
+import { DiscoveryStocks } from "@/components/discover/DiscoveryStocks";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { searchSuggest, type SearchSuggestResult } from "@/lib/api";
 import { chatIntent, chatResearchHref, type ChatSection } from "@/lib/chatNavigation";
@@ -147,7 +148,7 @@ export function WalnutChatWorkspace({ symbol, rankings, children }: { symbol: st
             {(searching || pending) && <p role="status" className="mx-auto mt-6 max-w-3xl text-sm text-slate-400">{searching ? "Finding the company…" : "Opening research…"}</p>}
             {hasResearch && <section data-chat-research aria-label={symbol ? `${symbol} research in conversation` : "Ranked stocks in conversation"} className="mt-6 min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#08131f]">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3"><span className="text-xs font-medium text-slate-400">{symbol ? `${symbol} · Ticker research` : "Walnut · Ranked stocks"}</span><Link href={symbol ? tickerHref(symbol)! : "/leaderboards"} prefetch={false} className="inline-flex items-center gap-1 text-xs text-emerald-200">Open full page <ArrowUpRight className="h-3.5 w-3.5" /></Link></div>
-              <div className="min-w-0 p-3 sm:p-5">{children}</div>
+              <div className="min-w-0 p-3 sm:p-5">{rankings ? <DiscoveryStocks onResearch={navigateTicker} /> : children}</div>
             </section>}
             {symbol && <div className="mt-4 flex flex-wrap gap-2">{["Show financials", "Show the chart", "Show news", "What are the risks?"].map(prompt => <button key={prompt} type="button" onClick={() => void submitText(prompt)} disabled={searching || pending} className="rounded-full border border-white/10 px-3 py-2 text-xs text-slate-400 hover:border-emerald-300/30 hover:text-emerald-200 disabled:opacity-50">{prompt}</button>)}</div>}
           </div>}
