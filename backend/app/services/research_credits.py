@@ -46,7 +46,8 @@ payments = Table("research_credit_payment_locks", metadata,
     Column("version", Integer, nullable=False))
 
 MONTHLY_ALLOWANCE = {"free": 100, "premium": 1500, "pro": 4000}
-TASK_PRICES = {"answer": 10, "analysis": 50, "report": 200}
+TASK_PRICES = {"answer": 25, "analysis": 100, "report": 400}
+PURCHASE_CENTS_PER_CREDIT = 2
 
 
 class CreditError(ValueError):
@@ -61,6 +62,15 @@ def positive(value: Any) -> int:
 
 def now_seconds() -> int:
     return int(datetime.now(timezone.utc).timestamp())
+
+
+def purchased_credits(amount_cents: int) -> int:
+    positive(amount_cents)
+    if not 500 <= amount_cents <= 100000:
+        raise CreditError("Sandbox purchases must be between $5 and $1,000")
+    if amount_cents % PURCHASE_CENTS_PER_CREDIT:
+        raise CreditError("Use $0.02 increments for whole credits")
+    return amount_cents // PURCHASE_CENTS_PER_CREDIT
 
 
 class CreditStore:
@@ -178,9 +188,7 @@ class CreditStore:
             return target
 
     def create_order(self, user_id, order_id, amount_cents):
-        positive(amount_cents)
-        if not 500 <= amount_cents <= 100000:
-            raise CreditError("Sandbox purchases must be between $5 and $1,000")
+        purchased_credits(amount_cents)
         with self.engine.begin() as conn:
             wallet = self._lock(conn, user_id)
             if wallet["billing_hold"]:
@@ -203,6 +211,7 @@ class CreditStore:
             conn.execute(update(orders).where(orders.c.order_id == order_id).values(session_id=session_id))
 
     def fulfill(self, order_id, session_id, payment_intent, amount_cents):
+        credits = purchased_credits(amount_cents)
         with self.engine.begin() as conn:
             self._lock_payment(conn, payment_intent)
             order = conn.execute(select(orders).where(orders.c.order_id == order_id)).mappings().first()
@@ -220,7 +229,7 @@ class CreditStore:
                 conn.execute(update(orders).where(orders.c.order_id == order_id)
                              .values(payment_intent=payment_intent, state="review"))
                 return False
-            added = self._grant(conn, order["user_id"], f"checkout:{session_id}", amount_cents, "purchased", None)
+            added = self._grant(conn, order["user_id"], f"checkout:{session_id}", credits, "purchased", None)
             conn.execute(update(orders).where(orders.c.order_id == order_id)
                          .values(payment_intent=payment_intent, state="paid"))
             return added

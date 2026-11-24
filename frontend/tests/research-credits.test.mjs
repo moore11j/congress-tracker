@@ -18,9 +18,9 @@ function load(file, modules = {}, globals = {}) {
 }
 const credits = load("lib/researchCredits.ts");
 test("custom amounts use exact cents and reject ambiguous or out of range inputs", () => {
-  for (const [text, cents] of [["5",500], ["10.01",1001], [" 12.5 ",1250], ["1000",100000]])
+  for (const [text, cents] of [["5",500], ["10.02",1002], [" 12.5 ",1250], ["1000",100000]])
     assert.equal(credits.creditAmountCents(text), cents);
-  for (const text of ["", "4.99", "1000.01", "1e2", "NaN", "-5", "5.001", "5,00", "$5", "5."])
+  for (const text of ["", "5.01", "10.01", "4.99", "1000.01", "1e2", "NaN", "-5", "5.001", "5,00", "$5", "5."])
     assert.equal(credits.creditAmountCents(text), null);
 });
 test("credit proxy requires its own sandbox host and never falls back to the live API", () => {
@@ -38,7 +38,7 @@ test("preview renders honest unconfirmed balance, existing plan prices and disab
     "@/lib/researchCredits":credits,
   });
   const html = renderToStaticMarkup(React.createElement(ResearchCreditsPanel));
-  for (const text of ["Billing preview", "$24.95", "$39.95", "$249.50", "$399.95", "Test payments only", "No live subscription changes", "automatic monthly grants are still being connected"])
+  for (const text of ["Billing preview", "500 credits for $10.00", "$30 at one-time credit prices", "$80 at one-time credit prices", "25 credits", "100 credits", "400 credits", "$24.95", "$39.95", "$249.50", "$399.95", "Test payments only", "No live subscription changes", "automatic monthly grants are still being connected"])
     assert.ok(html.includes(text), text);
   assert.match(html, /disabled=""[^>]*>Test checkout/);
   assert.doesNotMatch(html, /100 available|1,500 available|4,000 available/);

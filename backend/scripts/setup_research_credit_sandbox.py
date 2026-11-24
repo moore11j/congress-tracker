@@ -4,6 +4,7 @@ import json
 import os
 
 from app.services.research_credit_checkout import SandboxStripe, CATALOG_VERSION, CreditError
+from app.services.research_credits import PURCHASE_CENTS_PER_CREDIT
 
 CATALOG = [
     {"key": "premium", "name": "Walnut Premium", "credits": 1500,
@@ -11,7 +12,7 @@ CATALOG = [
     {"key": "pro", "name": "Walnut Pro", "credits": 4000,
      "prices": [("monthly", 3995, "month"), ("annual", 39995, "year")]},
     {"key": "credits", "name": "Walnut Research Credits", "credits": None,
-     "prices": [("unit", 1, None)]},
+     "prices": [("unit", PURCHASE_CENTS_PER_CREDIT, None)]},
 ]
 
 

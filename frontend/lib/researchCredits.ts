@@ -1,3 +1,4 @@
+export const purchaseCentsPerCredit = 2;
 export const creditPlans = [
   { name: "Free", monthly: "$0", annual: null, credits: 100 },
   { name: "Premium", monthly: "$24.95", annual: "$249.50", credits: 1500 },
@@ -5,15 +6,15 @@ export const creditPlans = [
 ] as const;
 export const creditTasks = [
   { name: "Open a company or chart", credits: 0 },
-  { name: "Short sourced answer", credits: 10 },
-  { name: "Research or comparison", credits: 50 },
-  { name: "Focused research report", credits: 200 },
+  { name: "Short sourced answer", credits: 25 },
+  { name: "Research or comparison", credits: 100 },
+  { name: "Focused research report", credits: 400 },
 ] as const;
 export function creditAmountCents(value: string): number | null {
   if (!/^\d{1,4}(?:\.\d{1,2})?$/.test(value.trim())) return null;
   const [whole, fraction = ""] = value.trim().split(".");
   const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
-  return cents >= 500 && cents <= 100000 ? cents : null;
+  return cents >= 500 && cents <= 100000 && cents % purchaseCentsPerCredit === 0 ? cents : null;
 }
 
 /** No production fallback, including when ordinary app API variables are set. */

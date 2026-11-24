@@ -10,9 +10,9 @@ from urllib.parse import urlparse
 
 import requests
 
-from app.services.research_credits import CreditError, CreditStore
+from app.services.research_credits import CreditError, CreditStore, PURCHASE_CENTS_PER_CREDIT, purchased_credits
 
-CATALOG_VERSION = "walnut_research_v1"
+CATALOG_VERSION = "walnut_research_v2"
 API_VERSION = "2026-11-18.endive"
 
 
@@ -85,14 +85,15 @@ def verify_signature(payload: bytes, signature: str, secret: str, *, now=None):
 def validate_price(price):
     if (price.get("livemode") is not False or price.get("active") is not True
             or price.get("currency") != "usd" or type(price.get("unit_amount")) is not int
-            or price["unit_amount"] != 1 or price.get("type") != "one_time"
+            or price["unit_amount"] != PURCHASE_CENTS_PER_CREDIT or price.get("type") != "one_time"
             or price.get("recurring") or price.get("transform_quantity")
             or price.get("billing_scheme") != "per_unit"
             or price.get("metadata", {}).get("walnut_catalog") != CATALOG_VERSION):
-        raise CreditError("Expected sandbox USD one-cent research-credit price")
+        raise CreditError("Expected sandbox USD two-cent research-credit price")
 
 
 def create_checkout(store: CreditStore, stripe, user_id, order_id, amount_cents, origin, price_id):
+    quantity = purchased_credits(amount_cents)
     price = stripe.request("GET", f"prices/{price_id}")
     validate_price(price)
     order = store.create_order(user_id, order_id, amount_cents)
@@ -103,7 +104,7 @@ def create_checkout(store: CreditStore, stripe, user_id, order_id, amount_cents,
     else:
         session = stripe.request("POST", "checkout/sessions", {
         "mode": "payment", "line_items[0][price]": price_id,
-        "line_items[0][quantity]": amount_cents,
+        "line_items[0][quantity]": quantity,
         "client_reference_id": user_id,
         "metadata[walnut_order]": order_id,
         "metadata[walnut_catalog]": CATALOG_VERSION,
@@ -151,8 +152,12 @@ def process_event(store: CreditStore, stripe, event, price_id):
         raise CreditError("Unexpected checkout items")
     line, price = rows[0], rows[0].get("price", {})
     validate_price(price)
-    amount = line.get("quantity")
-    if (price.get("id") != price_id or type(amount) is not int or not 500 <= amount <= 100000
+    quantity = line.get("quantity")
+    if type(quantity) is not int or quantity <= 0:
+        raise CreditError("Invalid credit quantity")
+    amount = quantity * PURCHASE_CENTS_PER_CREDIT
+    purchased_credits(amount)
+    if (price.get("id") != price_id
             or session.get("currency") != "usd" or session.get("amount_subtotal") != amount
             or session.get("total_details", {}).get("amount_discount", 0) != 0
             or session.get("amount_total") != amount + session.get("total_details", {}).get("amount_tax", 0)

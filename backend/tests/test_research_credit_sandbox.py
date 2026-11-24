@@ -24,7 +24,7 @@ def store(tmp_path):
     engine.dispose()
 
 
-def purchase(store, user="u", order="o", session="cs_test_1", payment="pi_1", amount=500):
+def purchase(store, user="u", order="o", session="cs_test_1", payment="pi_1", amount=1000):
     store.create_order(user, order, amount)
     store.bind_session(user, order, session)
     return store.fulfill(order, session, payment, amount)
@@ -61,7 +61,7 @@ def test_job_and_order_identity_are_bound_to_account_and_cost(store):
     assert store.balance("u")["available"] == 490
 
 
-@pytest.mark.parametrize("amount", [True, 0, -1, 1.5, "500", 499, 100001])
+@pytest.mark.parametrize("amount", [True, 0, -1, 1.5, "500", 499, 501, 1001, 100001])
 def test_invalid_purchase_amounts_do_not_create_credit(store, amount):
     with pytest.raises(CreditError):
         store.create_order("u", "o", amount)
@@ -89,7 +89,7 @@ def test_concurrent_duplicate_payment_grants_once(store):
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(lambda _: store.fulfill("o", "cs_test_1", "pi_1", 500), range(12)))
     assert results.count(True) == 1
-    assert store.balance("u")["available"] == 500
+    assert store.balance("u")["available"] == 250
 
 
 @pytest.mark.parametrize("early", [True, False])
@@ -133,14 +133,14 @@ def test_month_grants_reject_annual_period_and_plan_switch_regrant(store):
         store.grant_month("u", "pro", 10, 100, now=20)
 
 
-PRICE = dict(id="price_credit", livemode=False, active=True, currency="usd", unit_amount=1,
+PRICE = dict(id="price_credit", livemode=False, active=True, currency="usd", unit_amount=2,
              type="one_time", billing_scheme="per_unit", metadata={"walnut_catalog": CATALOG_VERSION})
 SESSION = dict(id="cs_test_1", livemode=False, mode="payment", payment_status="paid",
                url="https://checkout.stripe.com/c/pay/cs_test_1", payment_intent="pi_1",
                currency="usd", amount_subtotal=500, amount_total=500,
                metadata={"walnut_order": "o", "walnut_catalog": CATALOG_VERSION},
                total_details={"amount_discount": 0, "amount_tax": 0},
-               line_items={"data": [{"price": PRICE, "quantity": 500}], "has_more": False})
+               line_items={"data": [{"price": PRICE, "quantity": 250}], "has_more": False})
 EVENT = dict(id="evt_1", livemode=False, type="checkout.session.completed",
              data={"object": {"id": "cs_test_1"}})
 
@@ -163,7 +163,7 @@ def test_checkout_return_cannot_grant_and_bound_session_retries_reuse_session(st
     assert store.balance("u")["available"] == 0
     assert process_event(store, stripe, EVENT, "price_credit")["status"] == "credited"
     assert process_event(store, stripe, EVENT, "price_credit")["status"] == "already_processed_or_review"
-    assert store.balance("u")["available"] == 500
+    assert store.balance("u")["available"] == 250
     with pytest.raises(CreditError):
         create_checkout(*args)
 
@@ -190,6 +190,38 @@ def test_unpaid_session_waits_for_successful_payment(store):
     stripe.session["payment_status"] = "paid"
     event = {**EVENT, "type": "checkout.session.async_payment_succeeded"}
     assert process_event(store, stripe, event, "price_credit")["status"] == "credited"
+
+
+@pytest.mark.parametrize("amount,quantity", [(500, 250), (1250, 625), (100000, 50000)])
+def test_two_cent_checkout_quantity_and_grant_match_exact_amount(store, amount, quantity):
+    stripe = Stripe()
+    stripe.session["amount_subtotal"] = amount
+    stripe.session["amount_total"] = amount
+    stripe.session["line_items"]["data"][0]["quantity"] = quantity
+    create_checkout(store, stripe, "u", "o", amount, "https://preview.example", "price_credit")
+    posted = next(call[2] for call in stripe.calls if call[0] == "POST")
+    assert posted["line_items[0][quantity]"] == quantity
+    assert process_event(store, stripe, EVENT, "price_credit")["status"] == "credited"
+    assert store.balance("u")["available"] == quantity
+    process_event(store, stripe, EVENT, "price_credit")
+    assert store.balance("u")["available"] == quantity
+
+
+@pytest.mark.parametrize("change", ["old_unit_price", "old_catalog", "wrong_quantity"])
+def test_legacy_or_mismatched_price_cannot_credit_at_new_rate(store, change):
+    stripe = Stripe()
+    store.create_order("u", "o", 500)
+    store.bind_session("u", "o", "cs_test_1")
+    price = stripe.session["line_items"]["data"][0]["price"]
+    if change == "old_unit_price":
+        price["unit_amount"] = 1
+    elif change == "old_catalog":
+        price["metadata"]["walnut_catalog"] = "walnut_research_v1"
+    else:
+        stripe.session["line_items"]["data"][0]["quantity"] = 500
+    with pytest.raises(CreditError):
+        process_event(store, stripe, EVENT, "price_credit")
+    assert store.balance("u")["available"] == 0
 
 
 def test_signature_requires_raw_payload_recent_timestamp_and_test_environment():
@@ -256,7 +288,7 @@ def test_catalog_installer_creates_three_products_five_prices_and_retries_withou
     assert install_catalog(stripe) == receipt
     assert len(stripe.products) == 3
     assert len(stripe.prices) == 5
-    assert sorted(p["unit_amount"] for p in stripe.prices.values()) == [1, 2495, 3995, 24950, 39995]
+    assert sorted(p["unit_amount"] for p in stripe.prices.values()) == [2, 2495, 3995, 24950, 39995]
     next(iter(stripe.prices.values()))["unit_amount"] = 999
     with pytest.raises(CreditError, match="conflicts"):
         install_catalog(stripe)
