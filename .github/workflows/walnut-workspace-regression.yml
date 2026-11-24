@@ -55,7 +55,7 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: python -m pip install -r backend/requirements.txt pytest
+      - run: python -m pip install -r backend/requirements.txt pytest httpx==0.28.1
       - working-directory: backend
         run: python -m pytest tests/test_watchlist_list_access.py tests/test_watchlist_unseen.py tests/test_watchlist_recent_activity.py tests/test_research_credit_sandbox.py -q
   workspace:
