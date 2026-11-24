@@ -7,6 +7,13 @@ on:
       - 'frontend/app/discover/**'
       - 'frontend/app/my-stocks/**'
       - 'frontend/app/ask/**'
+      - 'frontend/app/api/ask/**'
+      - 'frontend/lib/researchCredits.ts'
+      - 'frontend/tests/research-credits.test.mjs'
+      - 'backend/app/services/research_credit*.py'
+      - 'backend/app/routers/research_credits.py'
+      - 'backend/scripts/setup_research_credit_sandbox.py'
+      - 'backend/tests/test_research_credit_sandbox.py'
       - 'frontend/app/layout.tsx'
       - 'frontend/components/chat/**'
       - 'frontend/components/RouteChrome.tsx'
@@ -50,7 +57,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: python -m pip install -r backend/requirements.txt pytest
       - working-directory: backend
-        run: python -m pytest tests/test_watchlist_list_access.py tests/test_watchlist_unseen.py tests/test_watchlist_recent_activity.py -q
+        run: python -m pytest tests/test_watchlist_list_access.py tests/test_watchlist_unseen.py tests/test_watchlist_recent_activity.py tests/test_research_credit_sandbox.py -q
   workspace:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -65,6 +72,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: node --test tests/discover-render.test.mjs tests/my-stocks-return.test.mjs tests/workspace-loading.test.mjs tests/preview-login.test.mjs tests/chat-workspace.test.mjs tests/upgrade-conversion.test.mjs tests/ticker-upgrade-cta.test.mjs
+      - run: node --test tests/discover-render.test.mjs tests/my-stocks-return.test.mjs tests/workspace-loading.test.mjs tests/preview-login.test.mjs tests/chat-workspace.test.mjs tests/research-credits.test.mjs tests/upgrade-conversion.test.mjs tests/ticker-upgrade-cta.test.mjs
       - run: node --test --test-name-pattern='workspace discovery|My Stocks|chat workspace' tests/seo-canonicalization.test.mjs
       - run: npx tsc --noEmit --incremental false

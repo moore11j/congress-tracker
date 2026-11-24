@@ -15582,3 +15582,6 @@ app.include_router(research_evidence_router, prefix="/api")
 app.include_router(research_memory_router, prefix="/api")
 app.include_router(operational_intelligence_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")
+if os.getenv("WALNUT_CREDITS_SANDBOX_ENABLED") == "1":
+    from app.routers.research_credits import router as research_credit_sandbox_router
+    app.include_router(research_credit_sandbox_router, prefix="/api")

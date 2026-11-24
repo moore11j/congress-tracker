@@ -44,10 +44,10 @@ test("upgrade return keeps the chat company and tab but strips auth and campaign
   assert.equal(new URL(destination.upgradePricingHref("Premium", path), "https://app.walnutmarkets.com").searchParams.get("returnTo"), path);
 });
 test("chat-only chrome does not remove legacy navigation from other routes", () => {
-  for (const path of ["/ask", "/ticker/NBIS", "/my-stocks", "/admin", "/"]) {
+  for (const path of ["/ask", "/ask/credits", "/ticker/NBIS", "/my-stocks", "/admin", "/"]) {
     const { RouteChrome } = load("components/RouteChrome.tsx", { "next/navigation": { usePathname: () => path } });
     const header = renderToStaticMarkup(React.createElement(RouteChrome, {kind:"header"}, "legacy header"));
-    assert.equal(header, path === "/ask" ? "" : "legacy header");
+    assert.equal(header, ["/ask", "/ask/credits"].includes(path) ? "" : "legacy header");
     assert.match(renderToStaticMarkup(React.createElement(RouteChrome, {kind:"main"}, "content")), /<main[^>]*>content<\/main>/);
   }
 });
