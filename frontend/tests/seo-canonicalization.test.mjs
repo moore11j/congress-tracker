@@ -41,6 +41,18 @@ test("workspace discovery stays public and noindex while marketing redirects pre
   assert.equal(alias.headers.get("location"), `https://app.walnutmarkets.com${path}`);
 });
 
+test("chat workspace stays noindex and preserves app-host canonical routing", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  for (const host of ["app.walnutmarkets.com", "walnut-preview.vercel.app"]) {
+    const response = await middleware(new NextRequest(`https://${host}/ask?symbol=NBIS`, {headers:{host}}));
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("x-robots-tag"), /noindex/);
+  }
+  const response = await middleware(new NextRequest("https://walnutmarkets.com/ask?symbol=NBIS", {headers:{host:"walnutmarkets.com"}}));
+  assert.equal(response.headers.get("location"), "https://app.walnutmarkets.com/ask?symbol=NBIS");
+});
+
 test("My Stocks middleware preserves login return state and indexing restrictions", async () => {
   const { NextRequest } = require("next/server");
   const { middleware } = loadModule("middleware.ts");

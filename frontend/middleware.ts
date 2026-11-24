@@ -58,6 +58,7 @@ const robotsDisallowPaths = [
 const noindexAppRoutePrefixes = [
   "/",
   "/discover",
+  "/ask",
   "/my-stocks",
   "/login",
   "/reset-password",
