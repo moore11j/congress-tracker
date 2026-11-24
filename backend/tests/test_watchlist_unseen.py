@@ -10,7 +10,7 @@ from starlette.requests import Request
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.main import _watchlist_view_summary, mark_watchlist_seen
-from app.models import Event, MonitoringAlert, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
+from app.models import Event, FeatureGate, MonitoringAlert, PlanLimit, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
 
 
 def _session():
@@ -26,6 +26,8 @@ def _session():
             WatchlistItem.__table__,
             WatchlistViewState.__table__,
             MonitoringAlert.__table__,
+            FeatureGate.__table__,
+            PlanLimit.__table__,
         ],
     )
     return Session()

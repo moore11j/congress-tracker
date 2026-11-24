@@ -13,12 +13,33 @@ on:
       - 'frontend/tests/discover-render.test.mjs'
       - 'frontend/tests/my-stocks-return.test.mjs'
       - 'frontend/tests/seo-canonicalization.test.mjs'
+      - 'backend/app/main.py'
+      - 'backend/app/services/monitoring_alerts.py'
+      - 'backend/tests/test_watchlist_list_access.py'
+      - 'backend/tests/test_watchlist_unseen.py'
+      - 'backend/tests/test_watchlist_recent_activity.py'
       - '.github/workflows/walnut-workspace-regression.yml'
 
 permissions:
   contents: read
 
 jobs:
+  watchlist-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: 'sqlite:///:memory:'
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - working-directory: backend
+        run: python -m pytest tests/test_watchlist_list_access.py tests/test_watchlist_unseen.py tests/test_watchlist_recent_activity.py -q
   workspace:
     runs-on: ubuntu-latest
     timeout-minutes: 15
