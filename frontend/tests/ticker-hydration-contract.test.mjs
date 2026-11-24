@@ -89,7 +89,7 @@ test("ticker context does not eagerly request heavy tab data on overview mount",
 test("ticker signal activity uses the Signals page endpoint scoped to the ticker", () => {
   const client = read("components/ticker/TickerSignalActivityClient.tsx");
   const sourceCard = read("components/ticker/TickerSignalsSourceCardClient.tsx");
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
   const api = read("lib/api.ts");
 
   assert.match(api, /export async function getSignalsAll/);
@@ -135,7 +135,7 @@ test("ticker signal activity uses the Signals page endpoint scoped to the ticker
 
 test("ticker Signal activity renders historical rows and keeps locked states out of empty copy", () => {
   const client = read("components/ticker/TickerSignalActivityClient.tsx");
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
   const api = read("lib/api.ts");
 
   assert.doesNotMatch(api, /signal_activity\?: SignalItem\[\]/);
@@ -154,7 +154,7 @@ test("ticker Signal activity renders historical rows and keeps locked states out
 
 test("ticker institutional holder activity is separate from Signal activity", () => {
   const client = read("components/ticker/TickerSignalActivityClient.tsx");
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(tickerPage, /type SourceFilter = "all" \| "congress" \| "insider" \| "signals" \| "institutional" \| "government_contract"/);
   assert.match(tickerPage, /\["institutional", "Institutional"\]/);
@@ -176,7 +176,7 @@ test("ticker institutional holder activity is separate from Signal activity", ()
 
 test("ticker upper Signals source card repairs stale inactive SSR from browser-authenticated summary rows", () => {
   const sourceCard = read("components/ticker/TickerSignalsSourceCardClient.tsx");
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(tickerPage, /<TickerSignalsSourceCardClient/);
   assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(confirmationLookbackDays\)\}/);
@@ -192,7 +192,7 @@ test("ticker upper Signals source card repairs stale inactive SSR from browser-a
 
 test("ticker institutional source card renders unavailable for entitled missing data state", () => {
   const institutionalCard = read("components/ticker/TickerInstitutionalSourceCardClient.tsx");
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(tickerPage, /<TickerInstitutionalSourceCardClient/);
   assert.match(tickerPage, /initialSource=\{confirmationBundle\.sources\.institutional_activity\}/);
@@ -215,7 +215,7 @@ test("ticker institutional source card renders unavailable for entitled missing 
 test("ticker server context relies on cookie-backed auth state without client token bridge", () => {
   const accountNav = read("components/auth/AccountNav.tsx");
   const api = read("lib/api.ts");
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(api, /function authHeaders\(sessionToken\?: string \| null\)/);
   assert.match(api, /return \{ Cookie: `\$\{backendSessionCookieName\}=\$\{sessionToken\}` \}/);
@@ -236,7 +236,7 @@ test("ticker server context relies on cookie-backed auth state without client to
 });
 
 test("ticker context gates source cards instead of the whole context request", () => {
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
   const api = read("lib/api.ts");
 
   assert.match(api, /export type TickerSourceEntitlement/);
@@ -266,7 +266,7 @@ test("ticker context gates source cards instead of the whole context request", (
 });
 
 test("ticker upper source cards let authenticated tier hints override stale locked summary metadata", () => {
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(tickerPage, /function displaySourceEntitlementsForTickerContext/);
   assert.match(tickerPage, /activityMeta\?\.locked && fallbackMeta\?\.locked === false/);
@@ -280,7 +280,7 @@ test("ticker upper source cards let authenticated tier hints override stale lock
 });
 
 test("logged out ticker context keeps public sources visible and paid sources locked", () => {
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(tickerPage, /const hasAuthForEntitlementDisplay = Boolean\(authToken \|\| authState\.hasAuthHint\)/);
   assert.match(tickerPage, /tickerContextSourceEntitlements\(entitlements, hasAuthForEntitlementDisplay\)/);
@@ -298,7 +298,7 @@ test("logged out ticker context keeps public sources visible and paid sources lo
 });
 
 test("ticker government contracts activity loads in all mode and paginates", () => {
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
   const api = read("lib/api.ts");
 
   assert.match(tickerPage, /source === "all" \|\| source === "government_contract"/);
@@ -334,7 +334,7 @@ test("ticker tabs settle warming responses into public no-data copy", () => {
 });
 
 test("ticker page catches temporary failures and renders dated public data or honest unavailability", () => {
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(tickerPage, /function fallbackTickerProfile/);
   assert.match(tickerPage, /function isRecoverableTickerProfileError/);

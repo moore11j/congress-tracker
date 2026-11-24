@@ -28,7 +28,7 @@ test("institution names use readable capitalization without breaking brands, acr
 test("institution displays share the formatter across feed, signals, profiles and ownership", () => {
   for (const path of ["components/feed/FeedCard.tsx", "components/feed/FeedTable.tsx",
     "components/ticker/TickerOwnershipPanel.tsx", "app/signals/page.tsx",
-    "app/institution/[cik]/page.tsx", "app/ticker/[symbol]/page.tsx", "lib/feedEventMapper.ts"]) {
+    "app/institution/[cik]/page.tsx", "components/ticker/TickerPageRenderer.tsx", "lib/feedEventMapper.ts"]) {
     assert.match(readFileSync(path, "utf8"), /institutionDisplayName\(/, path);
   }
 });

@@ -10,7 +10,7 @@ function read(path) {
 }
 
 test("anonymous ticker SSR keeps public context bundle complete and defers detail fanout", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
   const publicPage = read("app/walnut-public/ticker/[symbol]/page.tsx");
 
   assert.match(page, /import \{ headers \} from "next\/headers"/);
@@ -60,7 +60,7 @@ test("anonymous ticker SSR keeps public context bundle complete and defers detai
 });
 
 test("ticker deferred SSR renders section placeholders and hydrates details on visibility", () => {
-  const page = read("app/ticker/[symbol]/page.tsx");
+  const page = read("components/ticker/TickerPageRenderer.tsx");
   const refresher = read("components/ticker/TickerDeferredActivityRefresh.tsx");
   const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
 

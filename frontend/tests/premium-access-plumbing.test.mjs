@@ -22,7 +22,7 @@ const entitlements = read("lib/entitlements.ts");
 const api = read("lib/api.ts");
 const serverAuth = read("lib/serverAuth.ts");
 const entitlementHintRefresh = read("components/auth/EntitlementHintRefresh.tsx");
-const tickerPage = read("app/ticker/[symbol]/page.tsx");
+const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 const defaultPlanConfig = read("lib/defaultPlanConfig.ts");
 const tickerInstitutionalSourceCard = read("components/ticker/TickerInstitutionalSourceCardClient.tsx");
 

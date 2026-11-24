@@ -28,6 +28,43 @@ const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const sitemap = fs.readFileSync(path.join(root, "public/sitemap.xml"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
 
+test("workspace discovery stays public and noindex while marketing redirects preserve query state", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  const path = "/discover?q=NBIS";
+  const response = await middleware(new NextRequest(`https://app.walnutmarkets.com${path}`, { headers: { host: "app.walnutmarkets.com", "user-agent": "Googlebot" } }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("location"), null);
+  assert.equal(response.headers.get("x-robots-tag"), "noindex, follow");
+  const alias = await middleware(new NextRequest(`https://walnutmarkets.com${path}`, { headers: { host: "walnutmarkets.com" } }));
+  assert.equal(alias.status, 307);
+  assert.equal(alias.headers.get("location"), `https://app.walnutmarkets.com${path}`);
+});
+
+test("chat workspace stays noindex and preserves app-host canonical routing", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  for (const host of ["app.walnutmarkets.com", "walnut-preview.vercel.app"]) {
+    const response = await middleware(new NextRequest(`https://${host}/ask?symbol=NBIS`, {headers:{host}}));
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("x-robots-tag"), /noindex/);
+  }
+  const response = await middleware(new NextRequest("https://walnutmarkets.com/ask?symbol=NBIS", {headers:{host:"walnutmarkets.com"}}));
+  assert.equal(response.headers.get("location"), "https://app.walnutmarkets.com/ask?symbol=NBIS");
+});
+
+test("My Stocks middleware preserves login return state and indexing restrictions", async () => {
+  const { NextRequest } = require("next/server");
+  const { middleware } = loadModule("middleware.ts");
+  const route = "/my-stocks?add=NBIS";
+  const response = await middleware(new NextRequest(`https://app.walnutmarkets.com${route}`, { headers: { host: "app.walnutmarkets.com" } }));
+  assert.equal(response.status, 307);
+  const location = new URL(response.headers.get("location"));
+  assert.equal(location.pathname, "/login");
+  assert.equal(location.searchParams.get("return_to"), route);
+  assert.equal(response.headers.get("x-robots-tag"), "noindex, follow");
+});
+
 test("production ticker filters stay crawlable without weakening private or preview exclusions", async () => {
   const { NextRequest } = require("next/server");
   const { middleware } = loadModule("middleware.ts");

@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - "frontend/app/ticker/**"
+      - "frontend/components/ticker/TickerPageRenderer.tsx"
       - "frontend/components/ticker/TickerPriceHeader.tsx"
       - "frontend/components/ticker/PremiumTickerChart.tsx"
       - "frontend/lib/tickerHeaderPrice.ts"

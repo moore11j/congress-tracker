@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 test("anonymous ticker activity requests begin alongside the context bundle", () => {
-  const page = readFileSync(join(process.cwd(), "app/ticker/[symbol]/page.tsx"), "utf8");
+  const page = readFileSync(join(process.cwd(), "components/ticker/TickerPageRenderer.tsx"), "utf8");
 
   const earlyRequests = page.indexOf("const earlyPublicActivityRequests = publicStalePageCache");
   const contextBundle = page.indexOf("const contextBundleResult = useAnonymousTickerSsrShell");

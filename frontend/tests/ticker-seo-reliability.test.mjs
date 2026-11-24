@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-const source=fs.readFileSync('app/ticker/[symbol]/page.tsx','utf8');
+const source=fs.readFileSync('components/ticker/TickerPageRenderer.tsx','utf8');
 const start=source.indexOf('const loadPublicTickerSnapshot =');
 const end=source.indexOf('export async function generateMetadata',start);
 const loader=ts.transpileModule(source.slice(start,end)+'\nglobalThis.loadSnapshot = loadPublicTickerSnapshot;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;

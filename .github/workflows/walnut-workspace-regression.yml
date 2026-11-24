@@ -1,0 +1,87 @@
+name: Walnut workspace regression
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'frontend/app/discover/**'
+      - 'frontend/app/my-stocks/**'
+      - 'frontend/app/ask/**'
+      - 'frontend/app/api/ask/**'
+      - 'frontend/lib/researchCredits.ts'
+      - 'frontend/lib/researchCreditBalance.ts'
+      - 'frontend/lib/useResearchCreditBalance.ts'
+      - 'frontend/app/account/billing/**'
+      - 'frontend/tests/research-credit-balance.test.mjs'
+      - 'backend/tests/test_research_credit_subscriptions.py'
+      - 'frontend/tests/research-credits.test.mjs'
+      - 'backend/app/services/research_credit*.py'
+      - 'backend/app/routers/research_credits.py'
+      - 'backend/scripts/setup_research_credit_sandbox.py'
+      - 'backend/scripts/grant_research_subscription_months.py'
+      - 'backend/tests/test_research_credit_sandbox.py'
+      - 'frontend/app/layout.tsx'
+      - 'frontend/components/chat/**'
+      - 'frontend/components/ticker/TickerPageRenderer.tsx'
+      - 'frontend/app/ticker/**'
+      - 'frontend/app/walnut-public/ticker/**'
+      - 'frontend/components/RouteChrome.tsx'
+      - 'frontend/lib/chatNavigation.ts'
+      - 'frontend/lib/upgradeDestination.ts'
+      - 'frontend/tests/chat-workspace.test.mjs'
+      - 'frontend/components/discover/**'
+      - 'frontend/components/AppTopNav.tsx'
+      - 'frontend/components/watchlists/WatchlistsDashboard.tsx'
+      - 'frontend/middleware.ts'
+      - 'frontend/tests/discover-render.test.mjs'
+      - 'frontend/tests/my-stocks-return.test.mjs'
+      - 'frontend/tests/workspace-loading.test.mjs'
+      - 'frontend/tests/preview-login.test.mjs'
+      - 'frontend/lib/authRecovery.ts'
+      - 'frontend/components/auth/LoginRegisterPanel.tsx'
+      - 'frontend/tests/seo-canonicalization.test.mjs'
+      - 'backend/app/main.py'
+      - 'backend/app/services/monitoring_alerts.py'
+      - 'backend/tests/test_watchlist_list_access.py'
+      - 'backend/tests/test_watchlist_unseen.py'
+      - 'backend/tests/test_watchlist_recent_activity.py'
+      - '.github/workflows/walnut-workspace-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  watchlist-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: 'sqlite:///:memory:'
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt pytest httpx==0.28.1
+      - working-directory: backend
+        run: python -m pytest tests/test_watchlist_list_access.py tests/test_watchlist_unseen.py tests/test_watchlist_recent_activity.py tests/test_research_credit_sandbox.py tests/test_research_credit_subscriptions.py -q
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: node --test tests/discover-render.test.mjs tests/my-stocks-return.test.mjs tests/workspace-loading.test.mjs tests/preview-login.test.mjs tests/chat-workspace.test.mjs tests/research-credits.test.mjs tests/research-credit-balance.test.mjs tests/upgrade-conversion.test.mjs tests/ticker-upgrade-cta.test.mjs
+      - run: node --test --test-name-pattern='workspace discovery|My Stocks|chat workspace' tests/seo-canonicalization.test.mjs
+      - run: npx next typegen
+      - run: npx tsc --noEmit --incremental false

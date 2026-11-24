@@ -14265,34 +14265,18 @@ def list_watchlists(request: Request, db: Session = Depends(get_db)):
         ).all():
             if symbol:
                 symbols_by_watchlist[int(watchlist_id)].append(str(symbol).strip().upper())
-    unread_counts: dict[str, int] = {}
-    if watchlist_ids:
-        unread_rows = db.execute(
-            select(MonitoringAlert.source_id, func.count())
-            .where(MonitoringAlert.user_id == user.id)
-            .where(MonitoringAlert.source_type == "watchlist")
-            .where(MonitoringAlert.source_id.in_([str(watchlist_id) for watchlist_id in watchlist_ids]))
-            .where(MonitoringAlert.read_at.is_(None), MonitoringAlert.dismissed_at.is_(None))
-            .group_by(MonitoringAlert.source_id)
-        ).all()
-        unread_counts = {str(source_id): int(count or 0) for source_id, count in unread_rows}
-    # Until the background sweep has created MonitoringAlert rows for an older
-    # watchlist, retain the checkpoint-based unread calculation. Once alerts
-    # exist, the grouped query above avoids the former per-watchlist N+1 work.
-    fallback_summaries = {
-        watchlist_id: _watchlist_view_summary(db, watchlist_id, user.id)
-        for watchlist_id in watchlist_ids
-        if str(watchlist_id) not in unread_counts
-    }
+    # Share current-plan visibility and legacy checkpoint fallback with the
+    # monitoring dashboard, including alerts retained after a plan downgrade.
+    unread_counts = watchlist_unread_counts(db, watchlist_ids, user_id=user.id)
     return [
         {
             "id": int(watchlist_id),
             "name": name,
             "ticker_count": int(ticker_count or 0),
             "symbols": symbols_by_watchlist.get(int(watchlist_id), []),
-            "unseen_count": unread_counts.get(str(watchlist_id), fallback_summaries.get(watchlist_id, {}).get("unseen_count", 0)),
-            "unread_count": unread_counts.get(str(watchlist_id), fallback_summaries.get(watchlist_id, {}).get("unread_count", 0)),
-            "new_count": unread_counts.get(str(watchlist_id), fallback_summaries.get(watchlist_id, {}).get("new_count", 0)),
+            "unseen_count": unread_counts.get(int(watchlist_id), 0),
+            "unread_count": unread_counts.get(int(watchlist_id), 0),
+            "new_count": unread_counts.get(int(watchlist_id), 0),
         }
         for watchlist_id, name, ticker_count in rows
     ]
@@ -15598,3 +15582,6 @@ app.include_router(research_evidence_router, prefix="/api")
 app.include_router(research_memory_router, prefix="/api")
 app.include_router(operational_intelligence_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")
+if os.getenv("WALNUT_CREDITS_SANDBOX_ENABLED") == "1":
+    from app.routers.research_credits import router as research_credit_sandbox_router
+    app.include_router(research_credit_sandbox_router, prefix="/api")

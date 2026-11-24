@@ -82,6 +82,9 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
   const router = useRouter();
   const searchParams = useSearchParams();
   const [watchlists, setWatchlists] = useState(initialWatchlists);
+  const [watchlistsLoading, setWatchlistsLoading] = useState(true);
+  const [watchlistsError, setWatchlistsError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [entitlementsLoading, setEntitlementsLoading] = useState(initialAuthPending);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -113,15 +116,22 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
 
   useEffect(() => {
     let cancelled = false;
+    setWatchlistsLoading(true);
+    setWatchlistsError(false);
     listWatchlists()
       .then((next) => {
         if (!cancelled) setWatchlists(next);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setWatchlistsError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setWatchlistsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   useEffect(() => {
     if (pendingTickerIntent) {
@@ -162,8 +172,18 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
     }
   };
 
-  if (entitlementsLoading) {
+  if (entitlementsLoading || watchlistsLoading) {
     return <WatchlistsSkeleton />;
+  }
+
+  if (watchlistsError) {
+    return (
+      <div className={cardClassName} role="status">
+        <h2 className="text-lg font-semibold text-white">Your watchlists could not be loaded</h2>
+        <p className="mt-2 text-sm text-slate-400">Your saved lists have not been changed. Try loading them again.</p>
+        <button type="button" className={`${ghostButtonClassName} mt-4`} onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Try again</button>
+      </div>
+    );
   }
 
   return (

@@ -307,7 +307,7 @@ test("global and landing search submit unknown text to results instead of raw ti
 test("search results page and invalid ticker fallback provide safe no-error search path", () => {
   const searchPage = read("app/search/page.tsx");
   const searchClient = read("app/search/SearchResultsClient.tsx");
-  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const tickerPage = read("components/ticker/TickerPageRenderer.tsx");
 
   assert.match(searchClient, /searchSuggest\(query, 20/);
   assert.match(searchClient, /const key = result\.href/);
