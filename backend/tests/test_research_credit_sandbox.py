@@ -444,3 +444,34 @@ def test_http_routes_require_configuration_auth_origin_and_signature(monkeypatch
     assert store.balance("1")["available"] == 0
     assert any(c[2] and c[2].get("client_reference_id") == "1" for c in stripe.calls)
     api.rate_limiter.reset()
+
+
+def test_authenticated_return_confirms_payment_immediately_without_double_grant(monkeypatch, store):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.routers import research_credits as api
+    from types import SimpleNamespace
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_db] = lambda: None
+    stripe = Stripe()
+    monkeypatch.setattr(api, "configured", lambda: (store, stripe, "https://preview.example", "price_credit"))
+    monkeypatch.setattr(api, "current_user", lambda *args, **kwargs: SimpleNamespace(id=1, email_verified_at=1))
+    store.create_order("1", "o", 500)
+    store.bind_session("1", "o", "cs_test_1")
+    api.rate_limiter.reset()
+    with TestClient(app) as client:
+        body, headers = {"session_id": "cs_test_1"}, {"origin": "https://preview.example"}
+        assert client.post("/research-credits/confirm", json=body).status_code == 403
+        first = client.post("/research-credits/confirm", json=body, headers=headers)
+        assert first.status_code == 200
+        assert first.json()["status"] == "credited"
+        assert first.json()["balance"]["available"] == 250
+        assert client.get("/research-credits/balance").json()["available"] == 250
+        process_event(store, stripe, EVENT, "price_credit")
+        assert client.post("/research-credits/confirm", json=body, headers=headers).json()["balance"]["available"] == 250
+        monkeypatch.setattr(api, "current_user", lambda *args, **kwargs: SimpleNamespace(id=2, email_verified_at=1))
+        calls = len(stripe.calls)
+        assert client.post("/research-credits/confirm", json=body, headers=headers).status_code == 404
+        assert len(stripe.calls) == calls
+    api.rate_limiter.reset()

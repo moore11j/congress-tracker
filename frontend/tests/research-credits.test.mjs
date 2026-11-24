@@ -17,6 +17,7 @@ function load(file, modules = {}, globals = {}) {
   return exports;
 }
 const credits = load("lib/researchCredits.ts");
+const balanceHook = {useResearchCreditBalance: () => ({balance:null,status:"Balance not connected"}), refreshResearchCredits() {}};
 test("custom amounts use exact cents and reject ambiguous or out of range inputs", () => {
   for (const [text, cents] of [["5",500], ["10.02",1002], [" 12.5 ",1250], ["1000",100000]])
     assert.equal(credits.creditAmountCents(text), cents);
@@ -35,16 +36,16 @@ test("credit proxy requires its own sandbox host and never falls back to the liv
 test("preview renders honest unconfirmed balance, existing plan prices and disabled checkout", () => {
   const {ResearchCreditsPanel} = load("components/chat/ResearchCreditsPanel.tsx", {
     "next/link":{default:({children,...props})=>React.createElement("a",props,children)},
-    "@/lib/researchCredits":credits,
+    "@/lib/researchCredits":credits, "@/lib/useResearchCreditBalance":balanceHook,
   });
   const html = renderToStaticMarkup(React.createElement(ResearchCreditsPanel));
-  for (const text of ["Billing preview", "500 credits for $10.00", "$40 at one-time credit prices", "250 credits in your first month", "Then 100 credits each month", "$80 at one-time credit prices", "25 credits", "100 credits", "400 credits", "$24.95", "$39.95", "$249.50", "$399.95", "Test payments only", "No live subscription changes", "automatic monthly grants are still being connected"])
+  for (const text of ["Billing preview", "500 credits for $10.00", "$40 at one-time credit prices", "250 credits in your first month", "Then 100 credits each month", "$80 at one-time credit prices", "25 credits", "100 credits", "400 credits", "$24.95", "$39.95", "$249.50", "$399.95", "Test payments only", "No live subscription changes", "Subscription credits require configured Stripe webhooks"])
     assert.ok(html.includes(text), text);
   assert.match(html, /disabled=""[^>]*>Test checkout/);
   assert.doesNotMatch(html, /100 available|1,500 available|4,000 available/);
 });
 test("composer quotes each selected task, describes scope and never invents a balance", () => {
-  const {ResearchCreditQuote} = load("components/chat/ResearchCreditQuote.tsx", {"@/lib/researchCredits":credits});
+  const {ResearchCreditQuote} = load("components/chat/ResearchCreditQuote.tsx", {"@/lib/researchCredits":credits,"@/lib/useResearchCreditBalance":balanceHook});
   for (const [mode,cost] of [["browse",0],["answer",25],["analysis",100],["report",400]]) {
     const html=renderToStaticMarkup(React.createElement(ResearchCreditQuote,{mode,onModeChange(){}}));
     assert.ok(html.includes(cost ? `${cost} credits per task` : "0 credits"));
@@ -56,34 +57,13 @@ test("composer quotes each selected task, describes scope and never invents a ba
     }
   }
 });
-test("composer only fetches balances for paid modes and shows verified balance with quoted remainder", async () => {
-  let cursor=0, effect;const slots=[];const calls=[];
-  const hooks={useState(initial){const i=cursor++;if(!(i in slots))slots[i]=initial;return[slots[i],value=>{slots[i]=value;}];},useEffect(fn){effect=fn;}};
-  const {ResearchCreditQuote}=load("components/chat/ResearchCreditQuote.tsx",{react:hooks,"@/lib/researchCredits":credits},
-    {fetch:async(...args)=>{calls.push(args);return{ok:true,json:async()=>({sandbox:true,available:250,billing_hold:false})};}});
-  const render=mode=>{cursor=0;return renderToStaticMarkup(ResearchCreditQuote({mode,onModeChange(){}}));};
-  render("browse");effect();assert.equal(calls.length,0);
-  render("answer");const cleanup=effect();for(let i=0;i<12;i++)await Promise.resolve();
-  const html=render("answer");assert.ok(html.includes("250 credits available · 225 after this task"));
-  assert.equal(calls.length,1);assert.equal(calls[0][0],"/api/ask/credits/balance");
-  cleanup();assert.equal(calls[0][1].signal.aborted,true);
-});
-test("composer ignores a balance arriving after the request is cancelled", async () => {
-  let cursor=0,effect,resolve;const slots=[];
-  const hooks={useState(initial){const i=cursor++;if(!(i in slots))slots[i]=initial;return[slots[i],value=>{slots[i]=value;}];},useEffect(fn){effect=fn;}};
-  const {ResearchCreditQuote}=load("components/chat/ResearchCreditQuote.tsx",{react:hooks,"@/lib/researchCredits":credits},
-    {fetch:()=>new Promise(r=>{resolve=r;})});
-  const render=()=>{cursor=0;return renderToStaticMarkup(ResearchCreditQuote({mode:"report",onModeChange(){}}));};
-  render();const cleanup=effect();cleanup();resolve({ok:true,json:async()=>({sandbox:true,available:9999,billing_hold:false})});
-  for(let i=0;i<12;i++)await Promise.resolve();assert.doesNotMatch(render(),/9,999 credits available/);
-});
 function proxy(env, fetcher) {
   class Response {
     constructor(body, init) {this.body=body;this.status=init.status;this.headers=init.headers;}
     static json(body, init) {return new Response(body, init);}
   }
   return load("app/api/ask/credits/[action]/route.ts", {
-    "next/server":{NextResponse:Response}, "@/lib/researchCredits":credits,
+    "next/server":{NextResponse:Response}, "@/lib/researchCredits":credits, "@/lib/useResearchCreditBalance":balanceHook,
   }, {process:{env},fetch:fetcher});
 }
 const request = (method="GET", origin="https://preview.example", body="{}") => ({method,

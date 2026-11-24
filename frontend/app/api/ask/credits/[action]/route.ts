@@ -4,7 +4,7 @@ import { creditSandboxBackend } from "@/lib/researchCredits";
 export const dynamic = "force-dynamic";
 async function proxy(request: NextRequest, context: { params: Promise<{ action: string }> }) {
   const { action } = await context.params;
-  if (!((request.method === "GET" && action === "balance") || (request.method === "POST" && action === "checkout")))
+  if (!((request.method === "GET" && action === "balance") || (request.method === "POST" && ["checkout", "confirm"].includes(action))))
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   const base = creditSandboxBackend(process.env);
   if (!base) return NextResponse.json({ detail: "Billing sandbox is not connected yet" }, { status: 503 });

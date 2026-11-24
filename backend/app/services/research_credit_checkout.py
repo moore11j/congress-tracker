@@ -109,7 +109,7 @@ def create_checkout(store: CreditStore, stripe, user_id, order_id, amount_cents,
         "metadata[walnut_order]": order_id,
         "metadata[walnut_catalog]": CATALOG_VERSION,
         "payment_intent_data[metadata][walnut_order]": order_id,
-        "success_url": origin+"/ask/credits?checkout=returned",
+        "success_url": origin+"/ask/credits?checkout=returned&session_id={CHECKOUT_SESSION_ID}",
         "cancel_url": origin+"/ask/credits?checkout=cancelled",
         }, idempotency=f"walnut-credit-checkout:{order_id}")
     session_id, url = session.get("id", ""), session.get("url", "")
@@ -121,18 +121,31 @@ def create_checkout(store: CreditStore, stripe, user_id, order_id, amount_cents,
     return {"id": session_id, "url": url, "sandbox": True}
 
 
-def process_event(store: CreditStore, stripe, event, price_id):
+def process_event(store: CreditStore, stripe, event, price_id, *, resolve_customer=None):
     if event.get("livemode") is not False or event.get("account"):
         raise CreditError("Only sandbox events are accepted")
     kind = event.get("type")
     obj = event.get("data", {}).get("object", {})
     if kind in {"charge.refunded", "charge.dispute.created"}:
+        charge = obj
         payment = obj.get("payment_intent")
-        if not payment and kind == "charge.dispute.created" and isinstance(obj.get("charge"), str):
-            payment = stripe.request("GET", f"charges/{obj['charge']}").get("payment_intent")
+        if kind == "charge.dispute.created" and isinstance(obj.get("charge"), str):
+            from app.services.research_credit_subscriptions import object_id
+            charge = stripe.request("GET", f"charges/{object_id(obj['charge'], 'ch')}")
+            if charge.get("livemode") is not False or charge.get("id") != obj["charge"]:
+                raise CreditError("Charge environment or identity mismatch")
+            payment = charge.get("payment_intent")
         if not payment:
             raise CreditError("Missing payment for billing review")
         store.hold_payment(event["id"], payment, kind)
+        if resolve_customer and charge.get("customer"):
+            user_id = resolve_customer(charge["customer"])
+            if user_id:
+                from sqlalchemy import update
+                from app.services.research_credits import wallets
+                with store.engine.begin() as conn:
+                    store._lock(conn, str(user_id))
+                    conn.execute(update(wallets).where(wallets.c.user_id == str(user_id)).values(billing_hold=True))
         return {"status": "review"}
     if kind not in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
         return {"status": "ignored"}

@@ -1,3 +1,5 @@
+import { ResearchCreditBalance } from "@/components/chat/ResearchCreditBalance";
+import { creditSandboxBackend } from "@/lib/researchCredits";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { AccountAccessPanel } from "@/components/billing/AccountAccessPanel";
 import { BillingAccountPanel } from "@/components/billing/BillingAccountPanel";
@@ -21,6 +23,7 @@ export default async function BillingPage() {
     <VerifiedSessionGuard returnTo="/account/billing" initiallyAuthorized={Boolean(authToken)}>
       <div className="space-y-8">
         <AccountAccessPanel />
+        {creditSandboxBackend(process.env) && <ResearchCreditBalance />}
         <BillingAccountPanel />
       </div>
     </VerifiedSessionGuard>

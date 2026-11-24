@@ -84,6 +84,7 @@ function harness(search, symbol = null) {
     react, "react/jsx-runtime": {jsx, jsxs:jsx}, "next/link": {default:"a"},
     "next/navigation": {useRouter: () => ({push: value => urls.push(value)})},
     "lucide-react": new Proxy({}, {get:(_,key)=>String(key)}),
+    "@/components/chat/ResearchCreditBalance": {ResearchCreditBalance:"ResearchCreditBalance"},
     "@/components/auth/AccountNav": {AccountNav:"AccountNav"},
     "@/components/discover/DiscoveryStocks": {DiscoveryStocks:"DiscoveryStocks"},
     "@/components/WalnutBrandMark": {WalnutBrandMark:"Brand"},

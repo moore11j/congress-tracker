@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { ArrowUp, ArrowUpRight, BarChart3, ChevronDown, Menu, MessageSquare, Plus, Search, X } from "lucide-react";
+import { ResearchCreditBalance } from "@/components/chat/ResearchCreditBalance";
 import { AccountNav } from "@/components/auth/AccountNav";
 import { DiscoveryStocks } from "@/components/discover/DiscoveryStocks";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
@@ -135,9 +136,9 @@ export function WalnutChatWorkspace({ symbol, rankings, children }: { symbol: st
     <aside className="hidden w-[244px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-white/[0.06] bg-[#0d141b] p-4 lg:flex">{sidebar}</aside>
     <dialog ref={drawer} aria-label="Workspace menu" className="fixed inset-y-0 left-0 right-auto m-0 h-[100dvh] max-h-none w-[280px] max-w-[85vw] border-r border-white/10 bg-[#0d141b] p-4 text-slate-200 backdrop:bg-black/60"><button type="button" aria-label="Close workspace menu" onClick={() => drawer.current?.close()} className="absolute right-3 top-4 rounded-md p-2 hover:bg-white/10"><X className="h-5 w-5" /></button><div className="flex min-h-full flex-col pb-2">{sidebar}</div></dialog>
     <div className="flex min-w-0 flex-1 flex-col">
-      <header className="flex h-16 shrink-0 items-center justify-between gap-3 px-4 sm:px-6">
+      <header className="flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-6">
         <div className="flex min-w-0 items-center gap-3"><button type="button" aria-label="Open workspace menu" onClick={() => drawer.current?.showModal()} className="-ml-2 rounded-md p-2 text-slate-400 lg:hidden"><Menu className="h-5 w-5" /></button><span className="truncate text-sm font-medium text-slate-300">Ask Walnut</span><span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-slate-500">Preview</span></div>
-        <AccountNav />
+        <div className="flex min-w-0 items-center gap-2"><ResearchCreditBalance compact /><AccountNav /></div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6">
         <div className={`mx-auto flex min-h-full w-full flex-col ${hasResearch ? "max-w-6xl" : "max-w-3xl"}`}>

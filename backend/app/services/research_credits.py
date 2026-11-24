@@ -53,6 +53,21 @@ payments = Table("research_credit_payment_locks", metadata,
     Column("payment_intent", String(180), primary_key=True),
     Column("version", Integer, nullable=False))
 
+subscriptions = Table("research_credit_subscriptions", metadata,
+    Column("subscription_id", String(180), primary_key=True),
+    Column("user_id", String(80), nullable=False, index=True),
+    Column("customer_id", String(180), nullable=False),
+    Column("status", String(40), nullable=False),
+    Column("event_created", Integer, nullable=False))
+coverage = Table("research_credit_subscription_coverage", metadata,
+    Column("invoice_id", String(180), primary_key=True),
+    Column("subscription_id", String(180), nullable=False, index=True),
+    Column("user_id", String(80), nullable=False, index=True),
+    Column("tier", String(20), nullable=False),
+    Column("interval", String(10), nullable=False),
+    Column("period_start", Integer, nullable=False),
+    Column("period_end", Integer, nullable=False))
+
 MONTHLY_ALLOWANCE = {"free": 100, "premium": 2000, "pro": 4000}
 FREE_FIRST_MONTH = 250
 TASK_PRICES = {"answer": 25, "analysis": 100, "report": 400}

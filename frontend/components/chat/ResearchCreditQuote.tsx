@@ -1,26 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useResearchCreditBalance } from "@/lib/useResearchCreditBalance";
 import { creditTasks, type ResearchMode } from "@/lib/researchCredits";
 
 export function ResearchCreditQuote({ mode, onModeChange }: { mode: ResearchMode; onModeChange: (mode: ResearchMode) => void }) {
   const task = creditTasks.find(item => item.id === mode)!;
-  const [balance, setBalance] = useState<{ available: number; billing_hold: boolean } | null>(null);
-  const [status, setStatus] = useState("Balance not connected");
-  useEffect(() => {
-    setBalance(null);
-    if (mode === "browse") return;
-    const abort = new AbortController();
-    setStatus("Checking sandbox balance…");
-    fetch("/api/ask/credits/balance", { signal: abort.signal, cache: "no-store" })
-      .then(async response => {
-        if (!response.ok) throw new Error("Unavailable");
-        const data = await response.json();
-        if (data.sandbox !== true || !Number.isSafeInteger(data.available) || data.available < 0 || typeof data.billing_hold !== "boolean")
-          throw new Error("Invalid balance");
-        if (!abort.signal.aborted) setBalance(data);
-      }).catch(() => { if (!abort.signal.aborted) setStatus("Balance not connected"); });
-    return () => abort.abort();
-  }, [mode]);
+  const { balance, status } = useResearchCreditBalance(mode !== "browse");
   return <div className="mb-2 space-y-2 border-b border-white/10 pb-3 text-xs">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <label className="sr-only" htmlFor="research-mode">Research type</label>
