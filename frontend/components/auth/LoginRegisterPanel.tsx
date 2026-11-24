@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, getGoogleAuthUrl, getMe, login, recordProductEvent, register, requestPasswordReset, verifyAuthenticatedSession } from "@/lib/api";
-import { rememberGoogleReturnPath, withAuthTimeout } from "@/lib/authRecovery";
+import { googleSignInReturnsToCurrentSite, rememberGoogleReturnPath, withAuthTimeout } from "@/lib/authRecovery";
 import { defaultPostLoginPath, reactivatedBillingPath, safeAppReturnPath } from "@/lib/returnPaths";
 import { campaignParamKeys } from "@/lib/campaignAttribution";
 import { trackEvent } from "@/lib/productAnalytics";
@@ -112,6 +112,7 @@ export function LoginRegisterPanel({
   const [duplicateAccount, setDuplicateAccount] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
+  const [googlePreviewUnavailable, setGooglePreviewUnavailable] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,8 +210,12 @@ export function LoginRegisterPanel({
     setStatus(null);
     try {
       const destination = mode === "register" ? signupPath : nextPath;
-      rememberGoogleReturnPath(destination);
       const response = await withAuthTimeout(getGoogleAuthUrl(destination), 15_000);
+      if (!googleSignInReturnsToCurrentSite(response.authorization_url, window.location.origin)) {
+        setGooglePreviewUnavailable(true);
+        throw new Error("Google sign-in cannot return to this preview. Use your existing email and password, or browse Discover without signing in.");
+      }
+      rememberGoogleReturnPath(destination);
       setLoadingLabel("Opening Google...");
       window.location.href = response.authorization_url;
     } catch (error) {
@@ -357,6 +362,11 @@ export function LoginRegisterPanel({
         </details>
 
         {status ? <p role="status" className="mt-4 text-sm text-slate-300">{status}</p> : null}
+        {googlePreviewUnavailable ? (
+          <Link href="/discover" className="mt-3 inline-flex text-sm font-semibold text-emerald-200">
+            Browse Discover preview
+          </Link>
+        ) : null}
         {duplicateAccount ? (
           <div className="mt-3 flex flex-wrap gap-2">
             <button
