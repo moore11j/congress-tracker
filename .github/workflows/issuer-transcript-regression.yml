@@ -4,6 +4,8 @@ on:
     paths:
       - 'backend/app/services/issuer*.py'
       - 'backend/app/clients/issuer*.py'
+      - 'backend/app/clients/direct_sources.py'
+      - 'backend/scripts/fetch_moderna_regression_sources.py'
       - 'backend/config/direct_issuer_sources.json'
       - 'backend/tests/test_issuer*.py'
       - 'backend/tests/fixtures/issuer*/**'
@@ -19,6 +21,7 @@ jobs:
     env:
       DATABASE_URL: sqlite://
       PYTHONPATH: .
+      WALNUT_MODERNA_SOURCE_DIR: ${{ runner.temp }}/moderna-originals
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -27,6 +30,9 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: python -m pip install -r backend/requirements.txt pytest httpx==0.28.1
+      - name: Fetch bounded complete Moderna originals
+        working-directory: backend
+        run: python scripts/fetch_moderna_regression_sources.py --output "$WALNUT_MODERNA_SOURCE_DIR"
       - name: Verify complete originals, discovery and research consumers
         working-directory: backend
         run: >-
@@ -36,7 +42,8 @@ jobs:
           tests/test_issuer_collection_fairness.py tests/test_issuer_failed_index_priority.py tests/test_issuer_pdf.py
           tests/test_issuer_pdf_text_cache.py tests/test_issuer_sec_discovery.py
           tests/test_issuer_ibm_discovery.py tests/test_issuer_microsoft_discovery.py
-          tests/test_issuer_moderna_discovery.py tests/test_issuer_unilever_discovery.py
+          tests/test_issuer_moderna_discovery.py tests/test_issuer_moderna_punctuation.py
+          tests/test_issuer_moderna_originals.py tests/test_issuer_unilever_discovery.py
           -q --disable-warnings --maxfail=3 --junitxml=issuer-transcript-results.xml
       - uses: actions/upload-artifact@v4
         if: always()
