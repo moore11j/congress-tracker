@@ -137,11 +137,22 @@ def parse_index(raw, company, observed):
     return sorted(found.values(), key=lambda m: (m['fiscal_year'], m['fiscal_quarter']))
 
 
+def reviewed_period_pattern(metadata):
+    """Allow legal-name punctuation without rewriting saved source metadata."""
+    year, quarter = metadata.get('fiscal_year'), metadata.get('fiscal_quarter')
+    if (metadata.get('symbol') != 'MRNA' or metadata.get('discovery_kind') != KIND
+            or type(year) is not int or type(quarter) is not int
+            or not 2000 <= year <= 2099 or not 1 <= quarter <= 4
+            or metadata.get('period_pattern') != rf'\bQ{quarter} {year} Moderna Inc Earnings Call\b'):
+        raise DirectSourceError('Unreviewed Moderna fiscal pattern')
+    return rf'\bQ{quarter} {year} Moderna,? Inc\.? Earnings Call\b'
+
+
 def parse_candidate(raw, metadata, observed):
     text, parsed = parse_issuer_material(raw, metadata)
     day = date.fromisoformat(metadata['published_at'])
     heading = (r'^'+metadata['publisher_pattern']+r'\s+EDITED TRANSCRIPT\s+MRNA\.OQ\s+-\s+'
-               +metadata['period_pattern'].removeprefix(r'\b').removesuffix(r'\b')
+               +reviewed_period_pattern(metadata).removeprefix(r'\b').removesuffix(r'\b')
                +r'\s+EVENT DATE/TIME:\s+'+publication_pattern(day)+r'\s*/')
     if not re.search(heading, text, re.I) or day > observed.date():
         raise DirectSourceError('Moderna transcript heading identity or date mismatch')

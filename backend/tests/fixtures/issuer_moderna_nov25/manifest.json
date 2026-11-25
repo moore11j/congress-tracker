@@ -1,0 +1,115 @@
+{
+  "observed_at": "2026-11-25T05:57:49+00:00",
+  "files": {
+    "index.html": {
+      "url": "https://investors.modernatx.com/quarterly-results",
+      "sha256": "c7125b3f7b3cf174df19b5420a2dfb95f84c8bf11195efe194fa77b2dc8cd568",
+      "bytes": 223019
+    },
+    "transcript-q3.pdf": {
+      "url": "https://irp.cdn-website.com/89dd0539/files/uploaded/MRNA-USQ_Transcript_2026-11-06.pdf",
+      "sha256": "fc4632f8927bf1e9ab2fef28a04354c9685483be2c881efce116e7c8fa632dd4",
+      "bytes": 234294,
+      "expected": {
+        "key": "MRNA:earnings_transcript:2026:Q3",
+        "source_sha256": "fc4632f8927bf1e9ab2fef28a04354c9685483be2c881efce116e7c8fa632dd4",
+        "source_bytes": 234294,
+        "metadata_sha256": "392e06fef81dd0fb95eee061d853f9890e674a1a8c32f6064da255a6e0c8b63b",
+        "status": "passed",
+        "text_sha256": "d6803ca9fb7be42fb522860fb754171d97273153fee036e7a5d833d6dbaae260",
+        "chars": 60854,
+        "complete_output_sha256": "185c1b5145f90ea75bb7615a940d3d78b2bd55253428c6e534353933c77b6f72"
+      }
+    },
+    "mrna-2026-q2.pdf": {
+      "url": "https://irp.cdn-website.com/89dd0539/files/uploaded/MRNA-USQ_Transcript_2026-07-31.pdf",
+      "sha256": "8422323b1781b23f945a870a7b1cffae1291752d42198cb0f92e46ca091a6efc",
+      "bytes": 228350,
+      "expected": {
+        "key": "MRNA:earnings_transcript:2026:Q2",
+        "source_sha256": "8422323b1781b23f945a870a7b1cffae1291752d42198cb0f92e46ca091a6efc",
+        "source_bytes": 228350,
+        "metadata_sha256": "1142f453e4d12503f34f90d81bedb89d44a3474ea8c6077983d31a740c55f299",
+        "status": "passed",
+        "text_sha256": "6e586f04fcee82d41d135b2c0944aaa176eba0f9174b7e4d327cc95835bd3d8b",
+        "chars": 62294,
+        "complete_output_sha256": "ac60544a579adf0f748e4ca1c109582b27ba25244e48c9e9707660a2f28aaae9"
+      }
+    },
+    "mrna-2026-q1.pdf": {
+      "url": "https://irp.cdn-website.com/89dd0539/files/uploaded/MRNA-USQ_Transcript_2026-05-01+%281%29.pdf",
+      "sha256": "59f08feb0b4fdc661afa6d9d81af83c34391ef11de41a30956702b127a5d49da",
+      "bytes": 230604,
+      "expected": {
+        "key": "MRNA:earnings_transcript:2026:Q1",
+        "source_sha256": "59f08feb0b4fdc661afa6d9d81af83c34391ef11de41a30956702b127a5d49da",
+        "source_bytes": 230604,
+        "metadata_sha256": "64c9313bf65865ef41e57ad93c73cd13a8dc9bf4a17e9e32279ee5cf2fd80395",
+        "status": "passed",
+        "text_sha256": "e4e204d4d38259e14e950de27f20c3605fafcf2fc835655542dcb21757e60bde",
+        "chars": 62948,
+        "complete_output_sha256": "2e67f759cfc6db4dd4f028f1fb6998afc19c0400152b5fc1c7e3a6b05e8052ae"
+      }
+    },
+    "mrna-2025-q4.pdf": {
+      "url": "https://irp.cdn-website.com/0a71bb4f/files/uploaded/MRNA-USQ_Transcript_2026-02-13.pdf",
+      "sha256": "e5bc414464167a5f278be4283db6caffdbbd4f5309a43662abba62383590692e",
+      "bytes": 224330,
+      "expected": {
+        "key": "MRNA:earnings_transcript:2025:Q4",
+        "source_sha256": "e5bc414464167a5f278be4283db6caffdbbd4f5309a43662abba62383590692e",
+        "source_bytes": 224330,
+        "metadata_sha256": "78512b1b8beb42a5de4602fe258369bf586babcc0589f27c30a430acf534a255",
+        "status": "passed",
+        "text_sha256": "727a6cc19aff6ad424aad7bc8ffab4ff78d1825e1be6deff81808b0041c7ece4",
+        "chars": 61625,
+        "complete_output_sha256": "673b1ca7ef113a32427dd23d4747f4518796913a510e9ffd1538ee8dd8febf96"
+      }
+    },
+    "mrna-2025-q3.pdf": {
+      "url": "https://irp.cdn-website.com/89dd0539/files/uploaded/MRNA-USQ_Transcript_2025-11-06+%281%29.pdf",
+      "sha256": "a7d0b199251ed81eb6febc58bc9192c526a9f8262e7486817e2fc98a73c8a1b4",
+      "bytes": 163061,
+      "expected": {
+        "key": "MRNA:earnings_transcript:2025:Q3",
+        "source_sha256": "a7d0b199251ed81eb6febc58bc9192c526a9f8262e7486817e2fc98a73c8a1b4",
+        "source_bytes": 163061,
+        "metadata_sha256": "adb1abc16a4ec4efb5566fb148f6d9355e5469565d2d65413a453559a32c03e3",
+        "status": "passed",
+        "text_sha256": "32e7ba47912924b18ba456d550b7cd2ddb5d49be4f7755f494d11c5220fefb3f",
+        "chars": 55996,
+        "complete_output_sha256": "c22f77a88b32817ac74bcc33d5473bf1501b5558c670ed6734ee24b40d6fdee8"
+      }
+    },
+    "mrna-2025-q2.pdf": {
+      "url": "https://irp.cdn-website.com/89dd0539/files/uploaded/MRNA-USQ_Transcript_2025-08-01.pdf",
+      "sha256": "572dda5f8473c524c23feade42338c15e08fba6a3552f6ba82062d2634d167e9",
+      "bytes": 174167,
+      "expected": {
+        "key": "MRNA:earnings_transcript:2025:Q2",
+        "source_sha256": "572dda5f8473c524c23feade42338c15e08fba6a3552f6ba82062d2634d167e9",
+        "source_bytes": 174167,
+        "metadata_sha256": "c9387b34de7e3ece774a4730fbe1b3afdb205d3ba8f22536ce55433f66ad2f53",
+        "status": "passed",
+        "text_sha256": "7db40caa5f15bad11ad61da14df5a3949c3337d518dc2b08f29ee1282341e618",
+        "chars": 67735,
+        "complete_output_sha256": "f4f78beab92087518208d902bb042f63782540fda2b7dbcd4d517fda2ffb426c"
+      }
+    },
+    "mrna-2025-q1.pdf": {
+      "url": "https://irp.cdn-website.com/89dd0539/files/uploaded/MRNA-USQ_Transcript_2025-05-01-1.pdf",
+      "sha256": "34dddc0f9141584cee375eb51e17d3bf15aedb18dbbc81a8236a93c8934886ec",
+      "bytes": 169060,
+      "expected": {
+        "key": "MRNA:earnings_transcript:2025:Q1",
+        "source_sha256": "34dddc0f9141584cee375eb51e17d3bf15aedb18dbbc81a8236a93c8934886ec",
+        "source_bytes": 169060,
+        "metadata_sha256": "7336d0d7228ec30dd08b1b92085601ab0ae143cceab60795dc2d857721c2ee83",
+        "status": "passed",
+        "text_sha256": "a0a7313d972a375f94530af790eb1c8ffabada9ad44ed62a3eef0851faf17572",
+        "chars": 61050,
+        "complete_output_sha256": "8c5a442537f4c9ab249470364ab57f1c57304cc2065e39b6b6e430e9e575963b"
+      }
+    }
+  }
+}

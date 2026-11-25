@@ -513,7 +513,11 @@ def parse_issuer_material(raw: bytes, metadata: dict) -> tuple[str, dict]:
         raise DirectSourceError("Issuer page does not contain earnings material")
     if kind == "earnings_transcript" and not re.search(metadata.get('transcript_pattern') or r"transcript|prepared remarks", text, re.I):
         raise DirectSourceError("Issuer page does not identify transcript text")
-    if not re.search(metadata["period_pattern"], text, re.I):
+    period_pattern = metadata["period_pattern"]
+    if metadata.get('discovery_kind') == 'moderna_events_v1':
+        from app.services.issuer_moderna_discovery import reviewed_period_pattern
+        period_pattern = reviewed_period_pattern(metadata)
+    if not re.search(period_pattern, text, re.I):
         raise DirectSourceError("Issuer fiscal period did not match reviewed configuration")
     qa_pattern = metadata.get("qa_pattern")
     if qa_pattern and not re.search(qa_pattern, text, re.I):

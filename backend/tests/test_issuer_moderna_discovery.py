@@ -149,6 +149,6 @@ def test_current_static_period_keeps_reviewed_proof(db):
     assert row.source_url==static['url'] and json.loads(row.metadata_json)==static
 
 
-@pytest.mark.parametrize('script', ['const eventsMRNA=['+','.join('{}' for _ in range(301))+']', 'const eventsMRNA=[{'+','.join('k'+str(i)+':"x"' for i in range(31))+'}]', 'const eventsMRNA=[];'+(' '*1_000_001)])
+@pytest.mark.parametrize('script', ['const eventsMRNA=['+','.join('{}' for _ in range(301))+']', 'const eventsMRNA=[{'+','.join('k'+str(i)+':"x"' for i in range(31))+'}]', 'const eventsMRNA=[];'+(' '*1_000_001)], ids=['event_count','field_count','source_size'])
 def test_literal_resource_bounds(script):
     with pytest.raises(DirectSourceError):policy.literal_events(script)
