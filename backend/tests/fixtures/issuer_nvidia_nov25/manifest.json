@@ -1,0 +1,148 @@
+{
+  "observed_at": "2026-11-25T07:21:00+00:00",
+  "files": {
+    "index-2027.json": {
+      "url": "https://investor.nvidia.com/feed/FinancialReport.svc/GetFinancialReportList?LanguageId=1&reportTypes=First+Quarter%7CSecond+Quarter%7CThird+Quarter%7CFourth+Quarter%7C&reportSubType=First+Quarter&reportSubType=Second+Quarter&reportSubType=Third+Quarter&reportSubType=Fourth+Quarter&reportSubType=&reportSubTypeList=First+Quarter&reportSubTypeList=Second+Quarter&reportSubTypeList=Third+Quarter&reportSubTypeList=Fourth+Quarter&reportSubTypeList=&pageSize=10&pageNumber=0&tagList=&includeTags=true&year=2027&excludeSelection=1",
+      "bytes": 12984,
+      "sha256": "7338957bd7779937064a41af161cb66e3ddd5dcc841bb6c61f788c99c33d045b",
+      "observed_at": "2026-11-25T07:17:27.947316+00:00"
+    },
+    "index-2026.json": {
+      "url": "https://investor.nvidia.com/feed/FinancialReport.svc/GetFinancialReportList?LanguageId=1&reportTypes=First+Quarter%7CSecond+Quarter%7CThird+Quarter%7CFourth+Quarter%7C&reportSubType=First+Quarter&reportSubType=Second+Quarter&reportSubType=Third+Quarter&reportSubType=Fourth+Quarter&reportSubType=&reportSubTypeList=First+Quarter&reportSubTypeList=Second+Quarter&reportSubTypeList=Third+Quarter&reportSubTypeList=Fourth+Quarter&reportSubTypeList=&pageSize=10&pageNumber=0&tagList=&includeTags=true&year=2026&excludeSelection=1",
+      "bytes": 17813,
+      "sha256": "ca3f4a4eec61ec55361d7b37a88aa7ff983ac35fe63b17c14c4c54fed9ecd07b",
+      "observed_at": "2026-11-25T07:17:29.215587+00:00"
+    },
+    "nvda-2027-q2.pdf": {
+      "url": "https://s201.q4cdn.com/141608511/files/content_files/TRANSCRIPT_-NVIDIA-Corp-NVDA-US-Q2-2027-Earnings-Call-26-August-2026-5_00-PM-ET.pdf",
+      "bytes": 289667,
+      "sha256": "a8be2bac4fd08ca18fc4bccbb165cd48237166ac5b4e211e779fc9f89ee35e16",
+      "observed_at": "2026-11-25T07:21:01.991709+00:00",
+      "expected": {
+        "key": "NVDA:earnings_transcript:2027:Q2",
+        "status": "passed",
+        "published_at": "2026-08-26",
+        "source_sha256": "a8be2bac4fd08ca18fc4bccbb165cd48237166ac5b4e211e779fc9f89ee35e16",
+        "text_sha256": "8f0482ec48d776b1149b9e75a41dcd53fa3b6b947f7ea74b2c1abd74b2659e1d",
+        "complete_output_sha256": "370cc3c01fa924cfa4044351690b59bb2456d7efda3b32c5761cdb587d978476",
+        "chars": 62532
+      }
+    },
+    "nvda-2027-q1.pdf": {
+      "url": "https://s201.q4cdn.com/141608511/files/doc_financials/2027/q1/NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf",
+      "bytes": 288661,
+      "sha256": "bc270227348dd3ddb8bebe9f025d82afb83394916922d9c98160180754f32eb4",
+      "observed_at": "2026-11-25T07:21:03.008983+00:00",
+      "expected": {
+        "key": "NVDA:earnings_transcript:2027:Q1",
+        "status": "passed",
+        "published_at": "2026-05-20",
+        "source_sha256": "bc270227348dd3ddb8bebe9f025d82afb83394916922d9c98160180754f32eb4",
+        "text_sha256": "c9b81397b85a2f8c3eb7cfc3c68bc50f75f7b69dbfac493fd485c66880b16f5b",
+        "complete_output_sha256": "af535fc786812b9ec438121381647473f536d6ba200dbac517578a28c893c24b",
+        "chars": 62282
+      }
+    },
+    "nvda-2026-q4.pdf": {
+      "url": "https://s201.q4cdn.com/141608511/files/doc_financials/2026/q4/NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf",
+      "bytes": 306317,
+      "sha256": "79a91c14a8f340b32552a6a1078074bde63ceeea7dea726ac4607bc8e4c7265f",
+      "observed_at": "2026-11-25T07:21:04.026416+00:00",
+      "expected": {
+        "key": "NVDA:earnings_transcript:2026:Q4",
+        "status": "passed",
+        "published_at": "2026-02-25",
+        "source_sha256": "79a91c14a8f340b32552a6a1078074bde63ceeea7dea726ac4607bc8e4c7265f",
+        "text_sha256": "904d5a59d2c05f0d4eac7259df2b4b742cad9659fb2dbe0d377b84f4d095dde2",
+        "complete_output_sha256": "79b101b91a59f65ed81c066a1363298ddc719fbaa71bf64140598e7d4499903b",
+        "chars": 72759
+      }
+    },
+    "nvda-2026-q3.pdf": {
+      "url": "https://s201.q4cdn.com/141608511/files/doc_financials/2026/q3/NVDA-Q3-2026-Earnings-Call-19-November-2025-5_00-PM-ET.pdf",
+      "bytes": 296514,
+      "sha256": "4933728a5e4de598cfc7229f3b2e2f09b33ee0d018d587da9073434fb6f97666",
+      "observed_at": "2026-11-25T07:21:04.875490+00:00",
+      "expected": {
+        "key": "NVDA:earnings_transcript:2026:Q3",
+        "status": "passed",
+        "published_at": "2025-11-19",
+        "source_sha256": "4933728a5e4de598cfc7229f3b2e2f09b33ee0d018d587da9073434fb6f97666",
+        "text_sha256": "50a94d55f26fe6b27d093bc36dada69ea33966c833807b2ce173c9de941ce37d",
+        "complete_output_sha256": "fddda3a0697463d4c478591549a9cd6197dff13496815bdaa3b86f6fe04dc06a",
+        "chars": 67979
+      }
+    },
+    "nvda-2026-q2.pdf": {
+      "url": "https://s201.q4cdn.com/141608511/files/doc_financials/2026/q2/NVDA-Q2-2026-Earnings-Call-27-August-2025-5_00-PM-ET.pdf",
+      "bytes": 286727,
+      "sha256": "2db59fe168a6194f55516d873935c7bd22f5b00bca4370c1c9e35135dd8ce67d",
+      "observed_at": "2026-11-25T07:21:05.763178+00:00",
+      "expected": {
+        "key": "NVDA:earnings_transcript:2026:Q2",
+        "status": "passed",
+        "published_at": "2025-08-27",
+        "source_sha256": "2db59fe168a6194f55516d873935c7bd22f5b00bca4370c1c9e35135dd8ce67d",
+        "text_sha256": "d247f5fcc339ddda1d8a01021242704ea5da7f7efb0388d5612201dfe0238cf8",
+        "complete_output_sha256": "5769304e8648a36742d9f7c2e19e172c0a5ac449906959af6eb785808031e828",
+        "chars": 59247
+      }
+    },
+    "nvda-2026-q1.pdf": {
+      "url": "https://s201.q4cdn.com/141608511/files/doc_financials/2026/q1/NVDA-Q1-2026-Earnings-Call-28-May-2025-5_00-PM-ET.pdf",
+      "bytes": 283943,
+      "sha256": "22cb530f2e7b3ee72c4fa6bd369ffc6dc687b263eef121b4305d5762a48c0c21",
+      "observed_at": "2026-11-25T07:21:06.630110+00:00",
+      "expected": {
+        "key": "NVDA:earnings_transcript:2026:Q1",
+        "status": "passed",
+        "published_at": "2025-05-28",
+        "source_sha256": "22cb530f2e7b3ee72c4fa6bd369ffc6dc687b263eef121b4305d5762a48c0c21",
+        "text_sha256": "91e3c5be441dc4a1365e7b0bf0882e1d87eda8ea91d88ef0c4203bd48d415077",
+        "complete_output_sha256": "2fdf1984621abd0751a7fcddfc9010ded72207585e2db849ebcdf70d37a96c12",
+        "chars": 60644
+      }
+    },
+    "transcript-q3.pdf": {
+      "url": "https://s201.q4cdn.com/141608511/files/content_files/NVDA-3Q27-Earnings-Transcript.pdf",
+      "bytes": 143312,
+      "sha256": "d17775053bbe08d5d03acbc56ffb9d4212d60fd9080d821c1f9e75a28c2413e3",
+      "observed_at": "2026-11-25T06:28:03.929723+00:00",
+      "expected": {
+        "key": "NVDA:earnings_transcript:2027:Q3",
+        "status": "passed",
+        "published_at": "2026-11-17",
+        "source_sha256": "d17775053bbe08d5d03acbc56ffb9d4212d60fd9080d821c1f9e75a28c2413e3",
+        "text_sha256": "9d7a0c0292a2ad6733895a8c397e4e8659357cca957a49a192be27737085396a",
+        "complete_output_sha256": "27d0f5d509ca0d61f7ff998825864c0af21e697b756a52227afb5e22e36ed7e0",
+        "chars": 46206
+      }
+    }
+  },
+  "static_baseline": {
+    "key": "NVDA:earnings_transcript:2027:Q2",
+    "metadata": {
+      "url": "https://investor.nvidia.com/files/content_files/TRANSCRIPT_-NVIDIA-Corp-NVDA-US-Q2-2027-Earnings-Call-26-August-2026-5_00-PM-ET.pdf",
+      "document_type": "earnings_transcript",
+      "fiscal_year": 2027,
+      "fiscal_quarter": 2,
+      "published_at": "2026-08-26",
+      "source_format": "pdf",
+      "transcript_publisher": "FactSet CallStreet, LLC",
+      "period_pattern": "Q2\\s+2027|second quarter of fiscal 2027",
+      "company_pattern": "\\bNVIDIA\\b",
+      "publication_pattern": "26-Aug-2026|August\\s+26,\\s*2026",
+      "publisher_pattern": "FactSet\\s+CallStreet",
+      "redirect_urls": [
+        "https://s201.q4cdn.com/141608511/files/content_files/TRANSCRIPT_-NVIDIA-Corp-NVDA-US-Q2-2027-Earnings-Call-26-August-2026-5_00-PM-ET.pdf"
+      ],
+      "symbol": "NVDA",
+      "company_website": "https://www.nvidia.com/",
+      "investor_website": "https://investor.nvidia.com/",
+      "key": "NVDA:earnings_transcript:2027:Q2"
+    },
+    "source_sha256": "a8be2bac4fd08ca18fc4bccbb165cd48237166ac5b4e211e779fc9f89ee35e16",
+    "complete_output_sha256": "5bee6d0038fc88649bbcbeaaad36f188dee75a66022a5baefc93ab43dcc8dea4",
+    "text_sha256": "8f0482ec48d776b1149b9e75a41dcd53fa3b6b947f7ea74b2c1abd74b2659e1d"
+  }
+}

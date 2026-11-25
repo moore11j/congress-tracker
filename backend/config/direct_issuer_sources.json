@@ -46,6 +46,7 @@
   },
   {
     "symbol": "NVDA",
+    "discovery": {"kind": "nvidia_reports_v1"},
     "company_website": "https://www.nvidia.com/",
     "investor_website": "https://investor.nvidia.com/",
     "verification": "Official NVIDIA Q2 FY2027 corrected transcript and exact CDN redirect reviewed October10,2026. Transcript publisher is FactSet CallStreet; issuer-hosted evidence only, not broad transcript coverage.",
