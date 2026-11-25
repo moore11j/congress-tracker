@@ -75,6 +75,7 @@ jobs:
           tests/test_sec_financial_continuity.py
           tests/test_sec_operating_history.py
           tests/test_sec_operating_bridge.py
+          tests/test_sec_single_sga_bridge.py
           tests/test_sec_common_equity.py
           tests/test_sec_tagged_foreign.py
           tests/test_sec_tagged_ifrs_currency.py

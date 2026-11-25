@@ -66,6 +66,9 @@ def plan(payload, company, *, cik, available_by):
     if not expense:
         from app.services.sec_operating_bridge import candidate_expenses
         expense = candidate_expenses(payload, gross, available_by=available_by)
+    if not expense:
+        from app.services.sec_single_sga_bridge import candidate_expenses
+        expense = candidate_expenses(payload, gross, available_by=available_by)
     needed = {(date.fromisoformat(f['start']), date.fromisoformat(f['end']))
               for point in (current, prior) if point for f in point['inputs']}
     rows = []
@@ -184,7 +187,10 @@ def statement_rows(raw, filing, *, issuer):
             result[period] = proof
     if not result:
         from app.services.sec_operating_bridge import statement_rows as bridge_rows
-        return bridge_rows(raw, filing, issuer=issuer)
+        result = bridge_rows(raw, filing, issuer=issuer)
+        if not result:
+            from app.services.sec_single_sga_bridge import statement_rows as single_rows
+            result = single_rows(raw, filing, issuer=issuer)
     return result
 
 
@@ -258,13 +264,15 @@ def cached_valid(proof, *, cik):
             seen.add(key)
             if (source_identity(row['source_url']) != (cik,row['accession']) or row['source_cik'] != cik or row['unit'] != 'USD'
                 or not re.fullmatch(r'[0-9a-f]{64}',row['source_sha256'])
-                or row['row_labels'] not in (['Gross profit','Total operating expenses'], ['Gross profit','Total selling and administrative expense'])
+                or row['row_labels'] not in (['Gross profit','Total operating expenses'], ['Gross profit','Total selling and administrative expense'], ['Gross income','Selling, general and administrative expense'])
                 or not isinstance(row['statement_heading'],list) or not row['statement_heading']
                 or any(not isinstance(h,str) or not h.strip() for h in row['statement_heading'])
                 or any(type(row[k]) not in (int,float) or not math.isfinite(row[k]) for k in ('value','gross_profit','operating_expenses'))
                 or row['operating_expenses'] < 0 or row['value'] != row['gross_profit']-row['operating_expenses']):
                 return False
             from app.services.sec_operating_bridge import valid_bridge
+            if row['row_labels']==['Gross income','Selling, general and administrative expense']:
+                from app.services.sec_single_sga_bridge import valid_bridge
             if not valid_bridge(row):
                 return False
             if row['reported_operating_subtotal'] is not None and (type(row['reported_operating_subtotal']) not in (int,float) or row['reported_operating_subtotal'] != row['value']):
