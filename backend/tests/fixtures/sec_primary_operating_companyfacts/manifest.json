@@ -1,0 +1,46 @@
+{
+  "rows": [
+    {
+      "symbol": "DMLP",
+      "cik": "0001172358",
+      "kind": "company",
+      "url": "https://data.sec.gov/submissions/CIK0001172358.json",
+      "bytes": 162259,
+      "sha256": "a62d472945b02689b720c90862d6686a156023958bdf91de6292d664b806e60d",
+      "file": "DMLP-company.json.gz",
+      "observed_at": "2026-11-25T17:30:31.021418+00:00"
+    },
+    {
+      "symbol": "DMLP",
+      "cik": "0001172358",
+      "kind": "facts",
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001172358.json",
+      "bytes": 952016,
+      "sha256": "6fa277bd6cdca7b0018dfb18596876f559cc8aa9ed1531aef7eba742472c1e70",
+      "file": "DMLP-facts.json.gz",
+      "observed_at": "2026-11-25T17:30:33.574715+00:00"
+    },
+    {
+      "symbol": "FIP",
+      "cik": "0001899883",
+      "kind": "company",
+      "url": "https://data.sec.gov/submissions/CIK0001899883.json",
+      "bytes": 39177,
+      "sha256": "0501ac8b6c7a98b8e36e792f8fe85f0673e25fe071e6876e8cf0e1dcdc9eaeb1",
+      "file": "FIP-company.json.gz",
+      "observed_at": "2026-11-25T17:30:34.913420+00:00"
+    },
+    {
+      "symbol": "FIP",
+      "cik": "0001899883",
+      "kind": "facts",
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001899883.json",
+      "bytes": 1260307,
+      "sha256": "032d36cee5506dad4234d851567c63e694fe5f1c8405423f42f80bba6bf68ef3",
+      "file": "FIP-facts.json.gz",
+      "observed_at": "2026-11-25T17:30:36.536387+00:00"
+    }
+  ],
+  "requests": 4,
+  "production_writes": 0
+}

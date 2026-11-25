@@ -82,6 +82,8 @@ def _fundamental_basis(row: FundamentalsCache | None, metrics: set[str]) -> dict
                 bridges = {b for b in bridges if isinstance(b, str)}
                 if bridges:
                     identity['operating_measurement'] = sorted(bridges)
+                if history.get('methodology') == 'sec_primary_operating_history_v1':
+                    identity['operating_measurement'] = ['sec_primary_operating_history_v1']
         if metric == 'roe':
             source = evidence.get('inline_filing_supplement')
             equity = source.get('common_equity_reconciliation') if isinstance(source, dict) else None

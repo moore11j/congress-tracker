@@ -480,7 +480,7 @@ def acquire(facts_raw, company_raw, *, symbol, cik, observed_at, client, include
         history = None
     if history is not None:
         if result is None:
-            result = {'operating_history_only':True, 'evidence':{'cik':str(cik).zfill(10), 'methodology':sec_operating_history.VERSION}}
+            result = {'operating_history_only':True, 'evidence':{'cik':str(cik).zfill(10), 'methodology':history['evidence']['methodology']}}
         result['operating_history'] = history
         result['evidence']['operating_statement_history'] = history['evidence']
     from app.services import sec_primary_income

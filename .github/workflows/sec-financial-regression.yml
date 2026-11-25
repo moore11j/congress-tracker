@@ -64,6 +64,7 @@ jobs:
           tests/test_sec_reporting_scope.py
           tests/test_sec_primary_revenue_zero.py
           tests/test_sec_primary_operating_subtotal.py
+          tests/test_sec_primary_operating_history.py
           tests/test_sec_primary_equity.py
           tests/test_sec_domestic_revenue_zeros.py
           tests/test_sec_qualified_foreign_partial.py

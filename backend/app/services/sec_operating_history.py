@@ -204,6 +204,10 @@ def qualify(expected, documents, *, issuer):
 
 
 def acquire(payload, company, *, cik, available_by, client):
+    from app.services import sec_fundamentals as sec
+    if not sec._records(payload, 'gross_profit', available_by):
+        from app.services.sec_primary_operating_history import acquire as primary_history
+        return primary_history(payload, company, cik=cik, available_by=available_by, client=client)
     expected = plan(payload, company, cik=cik, available_by=available_by)
     if expected is None:
         return None
@@ -219,6 +223,9 @@ def apply(records, payload, company, *, cik, available_by, supplement):
     item = (supplement or {}).get('operating_history')
     if not item or 'operating_income' not in records:
         return records
+    from app.services import sec_primary_operating_history as primary
+    if item.get('evidence', {}).get('methodology') == primary.VERSION:
+        return primary.apply(records, payload, company, cik=cik, available_by=available_by, supplement=supplement)
     expected = plan(payload, company, cik=cik, available_by=available_by)
     if expected is None or qualify(expected,item['documents'],issuer=company['name']) != item['evidence'] or (supplement.get('evidence') or {}).get('operating_statement_history') != item['evidence']:
         raise InlineFactsError('operating_history_proof_mismatch')
@@ -236,6 +243,9 @@ def apply(records, payload, company, *, cik, available_by, supplement):
 
 def cached_valid(proof, *, cik):
     """Validate persisted proof structure, not a replacement for source replay."""
+    from app.services import sec_primary_operating_history as primary
+    if isinstance(proof, dict) and proof.get('methodology') == primary.VERSION:
+        return primary.cached_valid(proof, cik=cik)
     from app.services.sec_statement_currency import source_identity
     try:
         if proof['methodology'] != VERSION or proof['cik'] != cik or not 1 <= len(proof['rows']) <= 12:
