@@ -19,6 +19,7 @@ IBM_KIND = 'ibm_events_v1'
 SEC_KIND = 'magna_sec_transcripts_v1'
 UL_KIND = 'unilever_results_v1'
 ALPHABET_KIND = 'alphabet_quarterly_v1'
+NVDA_KIND = 'nvidia_reports_v1'
 EVENT_FEED = 'issuer_earnings_event'
 PDF_KINDS = {'META': 'meta_q4_pdf_v1', 'SOFI': 'sofi_q4_pdf_v1'}
 INDEX_FEED = 'issuer_earnings_index'
@@ -62,10 +63,13 @@ def format_policy(year, quarter, policy):
 
 def enabled_company(company):
     return (company.get('symbol'), company.get('discovery', {}).get('kind')) in {
-        ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), ('MGA', SEC_KIND), ('UL', UL_KIND), ('GOOGL', ALPHABET_KIND), *PDF_KINDS.items()}
+        ('NVDA', NVDA_KIND), ('RDDT', KIND), ('MSFT', MSFT_KIND), ('MRNA', MRNA_KIND), ('IBM', IBM_KIND), ('MGA', SEC_KIND), ('UL', UL_KIND), ('GOOGL', ALPHABET_KIND), *PDF_KINDS.items()}
 
 
 def index_url(company, year):
+    if enabled_company(company) and company['symbol'] == 'NVDA':
+        from app.services.issuer_nvidia_discovery import index_url as nvidia_index_url
+        return nvidia_index_url(company, year)
     if enabled_company(company) and company['symbol'] == 'GOOGL':
         from app.services.issuer_alphabet_discovery import index_url as alphabet_index_url
         return alphabet_index_url(company, year)
@@ -120,6 +124,9 @@ def index_metadata(company, year):
 
 
 def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
+    if enabled_company(company) and company['symbol'] == 'NVDA':
+        from app.services.issuer_nvidia_discovery import parse_index as parse_nvidia_index
+        return parse_nvidia_index(raw, company, year, observed)
     if enabled_company(company) and company['symbol'] == 'GOOGL':
         from app.services.issuer_alphabet_discovery import parse_index as parse_alphabet_index
         return parse_alphabet_index(raw, company, year, observed)
@@ -217,6 +224,9 @@ def parse_index(raw, company, year, observed, *, policy=PARSER_POLICY):
 
 
 def parse_candidate(raw, metadata, observed):
+    if metadata.get('discovery_kind') == NVDA_KIND:
+        from app.services.issuer_nvidia_discovery import parse_candidate as parse_nvidia_candidate
+        return parse_nvidia_candidate(raw, metadata, observed)
     if metadata.get('discovery_kind') == ALPHABET_KIND:
         from app.services.issuer_alphabet_discovery import parse_candidate as parse_alphabet_candidate
         return parse_alphabet_candidate(raw, metadata, observed)
@@ -298,7 +308,10 @@ def verified_metadata(db, company, metadata):
     expected = dict(base)
     if metadata.get('published_at'):
         d = date.fromisoformat(metadata['published_at'])
-        if base.get('discovery_kind') in PDF_KINDS.values():
+        if base.get('discovery_kind') == NVDA_KIND:
+            from app.services.issuer_nvidia_discovery import publication_pattern
+            pattern = publication_pattern(base, d)
+        elif base.get('discovery_kind') in PDF_KINDS.values():
             from app.services.issuer_q4_pdf_discovery import publication_pattern
             pattern = publication_pattern(base['symbol'], d)
         elif base.get('discovery_kind') == UL_KIND:
@@ -337,6 +350,9 @@ def current_index_hold(db, company, observed):
     if observed.tzinfo is None or observed.utcoffset() is None:
         raise DirectSourceError('Issuer observation must be timezone aware')
     year = None if company['symbol'] in {'MSFT', 'MRNA', 'IBM'} else observed.year
+    if company['symbol'] == 'NVDA':
+        from app.services.issuer_nvidia_discovery import index_years
+        year = index_years(observed)[0]
     expected = index_metadata(company, year)
     row = db.scalar(select(DirectFeedDocument).where(
         DirectFeedDocument.feed == INDEX_FEED,
@@ -417,10 +433,14 @@ def collect_discovery(db, client, registry, *, limit, recheck_hours):
     now = utcnow()
     current_indexes = set()
     for company in companies.values():
-        for year in ((None,) if company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA', 'UL'} else (now.year, now.year-1)):
+        years = ((None,) if company['symbol'] in {'MSFT', 'MRNA', 'IBM', 'MGA', 'UL'} else (now.year, now.year-1))
+        if company['symbol'] == 'NVDA':
+            from app.services.issuer_nvidia_discovery import index_years
+            years = index_years(now)
+        for year in years:
             metadata = index_metadata(company, year)
             discover(db, INDEX_FEED, metadata)
-            if year in (None, now.year):
+            if year == years[0]:
                 current_indexes.add(metadata['key'])
     db.commit()
     spent, processed, errors, stop_reason = 0, 0, [], None
