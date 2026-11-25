@@ -1,3 +1,5 @@
+2026-11-25: Prepared isolated Massive price-volume routing repair. Public panel reuses source-bound cached minute quotes, queues missing/stale refreshes and never calls FMP when Massive is selected; delay/session/volume provenance retained. Local81Massive checks pass; broad134pass/7fail, all7 reproduced unchangedHEAD. Not deployed; CI/release/runtime observation pending. Full migration remains incomplete. See docs/massive-price-volume-routing-2026-11-25.md.
+
 # Walnut Markets project memory
 
 <!-- current-institutional-replay-nov1 -->

@@ -9861,14 +9861,18 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
             fundamentals_avg_volume = _parse_numeric(fundamentals.avg_volume)
     except Exception:
         logger.info("ticker price-volume fundamentals fallback failed symbol=%s", normalized, exc_info=True)
-    intraday = _ticker_intraday_price_volume_snapshot(normalized) if _is_public_api_request_context() else {}
+    intraday = {}
+    if _is_public_api_request_context():
+        intraday = (_ticker_massive_price_volume_snapshot(db, normalized) if massive_stocks_selected()
+                    else _ticker_intraday_price_volume_snapshot(normalized))
     intraday_price = _parse_numeric(intraday.get("price")) if isinstance(intraday, dict) else None
     intraday_volume = _parse_numeric(intraday.get("day_volume")) if isinstance(intraday, dict) else None
     intraday_date = str(intraday.get("date") or "")[:10] if isinstance(intraday, dict) and intraday.get("date") else None
     intraday_replaced_latest = False
     if intraday_price is not None:
         if latest_date and intraday_date and str(latest_date)[:10] > intraday_date:
-            pass
+            if intraday.get("source") == "massive_minute_snapshot":
+                intraday = {}
         elif latest_date and intraday_date and str(latest_date)[:10] < intraday_date:
             previous_close = latest_close
             latest_close = intraday_price
@@ -9878,9 +9882,12 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
             latest_close = intraday_price
             latest_date = intraday_date or latest_date
             intraday_replaced_latest = intraday_volume is not None and intraday_volume > 0
-    if (latest_volume is None or intraday_replaced_latest) and intraday_volume is not None and intraday_volume > 0:
+    selected_minute = intraday.get("source") == "massive_minute_snapshot"
+    if selected_minute:
         latest_volume = intraday_volume
-    if latest_volume is None and fundamentals_volume is not None and fundamentals_volume > 0:
+    elif (latest_volume is None or intraday_replaced_latest) and intraday_volume is not None and intraday_volume > 0:
+        latest_volume = intraday_volume
+    if latest_volume is None and not selected_minute and fundamentals_volume is not None and fundamentals_volume > 0:
         latest_volume = fundamentals_volume
     if average_volume_30d is None and fundamentals_avg_volume is not None and fundamentals_avg_volume > 0:
         average_volume_30d = fundamentals_avg_volume
@@ -9911,6 +9918,8 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
         "volume_vs_avg": volume_vs_avg,
         "latest_date": latest_date,
         "latest_source": intraday.get("source") if isinstance(intraday, dict) and intraday else "daily_cache",
+        **({"latest_asof": intraday.get("asof_ts"), "is_delayed": True, "delay_minutes": 15}
+           if intraday.get("source") == "massive_minute_snapshot" else {}),
         "last_volume": latest_volume,
         "average_volume": average_volume_30d,
     }
@@ -10092,12 +10101,15 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         "volume_vs_avg": volume_vs_avg,
         "latest_date": latest_date,
         "latest_source": latest_source,
+        **({"latest_asof": cached_inputs.get("latest_asof"), "is_delayed": True, "delay_minutes": 15}
+           if latest_source == "massive_minute_snapshot" else {}),
         "rsi": technicals.get("rsi") or {},
         "macd": technicals.get("macd") or {},
     }
     market_lines: list[str] = []
     if latest_close is not None:
-        latest_price_label = "Latest price" if latest_source == "historical-chart/1min" else "Latest close"
+        latest_price_label = ("Latest price (delayed 15 minutes)" if latest_source == "massive_minute_snapshot"
+                              else "Latest price" if latest_source == "historical-chart/1min" else "Latest close")
         market_lines.append(f"{latest_price_label}: {latest_close:.2f}")
     if change_pct_1d is not None:
         market_lines.append(f"1D change: {change_pct_1d:+.2f}%")
@@ -12102,7 +12114,32 @@ def _ticker_intraday_row_datetime(row: dict[str, Any]) -> datetime | None:
     return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
 
 
+def _ticker_massive_price_volume_snapshot(db: Session, symbol: str) -> dict[str, Any]:
+    """Reuse a source-bound prepared minute quote; never fetch on this page path."""
+    from zoneinfo import ZoneInfo
+    meta = get_current_prices_meta_db(db, [symbol], cache_only=True, allow_cache_write=False).get(symbol) or {}
+    observed = meta.get("asof_ts")
+    if isinstance(observed, datetime):
+        observed = (observed.replace(tzinfo=timezone.utc) if observed.tzinfo is None
+                    else observed.astimezone(timezone.utc))
+    price = _parse_numeric(meta.get("price"))
+    now = datetime.now(timezone.utc)
+    if (meta.get("source") != "massive_minute_snapshot" or meta.get("is_stale")
+            or not isinstance(observed, datetime) or not 0 <= (now - observed).total_seconds() <= 1800
+            or price is None or not math.isfinite(price) or price <= 0):
+        enqueue_data_enrichment_job(job_type="quote", symbol=symbol, source="page_load",
+                                    reason="massive_quote_stale_or_missing", priority=20)
+        return {}
+    volume = _parse_numeric(meta.get("volume"))
+    return {"price": price, "date": observed.astimezone(ZoneInfo("America/New_York")).date().isoformat(),
+            "asof_ts": observed.isoformat(), "day_volume": volume if volume is not None and math.isfinite(volume) and volume >= 0 else None,
+            "source": "massive_minute_snapshot"}
+
+
 def _ticker_intraday_price_volume_snapshot(symbol: str) -> dict[str, Any]:
+    # A retained legacy cache must not bypass the selected provider either.
+    if massive_stocks_selected():
+        return {}
     normalized = normalize_symbol(symbol)
     if not normalized:
         return {}
