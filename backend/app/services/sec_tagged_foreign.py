@@ -147,7 +147,7 @@ def cached_currency_valid(evidence):
         from app.services.sec_rental_revenue import cached_valid as rental_valid
         if not rental_valid(proof['rental_revenue_selection'], cik=proof.get('cik')):
             return False
-    if 'operating_statement_history' in proof or proof.get('methodology') == 'sec_original_operating_history_v1':
+    if 'operating_statement_history' in proof or proof.get('methodology') in {'sec_original_operating_history_v1', 'sec_primary_operating_history_v1'}:
         from app.services.sec_operating_history import cached_valid as operating_valid
         if not operating_valid(proof.get('operating_statement_history'), cik=proof.get('cik')):
             return False

@@ -975,6 +975,10 @@ def fundamentals_summary_from_cache_row(
             history = evidence.get('inline_filing_supplement', {}).get('operating_statement_history', {})
             from app.services.sec_operating_bridge import METHOD, BASIS
             from app.services.sec_operating_history import cached_valid
+            from app.services import sec_primary_operating_history as primary_operating
+            if history.get('methodology') == primary_operating.VERSION and cached_valid(history, cik=evidence.get('cik')):
+                metrics['operating_margin_expansion']['provenance'] = {'source': 'SEC EDGAR', 'version': primary_operating.VERSION, 'basis': primary_operating.BASIS}
+                source_note = ' '.join(note for note in (source_note, primary_operating.BASIS) if note)
             if (any(r.get('expense_bridge', {}).get('methodology') == METHOD for r in history.get('rows', []))
                 and cached_valid(history, cik=evidence.get('cik'))):
                 metrics['operating_margin_expansion']['provenance'] = {'source': 'SEC EDGAR', 'version': METHOD, 'basis': BASIS}
