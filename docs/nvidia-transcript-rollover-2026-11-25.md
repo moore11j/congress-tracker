@@ -23,3 +23,6 @@ This adds NVIDIA preparation to the existing issuer collector. It does not chang
 After deployment, ordinary new-index collection and Q3 research-reader recovery must be demonstrated before counting NVIDIA as current coverage. The new issuer indexes, two publisher layouts and publication windows are a bounded supported contract, not a guarantee for arbitrary future layouts. Unilever source access, broader transcript coverage, financial consumer acceptance, institutional first/repeat/consumer acceptance and final zero-FMP verification remain open.
 
 Local evidence: nvidia-rollover-nov25/manifest.json; nvidia-widget-nov25/manifest.json; nvidia-report-indexes-nov25/manifest.json; nvidia-historical-originals-nov25/manifest.json; nvidia-seven-originals-nov25.json; nvidia-static-baseline-nov25.json.
+
+
+Local validation: the broad suite passed626cases with two irrelevant layout combinations skipped. The final focused module removes those unused combinations and passes30cases, including three additional date/publisher rejection checks, for629distinct passing cases. Complete original collector/new-history/retained-history/full-database repeat checks pass. Linux exact-commit validation remains pending.
