@@ -205,7 +205,7 @@ def qualify(expected, documents, *, issuer):
 
 def acquire(payload, company, *, cik, available_by, client):
     from app.services import sec_fundamentals as sec
-    if not sec._records(payload, 'operating_income', available_by) and not sec._records(payload, 'gross_profit', available_by):
+    if not sec._records(payload, 'gross_profit', available_by):
         from app.services.sec_primary_operating_history import acquire as primary_history
         return primary_history(payload, company, cik=cik, available_by=available_by, client=client)
     expected = plan(payload, company, cik=cik, available_by=available_by)

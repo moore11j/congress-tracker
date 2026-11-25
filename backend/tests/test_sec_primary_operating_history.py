@@ -15,27 +15,29 @@ from app.services import sec_fundamentals as sec
 
 ROOT = Path(__file__).parent/'fixtures/sec_primary_operating_subtotal'
 SOURCES = json.loads((ROOT/'sources.json').read_bytes())
-AVAILABLE = date(2026, 11, 17)
-NOW = datetime(2026, 11, 18, 18, tzinfo=timezone.utc)
+COMPANYFACTS = ROOT.parent/'sec_primary_operating_companyfacts'
+FULL_INPUTS = json.loads((COMPANYFACTS/'manifest.json').read_bytes())['rows']
+AVAILABLE = date(2026, 11, 24)
+NOW = datetime(2026, 11, 25, 18, tzinfo=timezone.utc)
 
 
 @lru_cache(maxsize=2)
 def inputs(symbol):
     entries = [e for e in SOURCES if e['source']['symbol'] == symbol]
-    company_raw = gzip.decompress((ROOT/f'{symbol}-company.json.gz').read_bytes())
-    assert hashlib.sha256(company_raw).hexdigest() == entries[0]['source']['identity_sha256']
-    company = json.loads(company_raw); facts = {}; documents = {}
+    captured = {}
+    for source in FULL_INPUTS:
+        if source['symbol'] != symbol:
+            continue
+        raw = gzip.decompress((COMPANYFACTS/source['file']).read_bytes())
+        assert len(raw) == source['bytes'] and hashlib.sha256(raw).hexdigest() == source['sha256']
+        captured[source['kind']] = json.loads(raw)
+    company, payload = captured['company'], captured['facts']
+    assert str(company['cik']).zfill(10) == str(payload['cik']).zfill(10) == entries[0]['source']['cik']
+    documents = {}
     for e in entries:
         s = e['source']; raw = gzip.decompress((ROOT/e['file']).read_bytes())
         assert len(raw) == s['bytes'] and hashlib.sha256(raw).hexdigest() == s['sha256']
         documents[s['url']] = raw
-        parsed = inline.parse(raw, cik=s['cik'], accession=s['accessionNumber'], filed=s['filingDate'],
-            report_date=s['reportDate'], form=s['form'], url=s['url'],
-            basis={'namespace':'us-gaap','currency':'USD','tags':{**sec.TAGS,'costs':('CostsAndExpenses',)}})
-        for tag, content in parsed['facts'].items():
-            for unit, rows in content['units'].items():
-                facts.setdefault(tag, {'units':{}})['units'].setdefault(unit, []).extend(rows)
-    payload = dict(cik=company['cik'], entityName=company['name'], facts={'us-gaap':facts})
     return payload, company, documents
 
 
@@ -78,11 +80,16 @@ def test_full_original_history_recovery_and_repeat(symbol, amounts):
     result=acquired(symbol);assert result and history.cached_valid(result['evidence'],cik=cik)
     supplement={'operating_history_only':True,'operating_history':result,
                 'evidence':{'cik':cik,'methodology':primary.VERSION,'operating_statement_history':result['evidence']}}
-    records={'operating_income':{},'net_income':{'untouched':None}}
+    original_operating=sec._records(payload,'operating_income',AVAILABLE)
+    records={'operating_income':deepcopy(original_operating),'net_income':{'untouched':None}}
     output=history.apply(records,payload,company,cik=cik,available_by=AVAILABLE,supplement=supplement)
-    assert records['operating_income']=={} and output['net_income']==records['net_income']
+    assert records['operating_income']==original_operating and output['net_income']==records['net_income']
+    assert all(output['operating_income'][key]==value for key,value in original_operating.items())
+    if symbol=='DMLP':
+        assert len(original_operating)==37 and max(end for start,end in original_operating)==date(2016,12,31)
     assert tuple(sec._ttm(output['operating_income'],end)['value'] for end in [date(2026,9,30),date(2025,9,30)])==amounts
-    assert all(p['derived'] and p['source_kind']==primary.VERSION and p['original_statement']['primary_reconciliation'] for p in output['operating_income'].values())
+    assert all(p['derived'] and p['source_kind']==primary.VERSION and p['original_statement']['primary_reconciliation']
+               for key,p in output['operating_income'].items() if key not in original_operating)
     assert history.apply(records,payload,company,cik=cik,available_by=AVAILABLE,supplement=supplement)==output
     changed=deepcopy(supplement);changed['operating_history']['evidence']['rows'][0]['value']+=1
     with pytest.raises(inline.InlineFactsError):history.apply(records,payload,company,cik=cik,available_by=AVAILABLE,supplement=changed)
@@ -99,13 +106,44 @@ def test_no_request_for_unqualified_or_existing_series(mutation):
     elif mutation=='missing_cost':del facts['CostsAndExpenses']
     elif mutation=='wrong_accession':
         for p in facts['CostsAndExpenses']['units']['USD']:p['accn']='0000000000-26-000001'
-    elif mutation=='future':available=date(2026,1,1)
+    elif mutation=='future':
+        recent=company['filings']['recent'];recent['filingDate']=['2027-11-25']*len(recent['filingDate'])
     elif mutation=='stale':available=date(2027,9,1)
     else:
         recent=company['filings']['recent'];i=recent['form'].index('10-Q');recent['form'][i]='20-F'
     client=RetainedClient({})
     assert primary.acquire(payload,company,cik=str(company['cik']).zfill(10),available_by=available,client=client) is None
     assert client.calls==[]
+
+
+def test_point_in_time_plan_uses_only_filings_already_available():
+    payload,company,_=inputs('DMLP');available=date(2026,1,1)
+    result=primary.plan(payload,company,cik=str(company['cik']).zfill(10),available_by=available)
+    assert result and result['period_end']=='2025-09-30'
+    assert all(row['filing']['filingDate']<=str(available) for row in result['rows'])
+    assert all(row['filing']['accessionNumber']!='0001437749-26-035295' for row in result['rows'])
+
+
+@pytest.mark.parametrize('conflict',[False,True])
+def test_reported_quarter_inside_comparison_window_holds_entire_derived_series(conflict):
+    payload,company,_=deepcopy(inputs('DMLP'))
+    units=payload['facts']['us-gaap']['OperatingIncomeLoss']['units']['USD']
+    row=deepcopy(units[-1])
+    row.update(start='2024-04-01',end='2024-06-30',filed='2024-08-01',
+               accn='0001437749-24-000001',form='10-Q',val=1000)
+    row.pop('frame',None);units.append(row)
+    if conflict:
+        other=deepcopy(row);other['val']=2000;units.append(other)
+    client=RetainedClient({})
+    assert history.acquire(payload,company,cik=str(company['cik']).zfill(10),available_by=AVAILABLE,client=client) is None
+    assert client.calls==[]
+
+
+def test_existing_projected_comparison_value_is_not_overwritten():
+    payload,company,_=inputs('DMLP');item=acquired('DMLP')
+    supplement={'operating_history':item,'evidence':{'operating_statement_history':item['evidence']}}
+    records={'operating_income':{(date(2024,4,1),date(2024,6,30)):None}}
+    assert primary.apply(records,payload,company,cik=str(company['cik']).zfill(10),available_by=AVAILABLE,supplement=supplement) is records
 
 
 @pytest.mark.parametrize('mutation',['amount','cost','expense','hash','unit','cik','period','bridge','geometry'])

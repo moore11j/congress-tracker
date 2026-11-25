@@ -1,4 +1,4 @@
-"""Recover an entirely missing operating series from reconciled originals.
+"""Recover a missing comparison series from reconciled originals.
 
 Companyfacts identifies candidate periods. Complete primary statements must
 independently prove every revenue, expense and nonoperating reconciliation.
@@ -18,9 +18,7 @@ def plan(payload, company, *, cik, available_by):
     from app.services import sec_fundamentals as sec
     if any(str(x.get('cik', '')).zfill(10) != cik for x in (payload, company)):
         raise ValueError('primary_operating_identity')
-    # Do not combine a derived definition with a reported series or conflict.
-    if sec._records(payload, 'operating_income', available_by):
-        return None
+    operating = sec._records(payload, 'operating_income', available_by)
     recent = company.get('filings', {}).get('recent', {})
     arrays = [recent.get(k, []) for k in ('accessionNumber', 'form', 'filingDate', 'reportDate', 'primaryDocument')]
     if len({len(a) for a in arrays}) != 1:
@@ -64,6 +62,11 @@ def plan(payload, company, *, cik, available_by):
         return None
     needed = {(date.fromisoformat(p['start']), date.fromisoformat(p['end']))
               for point in (current, prior) for p in point['inputs']}
+    # Preserve older reported history, but never mix a derived definition with
+    # a reported observation or conflict anywhere in this comparison window.
+    first = min(start for start, stop in needed)
+    if any(start <= end and stop >= first for start, stop in operating):
+        return None
     rows = []
     for key in sorted(needed):
         left, right = revenue.get(key), costs.get(key)
@@ -125,9 +128,11 @@ def apply(records, payload, company, *, cik, available_by, supplement):
     if (expected is None or qualify(expected, item['documents'], company=company) != item['evidence']
             or supplement['evidence'].get('operating_statement_history') != item['evidence']):
         raise InlineFactsError('primary_operating_proof_mismatch')
-    if records.get('operating_income'):
+    operating = dict(records.get('operating_income', {}))
+    first = min(date.fromisoformat(p['start']) for p in item['evidence']['rows'])
+    end = date.fromisoformat(item['evidence']['period_end'])
+    if any(start <= end and stop >= first for start, stop in operating):
         return records
-    operating = {}
     for proof in item['evidence']['rows']:
         key = (date.fromisoformat(proof['start']), date.fromisoformat(proof['end']))
         operating[key] = {**{k: proof[k] for k in IDENTITY}, 'value': proof['value'],

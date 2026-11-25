@@ -1,3 +1,5 @@
+2026-11-25 17:40 UTC: Continued migration. Four fresh complete SEC company/companyfacts payloads exposed37old DMLP operating records ending2016 that blocked the previous PR850 fallback. Candidate now preserves old history and rejects reported values/conflicts anywhere in the current/prior comparison window. Complete upstream payloads replace reconstructed facts in its regressions; all27full-payload candidate checks pass in391.92seconds; exact revised Linux checks pending. No deployment/provider activation. See docs/primary-operating-history-2026-11-25.md.
+
 2026-11-25: Prepared isolated Massive price-volume routing repair. Public panel reuses source-bound cached minute quotes, queues missing/stale refreshes and never calls FMP when Massive is selected; delay/session/volume provenance retained. Local81Massive checks pass; broad134pass/7fail, all7 reproduced unchangedHEAD. Not deployed; CI/release/runtime observation pending. Full migration remains incomplete. See docs/massive-price-volume-routing-2026-11-25.md.
 
 # Walnut Markets project memory
