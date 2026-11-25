@@ -6,6 +6,7 @@ on:
       - 'backend/app/clients/issuer*.py'
       - 'backend/app/clients/direct_sources.py'
       - 'backend/scripts/fetch_moderna_regression_sources.py'
+      - 'backend/scripts/fetch_nvidia_regression_sources.py'
       - 'backend/config/direct_issuer_sources.json'
       - 'backend/tests/test_issuer*.py'
       - 'backend/tests/fixtures/issuer*/**'
@@ -22,6 +23,7 @@ jobs:
       DATABASE_URL: sqlite://
       PYTHONPATH: .
       WALNUT_MODERNA_SOURCE_DIR: ${{ github.workspace }}/artifacts/moderna-originals
+      WALNUT_NVIDIA_SOURCE_DIR: ${{ github.workspace }}/artifacts/nvidia-originals
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -33,6 +35,9 @@ jobs:
       - name: Fetch bounded complete Moderna originals
         working-directory: backend
         run: python scripts/fetch_moderna_regression_sources.py --output "$WALNUT_MODERNA_SOURCE_DIR"
+      - name: Fetch bounded complete NVIDIA originals
+        working-directory: backend
+        run: python scripts/fetch_nvidia_regression_sources.py --output "$WALNUT_NVIDIA_SOURCE_DIR"
       - name: Verify complete originals, discovery and research consumers
         working-directory: backend
         run: >-
@@ -44,6 +49,7 @@ jobs:
           tests/test_issuer_ibm_discovery.py tests/test_issuer_microsoft_discovery.py
           tests/test_issuer_moderna_discovery.py tests/test_issuer_moderna_punctuation.py
           tests/test_issuer_moderna_originals.py tests/test_issuer_unilever_discovery.py
+          tests/test_issuer_nvidia_discovery.py tests/test_issuer_nvidia_originals.py
           -q --disable-warnings --maxfail=3 --junitxml=issuer-transcript-results.xml
       - uses: actions/upload-artifact@v4
         if: always()
