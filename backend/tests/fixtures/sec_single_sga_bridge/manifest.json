@@ -1,0 +1,66 @@
+{
+  "rows": [
+    {
+      "symbol": "BAER",
+      "cik": "0001941536",
+      "kind": "company",
+      "url": "https://data.sec.gov/submissions/CIK0001941536.json",
+      "file": "BAER-company.gz",
+      "bytes": 49465,
+      "sha256": "a59ade667df2fed4b798ab0a47ba751a7e67b847991fd5a07584dd31731946c1",
+      "observed_at": "2026-11-25T19:37:17.667919+00:00"
+    },
+    {
+      "symbol": "BAER",
+      "cik": "0001941536",
+      "kind": "facts",
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001941536.json",
+      "file": "BAER-facts.gz",
+      "bytes": 953354,
+      "sha256": "08c02688a30780d1ee22eac68534af8063d62a58c8063252750863e2534d5706",
+      "observed_at": "2026-11-25T19:37:19.303786+00:00"
+    },
+    {
+      "symbol": "BAER",
+      "cik": "0001941536",
+      "kind": "current",
+      "url": "https://www.sec.gov/Archives/edgar/data/1941536/000194153626000040/baer-20260930.htm",
+      "file": "BAER-current.gz",
+      "bytes": 2018930,
+      "sha256": "78be6f37e5e77394dc97af5f9c5054e937a2ab869b412f79dc745d7c77da40b6",
+      "observed_at": "2026-11-25T19:37:20.929686+00:00",
+      "filing_date": "2026-11-16",
+      "period": "2026-09-30",
+      "form": "10-Q",
+      "accession": "0001941536-26-000040"
+    },
+    {
+      "symbol": "BAER",
+      "cik": "0001941536",
+      "kind": "annual",
+      "url": "https://www.sec.gov/Archives/edgar/data/1941536/000194153626000005/baer-20251231.htm",
+      "file": "BAER-annual.gz",
+      "bytes": 2141752,
+      "sha256": "0a3250644820c0360825c67e4eb7dbdd9d712583cafa55e270cc510154b5e2ee",
+      "observed_at": "2026-11-25T19:37:22.492569+00:00",
+      "filing_date": "2026-03-06",
+      "period": "2025-12-31",
+      "form": "10-K",
+      "accession": "0001941536-26-000005"
+    },
+    {
+      "symbol": "BAER",
+      "cik": "0001941536",
+      "kind": "prior",
+      "url": "https://www.sec.gov/Archives/edgar/data/1941536/000194153625000011/baer-20250930.htm",
+      "file": "BAER-prior.gz",
+      "bytes": 1795941,
+      "sha256": "4b7b527e50c5f355db497ba2e3b7854a238f509b38a363b353d0b441694e8b25",
+      "observed_at": "2026-11-25T19:37:24.107564+00:00",
+      "filing_date": "2025-11-07",
+      "period": "2025-09-30",
+      "form": "10-Q",
+      "accession": "0001941536-25-000011"
+    }
+  ]
+}
