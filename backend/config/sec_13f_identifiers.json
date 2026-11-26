@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-10-10T02:55:37.053571+00:00",
+  "reviewed_at": "2026-11-26T18:51:58.616960+00:00",
   "documents": [
     {
       "source_file": "0000894189-26-015964.source",
@@ -60,6 +60,11 @@
       "source_file": "0000940400-26-033064.source",
       "url": "https://www.sec.gov/Archives/edgar/data/1329377/0000940400-26-033064.txt",
       "content_hash": "5bd6c00c0c42ae5786065f6a167ede0004cac5244e1593387c40abd5694431ea"
+    },
+    {
+      "source_file": "0002066578-26-003341.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/92500/0002066578-26-003341.txt",
+      "content_hash": "fd403420fb788d29d8effdece5b309f2ea94cf017c9dd0ef148ccff2c1c6816b"
     }
   ]
 }
