@@ -1,0 +1,35 @@
+{
+  "observed_at": "2026-10-10T06:04:05.428704+00:00",
+  "provider": "massive_reference",
+  "query": {
+    "active": "true",
+    "cusip": "98980F104",
+    "date": "2026-09-30",
+    "limit": 2,
+    "market": "stocks"
+  },
+  "representation": "canonical_parsed_json",
+  "response": {
+    "has_more": false,
+    "request_id": "0032962236d9117feefb1bb5194abbf2",
+    "results": [
+      {
+        "active": true,
+        "cik": "0001794515",
+        "composite_figi": "BBG00S1HJ3M8",
+        "currency_name": "usd",
+        "last_updated_utc": "2026-10-01T06:11:53.364914218Z",
+        "locale": "us",
+        "market": "stocks",
+        "name": "ZoomInfo Technologies Inc Common Stock",
+        "primary_exchange": "XNAS",
+        "share_class_figi": "BBG00S1HJ4F4",
+        "ticker": "GTM",
+        "type": "CS"
+      }
+    ],
+    "status": "OK"
+  },
+  "response_sha256": "d71ae8c54f0fa2a7dac7cb56c74d637f1dd5bc1bbe3790ec1f5c13a5165c443a",
+  "source_url": "https://api.massive.com/v3/reference/tickers?cusip=98980F104&market=stocks&date=2026-09-30&active=true&limit=2"
+}

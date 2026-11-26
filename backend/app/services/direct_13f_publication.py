@@ -235,14 +235,17 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
             return held('Conflicting reference evidence for one security and period')
         reference_by_cusip[query['cusip']] = identity
     mappings = {}
+    identifier_by_cusip = {}
     for identifier in identifiers:
         if identifier['cusip'] in cusips:
             mappings.setdefault(identifier['cusip'], set()).add(identifier['symbol'])
-    if created or adopting_empty or reference_by_cusip:
+            identifier_by_cusip.setdefault(identifier['cusip'], []).append(identifier)
+    if created or adopting_empty or reference_by_cusip or identifier_by_cusip:
         for cusip, symbol in db.execute(_legacy_identity_query(
                 cusips, date.fromisoformat(metadata['filing_date']))):
             mappings.setdefault(cusip, set()).add(symbol)
     used_references = {}
+    used_identifiers = {}
     def resolve(cusip):
         candidates = mappings.get(cusip, set())
         symbol = mapped_symbol(cusip, candidates, metadata['report_year'], metadata['report_quarter'])
@@ -251,18 +254,22 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
             symbol = resolve_reference_candidate(identity, candidates)
             if symbol:
                 used_references[cusip] = identity
+        if symbol:
+            proofs = [row for row in identifier_by_cusip.get(cusip, ()) if row['symbol'] == symbol]
+            if proofs:
+                used_identifiers[cusip] = proofs
         return symbol
 
     # Existing source-owned waiting rows can acquire missing symbols. Published
     # pairs and their supporting priors must remain immutable.
     enrich = []
-    if not created and reference_by_cusip:
+    if not created and (reference_by_cusip or identifier_by_cusip):
         for position in _positions(db, filing):
             if not position.normalized_symbol:
                 if position.symbol:
                     return held('Unnormalized existing symbol requires reconciliation')
                 symbol = resolve(position.cusip)
-                if symbol and position.cusip in used_references:
+                if symbol and (position.cusip in used_references or position.cusip in used_identifiers):
                     enrich.append((position, symbol))
         if enrich:
             for dependent in db.scalars(select(InstitutionalFiling).where(InstitutionalFiling.cik == filing.cik)):
@@ -310,6 +317,17 @@ def _project_new_13f(db, document, *, publish_since: date, identifier_documents=
         meta = json.loads(filing.raw_metadata_json or '{}')
         identifier_evidence = ([row for row in identifiers if row['cusip'] in cusips] if created or adopting_empty
                                else meta.get(RECEIPT_KEY, {}).get('identifier_evidence', []))
+        if enrich:
+            # Retain the exact dated N-PORT rows that enabled a missing symbol,
+            # including evidence needed to disambiguate a reference candidate.
+            identifier_evidence = list(identifier_evidence)
+            seen_identifiers = {dumps(row) for row in identifier_evidence}
+            for cusip in sorted({position.cusip for position, _ in enrich}):
+                for row in used_identifiers.get(cusip, ()):
+                    key = dumps(row)
+                    if key not in seen_identifiers:
+                        identifier_evidence.append(row)
+                        seen_identifiers.add(key)
         reference_evidence = {r['cusip']: r for r in meta.get(RECEIPT_KEY, {}).get('reference_evidence', [])}
         reference_evidence.update(used_references)
         meta[RECEIPT_KEY] = {'complete': True, 'source_sha256': digest,
