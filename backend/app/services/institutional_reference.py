@@ -37,6 +37,30 @@ def _digest(payload):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def _reviewed_ordinary_listing(cusip, period, row, symbol):
+    """Exact independently documented ordinary shares; never a general FIGI waiver."""
+    reviewed = {
+        'M8769Q102': ('TEVA', '818686', 'XNYS', '2026-09-14',
+            'https://www.sec.gov/Archives/edgar/data/818686/0000876661-26-000744.txt',
+            'efcd3b035991683bf583cfd202ba4d527a60d76d03ac40bd9a89bf1574946e1f'),
+        'G5T40M104': ('MRX', '1997464', 'XNAS', '2026-07-01',
+            'https://www.sec.gov/Archives/edgar/data/1997464/0001193125-26-291648.txt',
+            'e37aff31a2fd8804c5135dbfdabc83694708328813d91701d8f060b83ef99d52'),
+    }
+    proof = reviewed.get(cusip)
+    if proof is None:
+        return None
+    ticker, cik, exchange, effective, url, digest = proof
+    if (period < '2026-09-30' or symbol != ticker
+            or str(row.get('cik') or '').lstrip('0') != cik
+            or row.get('primary_exchange') != exchange or row.get('type') != 'CS'
+            or row.get('share_class_figi') is not None or row.get('composite_figi') is not None):
+        return None
+    return {'source_url': url, 'source_sha256': digest, 'effective_date': effective,
+            'cusip': cusip, 'symbol': ticker, 'cik': cik, 'exchange': exchange,
+            'security_type': 'CS'}
+
+
 def capture_reference(client, *, cusip, report_period, observed_at=None):
     """Exactly one API call; the caller owns quota, retry and scheduling policy."""
     query = reference_query(cusip, report_period)
@@ -97,11 +121,12 @@ def reference_identity(document, *, cusip, report_period, observed_by):
         and symbol == 'TTE' and str(row.get('cik') or '').lstrip('0') == '879764'
         and row.get('primary_exchange') == 'XNYS' and row.get('type') == 'CS'
         and row.get('share_class_figi') is None)
+    ordinary_listing = _reviewed_ordinary_listing(cusip, query['date'], row, symbol)
     if (not symbol or not re.fullmatch(r'[A-Z]{1,6}(?:-[A-Z])?', symbol)
             or row.get('market') != 'stocks' or row.get('locale') != 'us'
             or str(row.get('currency_name', '')).lower() != 'usd' or row.get('active') is not True
             or row.get('type') not in {'CS', 'ETF', 'ADRC'}
-            or not (figi_valid or reviewed_listing)):
+            or not (figi_valid or reviewed_listing or ordinary_listing)):
         return {'status': 'held', 'reason': 'unsupported_reference_security'}
     updated = _stamp(row['last_updated_utc']) if row.get('last_updated_utc') else None
     if updated and updated > observed:
@@ -116,6 +141,10 @@ def reference_identity(document, *, cusip, report_period, observed_by):
         identity.update(identity_basis='reviewed_cusip_issuer_us_listing', reviewed_sources=[
             'https://totalenergies.com/investors/shares-and-dividends/totalenergies-shares/totalenergies-shares-listed-on-the-nyse',
             'https://www.sec.gov/Archives/edgar/data/879764/000110465925119004/tm2526657d2_6k.htm'])
+    if ordinary_listing:
+        identity.update(identity_basis='reviewed_cusip_issuer_us_listing',
+                        reviewed_sources=[ordinary_listing['source_url']],
+                        reviewed_identity_evidence=[ordinary_listing])
     return identity
 
 
