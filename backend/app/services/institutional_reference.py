@@ -46,19 +46,29 @@ def _reviewed_ordinary_listing(cusip, period, row, symbol):
         'G5T40M104': ('MRX', '1997464', 'XNAS', '2026-07-01',
             'https://www.sec.gov/Archives/edgar/data/1997464/0001193125-26-291648.txt',
             'e37aff31a2fd8804c5135dbfdabc83694708328813d91701d8f060b83ef99d52'),
+        'G2R11M108': ('DPC', '2107018', 'XNYS', '2026-06-26',
+            'https://www.sec.gov/Archives/edgar/data/2107018/0001193125-26-345016.txt',
+            'd08b8ddc63c93cc7dcb21a93df5be9097c80c7c6c449874619965bf2b64bd3a7'),
     }
     proof = reviewed.get(cusip)
     if proof is None:
         return None
     ticker, cik, exchange, effective, url, digest = proof
-    if (period < '2026-09-30' or symbol != ticker
+    if (period < effective or symbol != ticker
             or str(row.get('cik') or '').lstrip('0') != cik
             or row.get('primary_exchange') != exchange or row.get('type') != 'CS'
             or row.get('share_class_figi') is not None or row.get('composite_figi') is not None):
         return None
-    return {'source_url': url, 'source_sha256': digest, 'effective_date': effective,
+    evidence = {'source_url': url, 'source_sha256': digest, 'effective_date': effective,
             'cusip': cusip, 'symbol': ticker, 'cik': cik, 'exchange': exchange,
             'security_type': 'CS'}
+    if cusip == 'G2R11M108':
+        evidence['supporting_sources'] = [{
+            'source_url': 'https://www.sec.gov/Archives/edgar/data/2107018/0001104659-26-093772.txt',
+            'source_sha256': '39b39d226784978622677dcfb7375d76d6e714740ad73817e643a9f0d99babb5',
+            'purpose': 'Issuer ordinary-share NYSE listing and June 26 IPO completion',
+        }]
+    return evidence
 
 
 def capture_reference(client, *, cusip, report_period, observed_at=None):
@@ -143,7 +153,8 @@ def reference_identity(document, *, cusip, report_period, observed_by):
             'https://www.sec.gov/Archives/edgar/data/879764/000110465925119004/tm2526657d2_6k.htm'])
     if ordinary_listing:
         identity.update(identity_basis='reviewed_cusip_issuer_us_listing',
-                        reviewed_sources=[ordinary_listing['source_url']],
+                        reviewed_sources=[ordinary_listing['source_url']] + [
+                            source['source_url'] for source in ordinary_listing.get('supporting_sources', [])],
                         reviewed_identity_evidence=[ordinary_listing])
     return identity
 

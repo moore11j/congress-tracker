@@ -110,3 +110,61 @@ def test_actual_reference_staging_reinterpretation_preserves_original_and_observ
             assert db.scalar(select(func.count()).select_from(DirectFeedRevision)) == 1
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize('period', ['2026-06-30', '2026-09-30'])
+def test_dpc_complete_class_and_listing_originals_support_both_retained_quarters(period):
+    doc = retained('DPC-' + period)
+    original = deepcopy(doc)
+    result = identity(doc)
+    assert result['status'] == 'verified' and result['symbol'] == 'DPC'
+    assert doc == original and result['source_sha256'] == doc['response_sha256']
+    assert result['observed_at'] == doc['observed_at']
+    proof, = result['reviewed_identity_evidence']
+    assert proof['effective_date'] == '2026-06-26' and proof['cik'] == '2107018'
+    assert proof['cusip'] == 'G2R11M108' and proof['exchange'] == 'XNYS'
+    raw_class = gzip.decompress((FIXTURES / 'dpc-june-class.source.gz').read_bytes())
+    assert hashlib.sha256(raw_class).hexdigest() == proof['source_sha256']
+    class_text = raw_class.decode('utf-8')
+    assert '<issuerCik>0002107018</issuerCik>' in class_text
+    assert '<issuerCusipNumber>G2R11M108</issuerCusipNumber>' in class_text
+    assert '<securitiesClassTitle>Ordinary Shares</securitiesClassTitle>' in class_text
+    assert '<eventDateRequiresFilingThisStatement>06/30/2026</eventDateRequiresFilingThisStatement>' in class_text
+    listing, = proof['supporting_sources']
+    raw_listing = gzip.decompress((FIXTURES / 'dpc-june-quarter.source.gz').read_bytes())
+    assert hashlib.sha256(raw_listing).hexdigest() == listing['source_sha256']
+    plain = ' '.join(html.unescape(re.sub('<[^>]+>', ' ', raw_listing.decode('utf-8'))).split())
+    assert 'Ordinary shares, no par value' in plain and 'New York Stock Exchange' in plain
+    assert 'On June 26, 2026, we completed our Initial Public Offering' in plain
+    assert re.search(r'Ordinary shares, no par value\s+DPC\s+New York Stock Exchange', plain.replace('\u200b', ' '))
+    assert result['reviewed_sources'] == [proof['source_url'], listing['source_url']]
+    assert resolve_reference_candidate(result, set()) == 'DPC'
+    assert resolve_reference_candidate(result, {'UNRELATED'}) is None
+    assert reference_identity(doc, cusip='G2R11M108', report_period=period,
+                              observed_by=period + 'T23:59:59Z')['reason'] == 'not_yet_observed'
+
+
+@pytest.mark.parametrize('mutation', ['period', 'cusip', 'cik', 'exchange', 'ticker', 'type',
+    'figi', 'composite', 'market', 'locale', 'currency', 'inactive'])
+def test_dpc_review_never_waives_other_identity_or_time_guards(mutation):
+    saved = retained('DPC-2026-06-30')
+    payload = deepcopy(saved['response'])
+    row = payload['results'][0]
+    cusip, period = 'G2R11M108', '2026-06-30'
+    changes = {'cik': ('cik', '0000000001'), 'exchange': ('primary_exchange', 'XNAS'),
+        'ticker': ('ticker', 'OTHER'), 'type': ('type', 'FUND'), 'figi': ('share_class_figi', 'BAD'),
+        'composite': ('composite_figi', 'BBG000000001'), 'market': ('market', 'crypto'),
+        'locale': ('locale', 'global'), 'currency': ('currency_name', 'eur'), 'inactive': ('active', False)}
+    if mutation in changes:
+        field, value = changes[mutation]; row[field] = value
+    if mutation == 'period': period = '2026-03-31'
+    if mutation == 'cusip': cusip = '000000000'
+    class Client:
+        def get(self, path, params): return payload
+    doc = capture_reference(Client(), cusip=cusip, report_period=period, observed_at=saved['observed_at'])
+    assert identity(doc) == {'status': 'held', 'reason': 'unsupported_reference_security'}
+
+
+@pytest.mark.parametrize('symbol', ['DPC-2026-06-30', 'DPC-2026-09-30'])
+def test_dpc_staging_preserves_whole_original_and_repeats_without_new_revision(symbol):
+    test_actual_reference_staging_reinterpretation_preserves_original_and_observation(symbol)
