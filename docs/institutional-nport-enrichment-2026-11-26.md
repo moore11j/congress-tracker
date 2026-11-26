@@ -15,3 +15,8 @@ Validation includes the prior 219 distinct enrichment/publication checks, a new 
 The frozen replay and its inputs remain unchanged. The approved reference collector still binds deployed `151c4d71`; this candidate must not be deployed mid-window without a verified coordination path. After collection is complete, any reviewed release must verify the existing twelve production originals, deploy the exact candidate, stage the single additional original through the existing guarded shared collector, and check all thirteen hashes and staging repeat. Institutional publication remains disabled. Full overlay publication/repeat/consumer acceptance, production capacity and source activation remain separate gates.
 
 Evidence: `artifacts/nport-corpus-unit-tests-nov26.xml`, `artifacts/nport-corpus-resource-proof-nov26/report.json`, `artifacts/nport-full-first-qualification-nov26.json` and `backend/tests/fixtures/sec_nport_corpus/`.
+
+
+## 2026-11-26 20:45 UTC: actual combined tree
+
+2026-11-26 20:45 UTC: Owner Approved continues the reviewed migration work. Isolated prospective combination of PR853/a7ca8309 and PR854/7d9975cd resolves four workflow/documentation conflicts, preserves both source histories and all32reviewed runtime file hashes. The actual combined workflow test list retains all24test files from both parents, both complete-original fixtures and every path trigger.603local tests pass/17local skips; combined Linux/PostgreSQL validation remains pending. This is a local integration candidate, not a production merge, deployment or source activation. Active collector/replay inputs are untouched.
