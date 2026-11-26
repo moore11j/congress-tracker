@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.clients.direct_sources import DirectSourceError
 from app.services.direct_13f_evidence import nport_identifiers
+from app.services import direct_13f_identifier_limits as limits
 from app.services.direct_feed_store import DirectFeedDocument, DirectFeedRevision, discover, record_document
 
 
@@ -17,7 +18,7 @@ def reviewed_entries(path):
     if len(raw) > 1_000_000:
         raise ValueError('Identifier manifest exceeds size limit')
     entries = json.loads(raw)['documents']
-    if not isinstance(entries, list) or not 1 <= len(entries) <= 50:
+    if not isinstance(entries, list) or not 1 <= len(entries) <= limits.MAX_DOCUMENTS:
         raise ValueError('Supply one to fifty reviewed identifier sources')
     seen = set()
     for row in entries:
@@ -53,7 +54,7 @@ def load_staged_identifiers(db, path):
         if document is None:
             raise DirectSourceError('Reviewed identifier source has not been staged')
         total += len(document['raw'])
-        if len(document['raw']) > 30_000_000 or total > 50_000_000:
+        if len(document['raw']) > limits.MAX_SOURCE_BYTES or total > limits.MAX_CORPUS_BYTES:
             raise DirectSourceError('Stored identifier corpus exceeds byte limits')
         if hashlib.sha256(document['raw']).hexdigest() != document['content_hash']:
             raise DirectSourceError('Stored identifier checksum changed')
@@ -74,7 +75,7 @@ def stage_reviewed_identifiers(db, client, path):
         if document is None:
             document = {'raw': client.get(entry['url']), 'url': entry['url'], 'content_hash': entry['content_hash']}
         total += len(document['raw'])
-        if len(document['raw']) > 30_000_000 or total > 50_000_000:
+        if len(document['raw']) > limits.MAX_SOURCE_BYTES or total > limits.MAX_CORPUS_BYTES:
             raise DirectSourceError('Reviewed identifier corpus exceeds byte limits')
         rows = nport_identifiers(document, available_by=date.max)
         if not reused:

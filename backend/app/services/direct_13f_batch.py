@@ -12,6 +12,7 @@ from app.services.direct_13f_worker import publish_13f_document
 from app.services.feed_source_control import require_selected_source, writer_transaction, FeedSourceMismatch
 from app.models import InsightsSnapshot
 from app.services.direct_13f_evidence import Prepared13FEvidence, PreparedComparisonCache, prepare_streamed_peer_groups
+from app.services import direct_13f_identifier_limits as identifier_limits
 
 
 def load_identifier_manifest(path):
@@ -21,7 +22,7 @@ def load_identifier_manifest(path):
         raise ValueError('Identifier manifest exceeds size limit')
     manifest = json.loads(path.read_bytes())
     entries = manifest['documents']
-    if not isinstance(entries, list) or not 1 <= len(entries) <= 50:
+    if not isinstance(entries, list) or not 1 <= len(entries) <= identifier_limits.MAX_DOCUMENTS:
         raise ValueError('Supply 1 to 50 reviewed identifier documents')
     documents, seen, total = [], set(), 0
     for entry in entries:
@@ -30,7 +31,7 @@ def load_identifier_manifest(path):
             raise ValueError('Identifier path escapes manifest directory or is duplicated')
         size = source.stat().st_size
         total += size
-        if size > 30_000_000 or total > 50_000_000:
+        if size > identifier_limits.MAX_SOURCE_BYTES or total > identifier_limits.MAX_CORPUS_BYTES:
             raise ValueError('Identifier evidence exceeds size limit')
         raw = source.read_bytes()
         if len(raw) != size or hashlib.sha256(raw).hexdigest() != entry['content_hash']:

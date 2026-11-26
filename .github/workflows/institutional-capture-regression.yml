@@ -17,6 +17,13 @@ on:
       - "backend/tests/test_institutional_peer*.py"
       - "backend/scripts/scheduled_jobs.py"
       - "backend/app/services/direct_13f_publication.py"
+      - "backend/app/services/direct_13f_identifier_limits.py"
+      - "backend/app/services/direct_13f_identifiers.py"
+      - "backend/config/sec_13f_identifiers.json"
+      - "backend/tests/test_direct_13f_identifier_limits.py"
+      - "backend/tests/test_direct_13f_identifiers.py"
+      - "backend/tests/fixtures/sec_nport_corpus/**"
+      - "backend/scripts/verify_identifier_corpus_fixture.py"
       - "backend/tests/test_direct_13f_empty_historical.py"
       - "backend/app/services/institutional_historical_rebaseline.py"
       - "backend/tests/test_institutional_historical_rebaseline.py"
@@ -31,6 +38,8 @@ on:
       - "backend/app/services/direct_13f_batch.py"
       - "backend/tests/test_direct_13f_streamed_peers.py"
       - "backend/tests/test_direct_13f_reference_mapping.py"
+      - "backend/tests/test_direct_13f_identifier_enrichment.py"
+      - "backend/tests/fixtures/nport_identifier_enrichment/**"
       - "backend/tests/test_institutional_capture_*.py"
       - ".github/workflows/institutional-capture-regression.yml"
   workflow_dispatch:
@@ -69,10 +78,13 @@ jobs:
       - run: python -m pip install -r backend/requirements.txt pytest httpx
       - name: Verify capture and source acceptance guards
         working-directory: backend
-        run: python -m pytest tests/test_institutional_peer_capture.py tests/test_institutional_peer_job.py tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_event_ids.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py tests/test_direct_13f_reference_mapping.py tests/test_direct_13f_publication.py tests/test_direct_13f_empty_historical.py tests/test_institutional_historical_rebaseline.py tests/test_institutional_source_reconciliation.py tests/test_institutional_repair_bundle.py tests/test_direct_13f_worker.py tests/test_direct_13f_batch.py tests/test_direct_13f_streamed_peers.py tests/test_direct_13f_prepared_evidence.py tests/test_scheduled_jobs.py -q --disable-warnings --maxfail=3
+        run: python -m pytest tests/test_institutional_peer_capture.py tests/test_institutional_peer_job.py tests/test_institutional_capture_position_pages.py tests/test_institutional_capture_event_ids.py tests/test_institutional_capture_transport.py tests/test_institutional_capture_file.py tests/test_institutional_capture_receive.py tests/test_institutional_capture_job.py tests/test_direct_13f_reference_mapping.py tests/test_direct_13f_identifier_enrichment.py tests/test_direct_13f_identifier_limits.py tests/test_direct_13f_identifiers.py tests/test_direct_13f_publication.py tests/test_direct_13f_empty_historical.py tests/test_institutional_historical_rebaseline.py tests/test_institutional_source_reconciliation.py tests/test_institutional_repair_bundle.py tests/test_direct_13f_worker.py tests/test_direct_13f_batch.py tests/test_direct_13f_streamed_peers.py tests/test_direct_13f_prepared_evidence.py tests/test_scheduled_jobs.py -q --disable-warnings --maxfail=3
       - name: Complete original pieces and actual PostgreSQL snapshot contracts
         working-directory: backend
         run: python -m pytest tests/test_institutional_original_segments.py tests/test_institutional_original_segments_postgres.py tests/test_institutional_original_window.py tests/test_institutional_original_window_postgres.py tests/test_direct_13f_priors.py tests/test_prior_preflight.py tests/test_direct_feed_schedule.py -q --disable-warnings
       - name: Complete retained original with installed-code resource bounds
         working-directory: backend
         run: python scripts/verify_original_segments_fixture.py
+      - name: Complete reviewed identifier corpus, staging and immutable repeat
+        working-directory: backend
+        run: python scripts/verify_identifier_corpus_fixture.py --work-dir "$RUNNER_TEMP/identifier-corpus"

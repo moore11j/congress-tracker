@@ -1,0 +1,85 @@
+{
+  "documents": [
+    {
+      "source_file": "0000894189-26-015964.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1976322/0000894189-26-015964.txt",
+      "content_hash": "98a2ea99132a11c64ab24f29b58591fddc0d4fa3614b9d5df941e97a8ed41c36"
+    },
+    {
+      "source_file": "0000894189-26-002161.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1683471/0000894189-26-002161.txt",
+      "content_hash": "87967a6443489ebb9d28e3339f6d901e1e35755d76648d6faa7d4f7793756e34"
+    },
+    {
+      "source_file": "0000940400-26-020826.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1100663/0000940400-26-020826.txt",
+      "content_hash": "62b73745847a92f8a5bb7c582a6085a73e7c4f80b94a387cc94647975372152a"
+    },
+    {
+      "source_file": "0002071691-26-009249.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1174610/0002071691-26-009249.txt",
+      "content_hash": "dcbbee1fe29239dccffef46b6d991895b11a7887beb026cab0bdc298dc1c5ff3"
+    },
+    {
+      "source_file": "0001193125-26-225936.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1650149/0001193125-26-225936.txt",
+      "content_hash": "c988afc1d1577f6419b88091d76a0ef9632fc26332934e9bc47bb3b06126d331"
+    },
+    {
+      "source_file": "0001099263-26-006623.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1795351/0001099263-26-006623.txt",
+      "content_hash": "197eb513862b8926d8d3d930f9d5cd2bdb433b7ef011892927a1b9667704fbac"
+    },
+    {
+      "source_file": "0000894189-26-015515.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1135300/0000894189-26-015515.txt",
+      "content_hash": "51ec5a1dec01fd9b1c72807465bf371aef241e18deb4234171c6992428728927"
+    },
+    {
+      "source_file": "0000894189-26-005249.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1976322/0000894189-26-005249.txt",
+      "content_hash": "7184a4d0e5bc2e17578d3e16eecc2cfc439554c6d7a96d30703df378e8d2e2ad"
+    },
+    {
+      "source_file": "0000894189-26-015968.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1976322/0000894189-26-015968.txt",
+      "content_hash": "109b80229e836b82c3d07d9033490e5dab41198f739b85f56553bee1278f6c33"
+    },
+    {
+      "source_file": "0000940400-26-009021.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1655589/0000940400-26-009021.txt",
+      "content_hash": "44cff9dc198786c8b51f5eb50cf7ceae56f73aefc392706c4ccc423276f03c7c"
+    },
+    {
+      "source_file": "0000893730-26-000108.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/893730/0000893730-26-000108.txt",
+      "content_hash": "948d8018fb313804822bb52f27bb44b03a027e39a937c9b1a3608f0fc1324409"
+    },
+    {
+      "source_file": "0000940400-26-033064.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/1329377/0000940400-26-033064.txt",
+      "content_hash": "5bd6c00c0c42ae5786065f6a167ede0004cac5244e1593387c40abd5694431ea"
+    },
+    {
+      "source_file": "0002066578-26-003341.source",
+      "url": "https://www.sec.gov/Archives/edgar/data/92500/0002066578-26-003341.txt",
+      "content_hash": "fd403420fb788d29d8effdece5b309f2ea94cf017c9dd0ef148ccff2c1c6816b"
+    }
+  ],
+  "complete_bytes": 52115168,
+  "identifier_outputs": {
+    "98a2ea99132a11c64ab24f29b58591fddc0d4fa3614b9d5df941e97a8ed41c36": "365b21ec4e935a8e88b5e7f6302a7427e63652a2ccf9972074ca327faf738077",
+    "87967a6443489ebb9d28e3339f6d901e1e35755d76648d6faa7d4f7793756e34": "6b5633806303e7b458379a42533430059c271f77b969eb4c379a645a50f3ae06",
+    "62b73745847a92f8a5bb7c582a6085a73e7c4f80b94a387cc94647975372152a": "04b985c94056e2bdeac0771fc164b9a7008bd1f893aef91930eac613a0549a83",
+    "dcbbee1fe29239dccffef46b6d991895b11a7887beb026cab0bdc298dc1c5ff3": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c988afc1d1577f6419b88091d76a0ef9632fc26332934e9bc47bb3b06126d331": "352b140216dd9f8e61ec87643d66d65440f4fc7b6627e3d727f1c8321ea4a5ee",
+    "197eb513862b8926d8d3d930f9d5cd2bdb433b7ef011892927a1b9667704fbac": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "51ec5a1dec01fd9b1c72807465bf371aef241e18deb4234171c6992428728927": "111c07979a5a822d291d52ed5b25d6d2310a259c91f9701f3939de84049428f2",
+    "7184a4d0e5bc2e17578d3e16eecc2cfc439554c6d7a96d30703df378e8d2e2ad": "acab29cca681cf479e0a6b459b84778450c27ca642a3db6b98298ce3c02d67c3",
+    "109b80229e836b82c3d07d9033490e5dab41198f739b85f56553bee1278f6c33": "8387ec49222f63d206dcb9e78306400052773ada719371e346e94b5a60a1d1e8",
+    "44cff9dc198786c8b51f5eb50cf7ceae56f73aefc392706c4ccc423276f03c7c": "8e516e64bb04b41a54c12f0bd687805e3625a8b614d640b722ff2712650bab20",
+    "948d8018fb313804822bb52f27bb44b03a027e39a937c9b1a3608f0fc1324409": "d992c51109e5d79ffa3102a6f08516a32370e1ae79c0a714ee7ce94cc63f16e1",
+    "5bd6c00c0c42ae5786065f6a167ede0004cac5244e1593387c40abd5694431ea": "f55f6e024503263472ff4a5a26b18caba3c682a24b9d6b73f040584afad3b237",
+    "fd403420fb788d29d8effdece5b309f2ea94cf017c9dd0ef148ccff2c1c6816b": "9a841d9590e0b11b9703971eb620a236ec45f6a6e351a342edf66bbb889d67af"
+  }
+}
