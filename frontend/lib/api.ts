@@ -4154,6 +4154,12 @@ export type TickerChartMarker = {
 };
 
 export type TickerChartQuote = {
+  market_session?: "regular" | "pre_market" | "after_hours" | "closed" | null;
+  previous_close_date?: string | null;
+  regular_session_price?: number | null;
+  regular_session_date?: string | null;
+  extended_hours_change?: number | null;
+  extended_hours_change_pct?: number | null;
   is_delayed?: boolean | null;
   delay_minutes?: number | null;
   price_kind?: string | null;
