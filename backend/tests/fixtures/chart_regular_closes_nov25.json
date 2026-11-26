@@ -1,0 +1,35 @@
+{
+  "observed_at": "2026-11-26T15:44:07.914355+00:00",
+  "rows": [
+    {
+      "symbol": "NBIS",
+      "date": "2026-11-24",
+      "close": 87.31,
+      "price_source": "massive",
+      "adjustment_status": "split_adjusted_price_return"
+    },
+    {
+      "symbol": "NBIS",
+      "date": "2026-11-25",
+      "close": 84.99,
+      "price_source": "massive",
+      "adjustment_status": "split_adjusted_price_return"
+    },
+    {
+      "symbol": "NVDA",
+      "date": "2026-11-24",
+      "close": 155.38,
+      "price_source": "massive+corporate_actions",
+      "adjustment_status": "split_adjusted_price_return"
+    },
+    {
+      "symbol": "NVDA",
+      "date": "2026-11-25",
+      "close": 149.3,
+      "price_source": "massive+corporate_actions",
+      "adjustment_status": "split_adjusted_price_return"
+    }
+  ],
+  "production_writes": 0,
+  "provider_requests": 0
+}

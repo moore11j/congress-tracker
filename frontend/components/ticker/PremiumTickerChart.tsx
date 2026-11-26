@@ -1,5 +1,6 @@
 "use client";
 
+import { chartQuoteLabels } from "@/lib/tickerChartQuote";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AreaSeries,
@@ -1070,6 +1071,7 @@ export function PremiumTickerChart({
 
   const symbol = bundle?.symbol ?? "Ticker";
   const quote = bundle?.quote;
+  const quoteLabels = chartQuoteLabels(quote);
   assertDailyPriceTerminalConsistency(bundle);
   const dayTone =
     typeof quote?.day_change === "number" && quote.day_change > 0
@@ -1085,9 +1087,16 @@ export function PremiumTickerChart({
       value: formatCurrencyCompact(quote?.market_cap, "Unavailable"),
       tone: marketCapUnavailable ? "text-slate-500" : undefined,
     },
-    { label: quote?.price_kind === "daily_close" ? "Daily Close" : quote?.is_delayed ? "Delayed Price" : "Current Price", value: formatMoney(quote?.current_price) },
+    { label: quoteLabels.price, value: formatMoney(quote?.current_price) },
     { label: "Day Change", value: formatMoney(quote?.day_change), tone: dayTone },
     { label: "Day %", value: formatPct(quote?.day_change_pct), tone: dayTone },
+    ...(quote?.market_session === "after_hours" ? [
+      { label: "Regular Close", value: formatMoney(quote.regular_session_price) },
+    ] : []),
+    ...(quoteLabels.extended ? [
+      { label: `${quoteLabels.extended} Change`, value: formatMoney(quote?.extended_hours_change) },
+      { label: `${quoteLabels.extended} %`, value: formatPct(quote?.extended_hours_change_pct) },
+    ] : []),
     { label: "Day Volume", value: formatCompact(quote?.day_volume, "—") },
     { label: "Avg. Volume (30D)", value: formatCompact(quote?.average_volume, "—") },
     { label: "Trailing P/E", value: formatNumber(quote?.trailing_pe, 2, "—") },
@@ -1199,6 +1208,12 @@ export function PremiumTickerChart({
             </div>
           ))}
         </div>
+        {quoteLabels.comparison ? (
+          <p className="mt-2 text-xs text-slate-400">
+            {quoteLabels.comparison}
+            {quoteLabels.extendedComparison ? ` ${quoteLabels.extendedComparison}` : ""}
+          </p>
+        ) : null}
         {quote?.is_delayed ? (
           <p className="mt-2 text-xs text-slate-400">
             {typeof quote.delay_minutes === "number" && Number.isFinite(quote.delay_minutes) && quote.delay_minutes > 0

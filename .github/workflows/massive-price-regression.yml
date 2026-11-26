@@ -5,6 +5,7 @@ on:
       - "backend/app/clients/massive_stocks.py"
       - "backend/app/services/price*.py"
       - "backend/app/services/quote_lookup.py"
+      - "backend/app/services/chart_session_returns.py"
       - "backend/app/services/data_enrichment_queue.py"
       - "backend/app/services/custom_alert_rules.py"
       - "backend/app/services/confirmation_monitoring.py"
@@ -38,7 +39,7 @@ jobs:
           python -m pytest
           tests/test_massive_price_core.py tests/test_massive_price_alert_replay.py
           tests/test_massive_quote_refresh_cadence.py tests/test_data_enrichment_queue_validation.py tests/test_enrichment_queue_fairness.py
-          tests/test_massive_public_callers.py tests/test_massive_absolute_alerts.py tests/test_custom_alert_rules.py
+          tests/test_massive_public_callers.py tests/test_massive_chart_session_returns.py tests/test_massive_absolute_alerts.py tests/test_custom_alert_rules.py
           tests/test_massive_financials_contract.py tests/test_price_alert_reference.py
           tests/test_price_threshold_freshness.py tests/test_watchlist_price_alert_job.py
           tests/test_price_lookup_date_clamping.py tests/test_quote_lookup_timezone.py

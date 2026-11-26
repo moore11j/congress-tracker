@@ -12636,6 +12636,8 @@ def _build_ticker_chart_quote(
     db: Session,
     symbol: str,
     price_points: list[dict],
+    *,
+    resolution: str = "daily",
 ) -> dict:
     fundamentals_row = _cached_ticker_fundamentals_row(db, symbol)
     user_api_request = bool((get_request_context() or {}).get("path"))
@@ -12730,6 +12732,11 @@ def _build_ticker_chart_quote(
         beta_row = _company_profile_snapshot_from_fmp_for_user_request(symbol)
         beta = _quote_float(beta_row, "beta")
 
+    session_returns = {}
+    if resolution == "1min" and price_points:
+        from app.services.chart_session_returns import intraday_session_returns
+        session_returns = intraday_session_returns(db, symbol, price_points[-1], selected_massive=selected_prices)
+
     return {
         "current_price": current_price,
         "latest_close": latest_close,
@@ -12753,7 +12760,9 @@ def _build_ticker_chart_quote(
         )
         or (fundamentals_row.trailing_pe if fundamentals_row is not None else None),
         "beta": beta,
-        **(({'price_kind': 'daily_close', 'is_delayed': None, 'delay_minutes': None}
+        **(({'price_kind': 'minute_close' if resolution == '1min' else 'daily_close',
+             'is_delayed': True if resolution == '1min' else None,
+             'delay_minutes': 15 if resolution == '1min' else None}
             if latest_close is not None else public_quote_metadata(cached_quote or row))
            if selected_prices else {}),
         "asof": latest_date or (_dt_iso(cached_quote.get("asof_ts")) if selected_prices and isinstance(cached_quote, dict) else None) or _ticker_chart_date_key(
@@ -12764,9 +12773,10 @@ def _build_ticker_chart_quote(
             or (fundamentals_row.fetched_at if fundamentals_row is not None else None)
         ),
         "source_freshness": {
-            "price_source": "daily_series" if latest_close is not None else "quote_fallback",
+            "price_source": ("minute_series" if resolution == "1min" else "daily_series") if latest_close is not None else "quote_fallback",
             "latest_date": latest_date,
         },
+        **session_returns,
     }
 
 
@@ -13014,7 +13024,7 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
 
     markers.sort(key=lambda marker: (marker["date"], marker["kind"], str(marker["id"])))
 
-    quote = _build_ticker_chart_quote(db, sym, price_points)
+    quote = _build_ticker_chart_quote(db, sym, price_points, resolution=resolution)
     if quote.get("average_volume") is None and _allow_chart_volume_provider_fallback():
         volume_by_day = get_daily_volume_series_from_provider(sym, start_key, end_key)
         quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
